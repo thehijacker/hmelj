@@ -1,0 +1,13 @@
+plugins {
+    id 'com.android.application' version '9.0.1' apply false
+    id 'org.jetbrains.kotlin.android' version '2.2.10' apply false
+    // Firebase Cloud Messaging (real push, incl. while the app is fully closed).
+    // Only actually applied per-module when that module has a google-services.json —
+    // see app/build.gradle — so a checkout without Firebase set up still builds fine.
+    // 4.5.0 (not the older 4.4.2 this was pinned to before): the 4.4.x line predates
+    // AGP 9's Variant API/DSL changes, which broke the plugin's DependencyAnalyzer
+    // Gradle project-evaluation listener — surfaces as "Failed to notify project
+    // evaluation listener > com/google/android/gms/dependencies/DependencyAnalyzer"
+    // as soon as a build with google-services.json actually applies the plugin.
+    id 'com.google.gms.google-services' version '4.5.0' apply false
+}

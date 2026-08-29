@@ -1,0 +1,2725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Hmelj Documentation</title>
+<meta name="description" content="Documentation for Hmelj — a self-hosted, Gmail-style webmail client for IMAP/SMTP, Microsoft 365 and Exchange."/>
+<link href="css/docs.css" rel="stylesheet"/>
+</head>
+<body>
+<button aria-label="Open menu" id="hamburger">☰</button>
+<div id="nav-overlay"></div>
+<div id="layout">
+<!-- ── Left Navigation ─────────────────────────────────────────────────── -->
+<nav id="nav">
+<div id="nav-header">
+<a href="#about" id="nav-logo">🌿 Hmelj</a>
+<div id="search-wrap">
+<div id="search-input-wrap">
+<input autocomplete="off" id="search-input" placeholder="Search docs…" spellcheck="false" type="search"/>
+<button aria-label="Clear search" id="search-clear">×</button>
+</div>
+<span id="search-count"></span>
+</div>
+</div>
+<div id="nav-links">
+<div id="nav-groups">
+
+<div class="nav-group"><div class="nav-group-title">Getting Started</div><ul>
+<li>
+<a data-section="about" href="#about">About Hmelj</a>
+<ul class="nav-sub">
+<li><a data-scroll="about-glance" data-section="about" href="#about-glance">At a Glance</a></li>
+<li><a data-scroll="about-not" data-section="about" href="#about-not">What it is not</a></li>
+</ul>
+</li>
+<li><a data-section="features" href="#features">Features</a></li>
+<li>
+<a data-section="install" href="#install">Installation</a>
+<ul class="nav-sub">
+<li><a data-scroll="install-compose" data-section="install" href="#install-compose">Docker Compose</a></li>
+<li><a data-scroll="install-docker" data-section="install" href="#install-docker">Plain Docker</a></li>
+<li><a data-scroll="install-source" data-section="install" href="#install-source">From source</a></li>
+<li><a data-scroll="install-proxy" data-section="install" href="#install-proxy">Reverse proxy &amp; TLS</a></li>
+<li><a data-scroll="install-systemd" data-section="install" href="#install-systemd">systemd</a></li>
+<li><a data-scroll="install-update" data-section="install" href="#install-update">Updating</a></li>
+</ul>
+</li>
+<li><a data-section="data-dir" href="#data-dir">Data Directory</a></li>
+<li>
+<a data-section="first-run" href="#first-run">First Run</a>
+<ul class="nav-sub">
+<li><a data-scroll="first-user" data-section="first-run" href="#first-user">The first user is the admin</a></li>
+<li><a data-scroll="first-signup" data-section="first-run" href="#first-signup">Letting others sign up</a></li>
+<li><a data-scroll="first-account" data-section="first-run" href="#first-account">Attaching a mailbox</a></li>
+</ul>
+</li>
+</ul></div>
+
+<div class="nav-group"><div class="nav-group-title">Mail Accounts</div><ul>
+<li>
+<a data-section="accounts" href="#accounts">Accounts</a>
+<ul class="nav-sub">
+<li><a data-scroll="acc-types" data-section="accounts" href="#acc-types">Account types</a></li>
+<li><a data-scroll="acc-wizard" data-section="accounts" href="#acc-wizard">The wizard, field by field</a></li>
+<li><a data-scroll="acc-monitor" data-section="accounts" href="#acc-monitor">Checking for new mail</a></li>
+<li><a data-scroll="acc-second" data-section="accounts" href="#acc-second">A second connection</a></li>
+<li><a data-scroll="acc-shared" data-section="accounts" href="#acc-shared">Sharing an account</a></li>
+</ul>
+</li>
+<li>
+<a data-section="gmail" href="#gmail">Gmail</a>
+<ul class="nav-sub">
+<li><a data-scroll="gmail-app-password" data-section="gmail" href="#gmail-app-password">App password</a></li>
+<li><a data-scroll="gmail-oauth" data-section="gmail" href="#gmail-oauth">Sign in with Google</a></li>
+<li><a data-scroll="gmail-client" data-section="gmail" href="#gmail-client">Creating the Google client ID</a></li>
+</ul>
+</li>
+<li>
+<a data-section="microsoft" href="#microsoft">Microsoft / Outlook</a>
+<ul class="nav-sub">
+<li><a data-scroll="ms-why" data-section="microsoft" href="#ms-why">Why Graph, not IMAP</a></li>
+<li><a data-scroll="ms-register" data-section="microsoft" href="#ms-register">Creating the app registration</a></li>
+<li><a data-scroll="ms-hmelj" data-section="microsoft" href="#ms-hmelj">Telling Hmelj about it</a></li>
+<li><a data-scroll="ms-differences" data-section="microsoft" href="#ms-differences">What behaves differently</a></li>
+</ul>
+</li>
+<li><a data-section="exchange" href="#exchange">Exchange (EWS)</a></li>
+<li><a data-section="identities" href="#identities">Identities &amp; Signatures</a></li>
+<li><a data-section="folders" href="#folders">Folders</a></li>
+</ul></div>
+
+<div class="nav-group"><div class="nav-group-title">Using Hmelj</div><ul>
+<li>
+<a data-section="list" href="#list">The Message List</a>
+<ul class="nav-sub">
+<li><a data-scroll="list-views" data-section="list" href="#list-views">All inboxes vs one account</a></li>
+<li><a data-scroll="list-menu" data-section="list" href="#list-menu">Right-click / long-press</a></li>
+<li><a data-scroll="list-select" data-section="list" href="#list-select">Select mode</a></li>
+<li><a data-scroll="list-swipe" data-section="list" href="#list-swipe">Swipe gestures</a></li>
+<li><a data-scroll="list-spam" data-section="list" href="#list-spam">Spam and Archive</a></li>
+</ul>
+</li>
+<li>
+<a data-section="reading" href="#reading">Reading a Message</a>
+<ul class="nav-sub">
+<li><a data-scroll="read-images" data-section="reading" href="#read-images">External images</a></li>
+<li><a data-scroll="read-quotes" data-section="reading" href="#read-quotes">Collapsed quotes</a></li>
+<li><a data-scroll="read-unsub" data-section="reading" href="#read-unsub">Unsubscribe</a></li>
+<li><a data-scroll="read-attach" data-section="reading" href="#read-attach">Attachments</a></li>
+<li><a data-scroll="read-find" data-section="reading" href="#read-find">Find in message</a></li>
+<li><a data-scroll="read-invites" data-section="reading" href="#read-invites">Calendar invitations</a></li>
+<li><a data-scroll="read-receipts" data-section="reading" href="#read-receipts">Read receipts</a></li>
+<li><a data-scroll="read-more" data-section="reading" href="#read-more">The ⋯ menu</a></li>
+</ul>
+</li>
+<li><a data-section="conversation" href="#conversation">Conversation View</a></li>
+<li>
+<a data-section="compose" href="#compose">Composing</a>
+<ul class="nav-sub">
+<li><a data-scroll="compose-editor" data-section="compose" href="#compose-editor">The editor</a></li>
+<li><a data-scroll="compose-drafts" data-section="compose" href="#compose-drafts">Drafts</a></li>
+<li><a data-scroll="compose-schedule" data-section="compose" href="#compose-schedule">Scheduled sending</a></li>
+<li><a data-scroll="compose-spell" data-section="compose" href="#compose-spell">Spell checking</a></li>
+</ul>
+</li>
+<li>
+<a data-section="search" href="#search">Search</a>
+<ul class="nav-sub">
+<li><a data-scroll="search-syntax" data-section="search" href="#search-syntax">Syntax</a></li>
+<li><a data-scroll="search-scope" data-section="search" href="#search-scope">What actually gets searched</a></li>
+</ul>
+</li>
+<li><a data-section="filters" href="#filters">Filters</a></li>
+<li><a data-section="contacts" href="#contacts">Contacts</a></li>
+<li><a data-section="analytics" href="#analytics">Mailbox Analytics</a></li>
+<li>
+<a data-section="notifications" href="#notifications">Notifications</a>
+<ul class="nav-sub">
+<li><a data-scroll="notif-web" data-section="notifications" href="#notif-web">Web Push (VAPID)</a></li>
+<li><a data-scroll="notif-devices" data-section="notifications" href="#notif-devices">Devices</a></li>
+<li><a data-scroll="notif-schedule" data-section="notifications" href="#notif-schedule">Quiet hours &amp; the scheduler</a></li>
+<li><a data-scroll="notif-mute" data-section="notifications" href="#notif-mute">Muting a folder</a></li>
+</ul>
+</li>
+</ul></div>
+
+<div class="nav-group"><div class="nav-group-title">Configuration</div><ul>
+<li>
+<a data-section="settings" href="#settings">Settings Reference</a>
+<ul class="nav-sub">
+<li><a data-scroll="set-general" data-section="settings" href="#set-general">General</a></li>
+<li><a data-scroll="set-reading" data-section="settings" href="#set-reading">Reading</a></li>
+<li><a data-scroll="set-compose" data-section="settings" href="#set-compose">Compose</a></li>
+<li><a data-scroll="set-identities" data-section="settings" href="#set-identities">Identities</a></li>
+<li><a data-scroll="set-filters" data-section="settings" href="#set-filters">Filters</a></li>
+<li><a data-scroll="set-folders" data-section="settings" href="#set-folders">Folders</a></li>
+<li><a data-scroll="set-scheduler" data-section="settings" href="#set-scheduler">Scheduler</a></li>
+<li><a data-scroll="set-contacts" data-section="settings" href="#set-contacts">Contacts</a></li>
+<li><a data-scroll="set-accounts" data-section="settings" href="#set-accounts">Accounts</a></li>
+<li><a data-scroll="set-login" data-section="settings" href="#set-login">Login</a></li>
+<li><a data-scroll="set-log" data-section="settings" href="#set-log">Log</a></li>
+</ul>
+</li>
+<li>
+<a data-section="admin" href="#admin">Admin</a>
+<ul class="nav-sub">
+<li><a data-scroll="admin-users" data-section="admin" href="#admin-users">Users</a></li>
+<li><a data-scroll="admin-signup" data-section="admin" href="#admin-signup">Sign-up</a></li>
+<li><a data-scroll="admin-oauth" data-section="admin" href="#admin-oauth">OAuth providers</a></li>
+<li><a data-scroll="admin-presets" data-section="admin" href="#admin-presets">Account presets</a></li>
+<li><a data-scroll="admin-fonts" data-section="admin" href="#admin-fonts">Custom fonts</a></li>
+</ul>
+</li>
+<li><a data-section="env" href="#env">Environment Variables</a></li>
+<li><a data-section="languages" href="#languages">Languages</a></li>
+<li><a data-section="security" href="#security">Security &amp; Privacy</a></li>
+</ul></div>
+
+<div class="nav-group"><div class="nav-group-title">Apps &amp; Building</div><ul>
+<li><a data-section="pwa" href="#pwa">Install as an App (PWA)</a></li>
+<li>
+<a data-section="android" href="#android">Android App</a>
+<ul class="nav-sub">
+<li><a data-scroll="android-install" data-section="android" href="#android-install">Installing it</a></li>
+<li><a data-scroll="android-push" data-section="android" href="#android-push">Why it exists</a></li>
+<li><a data-scroll="android-firebase" data-section="android" href="#android-firebase">Firebase setup</a></li>
+</ul>
+</li>
+<li>
+<a data-section="building" href="#building">Building &amp; Releasing</a>
+<ul class="nav-sub">
+<li><a data-scroll="build-docker" data-section="building" href="#build-docker">Docker images</a></li>
+<li><a data-scroll="build-keys" data-section="building" href="#build-keys">Android signing keys</a></li>
+<li><a data-scroll="build-secrets" data-section="building" href="#build-secrets">GitHub secrets</a></li>
+<li><a data-scroll="build-studio" data-section="building" href="#build-studio">Android Studio</a></li>
+<li><a data-scroll="build-release" data-section="building" href="#build-release">Cutting a release</a></li>
+<li><a data-scroll="build-pages" data-section="building" href="#build-pages">Publishing these docs</a></li>
+</ul>
+</li>
+<li><a data-section="troubleshooting" href="#troubleshooting">Troubleshooting</a></li>
+</ul></div>
+
+</div>
+</div>
+<div id="nav-footer">
+<span class="nav-footer-text">
+<a href="https://github.com/thehijacker/hmelj" id="dyn-repo-link" rel="noopener" target="_blank">GitHub</a>
+ ·
+AGPL-3.0
+</span>
+<button aria-label="Toggle theme" id="theme-btn" title="Toggle theme">☉</button>
+</div>
+</nav>
+<!-- ── Content ─────────────────────────────────────────────────────────── -->
+<div id="content-area"><main id="content"><div id="breadcrumb"></div>
+
+<!-- ═══════════════════════════════════════════════════════════ About ═══ -->
+<section class="active" id="about">
+<h1>About Hmelj</h1>
+<p class="section-subtitle">A self-hosted, Gmail-style webmail client for IMAP/SMTP, Microsoft 365 and Exchange</p>
+
+<div class="path-grid">
+<a class="path-card" data-section="install" href="#install">
+<span class="path-step">Step 1</span>
+<h3>Install</h3>
+<p>One Docker container and a volume. Running in a couple of minutes.</p>
+</a>
+<a class="path-card" data-section="first-run" href="#first-run">
+<span class="path-step">Step 2</span>
+<h3>First Run</h3>
+<p>Create the admin account and attach your first mailbox.</p>
+</a>
+<a class="path-card" data-section="accounts" href="#accounts">
+<span class="path-step">Step 3</span>
+<h3>Add Accounts</h3>
+<p>IMAP, Gmail, Outlook, Exchange — as many as you like, side by side.</p>
+</a>
+<a class="path-card" data-section="notifications" href="#notifications">
+<span class="path-step">Step 4</span>
+<h3>Notifications</h3>
+<p>New-mail push to your desktop and phone, with quiet hours.</p>
+</a>
+</div>
+
+<p>
+  Hmelj is a <strong>universal, multi-account webmail client</strong> you run yourself.
+  You sign in with a Hmelj account created on its own login page, then attach any number
+  of mailboxes — a home IMAP server, Gmail, GMX, a Microsoft 365 work account, an
+  on-premises Exchange server — through an in-app wizard. Read them one at a time, or all
+  together in a unified <strong>All inboxes</strong> view where every message carries a
+  coloured chip showing which account it came from.
+</p>
+<p>
+  It is a single Node.js process with <strong>no build step</strong>: the entire front end
+  is plain HTML, CSS and JavaScript served as-is. Everything it stores — your accounts,
+  settings, filters, contacts and the local message cache — lives in one directory on your
+  own server. Mailbox passwords are encrypted at rest with AES-256-GCM.
+</p>
+<p>
+  <em>Hmelj</em> is Slovenian for hops. The icon is a hop cone resting in an open envelope.
+</p>
+
+<figure>
+<img alt="The Hmelj inbox: folder sidebar, message list and reading pane" data-src="screenshots/inbox.png" decoding="async" loading="lazy"/>
+<figcaption>The three-pane view — folders, list, reading pane</figcaption>
+</figure>
+
+<h2 id="about-glance">At a Glance</h2>
+<ul>
+<li><strong>Multi-account and multi-user</strong> — every Hmelj user has their own mailboxes, settings, identities, contacts and filters</li>
+<li><strong>Four backends</strong> — IMAP/SMTP, Gmail (app password or OAuth), Microsoft Graph, Exchange EWS — presented identically</li>
+<li><strong>Unified inbox</strong> — merged Inbox and merged Sent across accounts, with per-account colours and unread counts</li>
+<li><strong>Local SQLite cache</strong> — a background poller keeps it warm, so lists are instant instead of a live fetch on every click</li>
+<li><strong>Real push notifications</strong> — Web Push (VAPID) for browsers and PWAs, Firebase for the Android app, with quiet hours and per-folder rules</li>
+<li><strong>Conversation view</strong> — a message and its replies as one row, opened as a stack</li>
+<li><strong>Server-side filters</strong> — move, copy, redirect, auto-reply, delete, mark, star; run on a schedule or on demand</li>
+<li><strong>Installable</strong> — PWA on desktop and mobile, plus a native Android APK</li>
+<li><strong>Light, dark and custom themes</strong>, English and Slovenščina</li>
+<li><strong>One container</strong> — published for <code>linux/amd64</code> and <code>linux/arm64</code></li>
+</ul>
+
+<h2 id="about-not">What it is not</h2>
+<div class="callout">
+<strong>Hmelj is a mail client, not a mail server.</strong>
+It does not receive mail, does not host mailboxes, and has no MX record. It connects to
+mail servers you already have, the same way Thunderbird or Outlook would. If you are
+looking for something to <em>run</em> a mail domain, you want Mailcow, Mailu, or
+Stalwart — and then Hmelj can read it.
+</div>
+<p>
+  It also has no cloud component of any kind. There is no Hmelj service, no account to
+  create with anyone, and nothing phones home. See <a data-section="security" href="#security">Security &amp; Privacy</a>.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ Features ═ -->
+<section id="features">
+<h1>Features</h1>
+<p class="section-subtitle">Everything in the box</p>
+
+<div class="feature-grid">
+
+<div class="feature-card">
+<h3>📬 Accounts</h3>
+<ul>
+<li><strong>IMAP + SMTP</strong> — any server, with TLS and self-signed-certificate options</li>
+<li><strong>Gmail</strong> — an app password, or "Sign in with Google" (OAuth2 / XOAUTH2)</li>
+<li><strong>Microsoft 365 &amp; Outlook.com</strong> — OAuth sign-in, then Microsoft Graph rather than IMAP</li>
+<li><strong>Exchange (EWS)</strong> — on-premises Exchange over NTLM</li>
+<li><strong>Unified views</strong> — merged Inbox and Sent, coloured per-account chips</li>
+<li><strong>Per-account colour, name, sender name</strong> and its own special folders</li>
+<li><strong>Account presets</strong> — admin-editable, prefill server settings for common providers</li>
+<li><strong>Share an account</strong> with another Hmelj user, by username; revocable at any time</li>
+<li><strong>Connection test</strong> before an account is ever saved</li>
+</ul>
+</div>
+
+<div class="feature-card">
+<h3>📖 Reading</h3>
+<ul>
+<li><strong>Reading pane</strong> right, bottom, in a new window, or list-only</li>
+<li><strong>Conversation view</strong> — replies grouped into one row and opened as a stack</li>
+<li><strong>Sandboxed rendering</strong> — message HTML is sanitised server-side and drawn in an isolated iframe</li>
+<li><strong>External-image policy</strong> — always, trusted domains only, ask per message, or never</li>
+<li><strong>Collapsed quotes</strong> — the reply you were sent, with the thread under it behind a ⋯</li>
+<li><strong>One-click unsubscribe</strong> — RFC 8058 POST, <code>mailto:</code>, or the sender's page</li>
+<li><strong>Attachments</strong> — inline preview for images, PDF, audio and video, with a progress bar</li>
+<li><strong>Find in message</strong> (Ctrl/Cmd+F) with live match count</li>
+<li><strong>Calendar invitations</strong> — Accept / Tentative / Decline, with or without a reply</li>
+<li><strong>Read receipts</strong> — asked for, and answered, on your terms</li>
+<li><strong>Auto mark-as-read</strong> — immediately, after a delay, only via the icon, or never</li>
+<li><strong>Print, View headers, Save as EML, Open in a new view</strong></li>
+</ul>
+</div>
+
+<div class="feature-card">
+<h3>✏️ Composing</h3>
+<ul>
+<li><strong>Rich HTML or plain text</strong> — bold, italic, lists, links, fonts, colours</li>
+<li><strong>Multiple identities</strong> per account, each with its own signature and signature policy</li>
+<li><strong>Reply / Reply all / Forward</strong>, quote above, below, or not at all</li>
+<li><strong>Attachments</strong>, Cc/Bcc, priority, read-receipt request</li>
+<li><strong>Draft autosave</strong> on a configurable interval, plus manual save</li>
+<li><strong>Scheduled sending</strong> — queued on the server, retried with backoff, reschedulable</li>
+<li><strong>Spell checking</strong> as you type — Slovenian and English, detected automatically</li>
+<li><strong>Contact autocomplete</strong>, learned from the mail you actually send</li>
+</ul>
+</div>
+
+<div class="feature-card">
+<h3>🗂 Organising</h3>
+<ul>
+<li><strong>Full folder tree</strong> — create, rename, delete, empty, hide, per-folder unread counts</li>
+<li><strong>Filters</strong> — conditions on subject/from/to/content/size/date; move, copy, redirect, auto-reply, delete, mark read/unread, star</li>
+<li><strong>Spam and Archive</strong> — one gesture each way, with the return trip remembered</li>
+<li><strong>Select mode</strong> — Ctrl+click or the checkbox, then act on everything at once</li>
+<li><strong>Swipe gestures</strong> on mobile, with a configurable direction</li>
+<li><strong>Search</strong> — Gmail-style syntax, cached-first with a one-click "search everywhere"</li>
+<li><strong>Mailbox analytics</strong> — where the quota went, who sends the most, what is safe to delete</li>
+<li><strong>Contacts</strong> — address book, Google-CSV and vCard import, and a direct pull from a Microsoft or Exchange account</li>
+</ul>
+</div>
+
+<div class="feature-card">
+<h3>🔔 Notifications</h3>
+<ul>
+<li><strong>Web Push (VAPID)</strong> — works with Hmelj fully closed, on desktop and mobile browsers</li>
+<li><strong>Android app push</strong> via Firebase, with Mark as read / Delete right on the notification</li>
+<li><strong>Per-device</strong> — see and remove every registered device</li>
+<li><strong>Quiet hours</strong>, per-account and per-folder, with weekday selection</li>
+<li><strong>Holidays</strong> — skip notifications on public holidays (Slovenian calendar)</li>
+<li><strong>Mute a folder</strong> for an hour, until tomorrow, or until a time you pick</li>
+<li><strong>Launcher badge</strong> with the unread count in the Android app</li>
+</ul>
+</div>
+
+<div class="feature-card">
+<h3>🛠 Running it</h3>
+<ul>
+<li><strong>One container</strong>, <code>linux/amd64</code> and <code>linux/arm64</code>, non-root, with a healthcheck</li>
+<li><strong>Everything in one volume</strong> — accounts, settings, filters, cache, encryption key</li>
+<li><strong>Admin panel</strong> — users, sign-up control, OAuth clients, account presets, custom fonts</li>
+<li><strong>Per-user error log</strong> — filters that failed, mail that could not be sent, servers unreachable</li>
+<li><strong>Instant cross-device sync</strong> over Server-Sent Events</li>
+<li><strong>Themes</strong> light / dark / system, plus custom colours; resizable columns</li>
+<li><strong>English and Slovenščina</strong>, switchable per user</li>
+</ul>
+</div>
+
+</div>
+
+<div class="screenshots-grid">
+<figure><img alt="Unified All inboxes view" data-src="screenshots/unified.png" decoding="async" loading="lazy"/><figcaption>All inboxes, with per-account chips</figcaption></figure>
+<figure><img alt="Conversation view" data-src="screenshots/conversation.png" decoding="async" loading="lazy"/><figcaption>Conversation view</figcaption></figure>
+<figure><img alt="The composer" data-src="screenshots/compose.png" decoding="async" loading="lazy"/><figcaption>Composing</figcaption></figure>
+<figure><img alt="Dark theme" data-src="screenshots/dark.png" decoding="async" loading="lazy"/><figcaption>Dark theme</figcaption></figure>
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Installation ═ -->
+<section id="install">
+<h1>Installation</h1>
+<p class="section-subtitle">One container, one volume, one port</p>
+
+<p>
+  Hmelj needs <strong>Node.js 20 or newer</strong> and nothing else — no database server,
+  no Redis, no external services. The published image is built for
+  <code>linux/amd64</code> and <code>linux/arm64</code>, so it runs on a normal server and
+  on a Raspberry Pi 4/5, a Synology or an ARM VPS alike.
+</p>
+
+<h2 id="install-compose">Docker Compose (recommended)</h2>
+
+<div class="steps">
+<p><strong>1.</strong> Create a directory and put this in <code>docker-compose.yml</code>:</p>
+</div>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>services:
+  hmelj:
+    image: ghcr.io/thehijacker/hmelj:latest
+    container_name: hmelj
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - hmelj-data:/data
+
+volumes:
+  hmelj-data:</pre></div>
+
+<div class="steps">
+<p><strong>2.</strong> Create a <code>.env</code> next to it. Every value has a working
+default, so the shortest useful file is a single line — but read
+<a data-section="env" href="#env">Environment Variables</a> before you settle on one:</p>
+</div>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>PORT=3000
+# Encrypts stored mailbox passwords. Leave it unset and Hmelj generates
+# /data/secret.key on first start instead — either way, BACK IT UP.
+# HMELJ_SECRET=a-long-random-string</pre></div>
+
+<div class="steps">
+<p><strong>3.</strong> Start it:</p>
+</div>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>docker compose up -d</pre></div>
+
+<p>
+  Hmelj is now at <strong>http://localhost:3000</strong>. Go to
+  <a data-section="first-run" href="#first-run">First Run</a>.
+</p>
+
+<div class="callout warning">
+<strong>Put it behind TLS before anyone else uses it.</strong>
+Users type real mailbox passwords into this page, and those travel over the connection.
+Installing Hmelj as a PWA also requires HTTPS. See
+<a data-scroll="install-proxy" data-section="install" href="#install-proxy">Reverse proxy &amp; TLS</a>.
+</div>
+
+<h2 id="install-docker">Plain Docker</h2>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>docker run -d \
+  --name hmelj \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  --env-file .env \
+  -v hmelj-data:/data \
+  ghcr.io/thehijacker/hmelj:latest</pre></div>
+
+<p>
+  The image runs as the non-root <code>node</code> user, keeps all state in the
+  <code>/data</code> volume, and carries a healthcheck that polls <code>/healthz</code>
+  every 30 seconds — so <code>docker ps</code> tells you whether it is actually serving,
+  not merely running.
+</p>
+
+<div class="callout">
+<strong>Which tag?</strong>
+<code class="dyn-docker-image">ghcr.io/thehijacker/hmelj:latest</code> is the newest tagged
+release. <code>:dev</code> is rebuilt from every push to <code>main</code> — useful for
+following development, not for a mailbox you care about. Version tags
+(<code>:1.0.0</code>, <code>:1.0</code>) pin exactly.
+</div>
+
+<h2 id="install-source">From source</h2>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>git clone https://github.com/thehijacker/hmelj.git
+cd hmelj
+npm ci
+cp .env.example .env      # read it through, then edit
+npm start                 # → http://localhost:3000</pre></div>
+
+<p>
+  There is no build step. <code>public/</code> is served exactly as it is on disk, so an
+  edit shows up on the next refresh.
+</p>
+
+<p>
+  To try it without a real mail server, Hmelj ships a mock IMAP + SMTP pair with sample
+  messages:
+</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>npm run mock    # IMAP on 127.0.0.1:1143, SMTP on 127.0.0.1:1025
+npm start       # in another terminal</pre></div>
+
+<p>
+  Sign up, then in the account wizard choose <strong>IMAP + SMTP</strong> and enter
+  <code>127.0.0.1</code> port <code>1143</code> for IMAP and <code>1025</code> for SMTP,
+  user <code>testuser</code>, password <code>testpass</code>, TLS <strong>off</strong>,
+  "allow self-signed" on.
+</p>
+
+<p>Run the test suite with <code>npm test</code> — 19 suites, no framework, no network.</p>
+
+<h2 id="install-proxy">Reverse proxy &amp; TLS</h2>
+
+<p>An nginx location block that works:</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>location / {
+    proxy_pass         http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_set_header   Upgrade           $http_upgrade;
+    proxy_set_header   Connection        "upgrade";
+
+    # Attachments and uploads
+    client_max_body_size 50m;
+
+    # Server-Sent Events (/api/events) must not be buffered, or cross-device
+    # updates arrive in delayed bursts instead of instantly. Hmelj already sends
+    # X-Accel-Buffering: no, which nginx honours by itself — this is only needed
+    # if something in front of nginx strips that header.
+    # proxy_buffering off;
+    proxy_read_timeout 3600s;
+}</pre></div>
+
+<div class="callout">
+<strong>X-Forwarded-Proto and X-Forwarded-Host matter.</strong>
+Hmelj derives its own public URL from them when building the OAuth redirect URI, and
+Microsoft and Google both compare that URI byte for byte against what you registered. If
+your proxy rewrites the host, set <code>HMELJ_PUBLIC_URL</code> explicitly instead of
+relying on the guess — it is the single most common cause of an OAuth sign-in that fails
+at the last step.
+</div>
+
+<h2 id="install-systemd">systemd (without Docker)</h2>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>[Unit]
+Description=Hmelj webmail
+After=network.target
+
+[Service]
+Type=simple
+User=hmelj
+WorkingDirectory=/opt/hmelj
+EnvironmentFile=/opt/hmelj/.env
+ExecStart=/usr/bin/node --openssl-legacy-provider server/index.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target</pre></div>
+
+<div class="callout">
+<strong><code>--openssl-legacy-provider</code> is not optional if you use an Exchange (EWS)
+account.</strong> The NTLM handshake computes a DES-ECB LM hash on every authentication —
+real, historic NTLM behaviour that OpenSSL 3 no longer exposes by default. Without the
+flag the process throws on every EWS sign-in. It only changes which legacy algorithms are
+<em>available</em>; nothing else in Hmelj uses them.
+</div>
+
+<div class="callout warning">
+<strong>A relative <code>FCM_SERVICE_ACCOUNT_PATH</code> resolves against the working
+directory.</strong> Under systemd that is <code>WorkingDirectory=</code>, which is usually
+not where you were standing when you tested by hand — and the only symptom is one info
+line saying Android push is "not configured". Use an absolute path, or leave the setting
+out entirely and put the file at <code>DATA_DIR/fcm-service-account.json</code>.
+</div>
+
+<h2 id="install-update">Updating</h2>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>docker compose pull
+docker compose up -d</pre></div>
+
+<p>
+  The volume is untouched, so accounts, settings, filters and the cache all survive. The
+  browser picks up the new front end on the next load — Hmelj's service worker is
+  network-first for the app shell, so there is no stale-cache dance. If a page looks
+  half-updated, one hard refresh settles it.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Data dir ════ -->
+<section id="data-dir">
+<h1>Data Directory</h1>
+<p class="section-subtitle">Everything Hmelj knows, in one place</p>
+
+<p>
+  <code>DATA_DIR</code> (<code>/data</code> in the container, <code>./data</code> from
+  source) holds all persistent state. Back up this directory and you have backed up Hmelj.
+</p>
+
+<div class="folder-tree"><pre>/data
+├── auth.json                   Hmelj login accounts (scrypt-hashed passwords, admin flag)
+├── secret.key                  AES-256-GCM key for stored mailbox credentials (mode 600)
+├── presets.json                account presets, editable in Settings → Admin
+├── oauth.json                  OAuth client IDs (Google's secret encrypted), mode 600
+├── fcm-service-account.json    optional: Firebase key for Android push (you add this)
+├── cache.sqlite                message cache, analytics index and the per-user
+│                               error log (+ its -wal and -shm sidecars)
+└── users/
+    └── &lt;user&gt;/
+        ├── accounts.json       mail accounts; passwords and OAuth tokens encrypted
+        ├── settings.json       that user's settings
+        ├── identities.json     identities and signatures
+        ├── contacts.json       address book
+        ├── filters.json        filter rules
+        ├── push-subscriptions.json  every device registered for notifications
+        ├── accountOverrides.json    per-viewer tweaks to a shared account
+        ├── refile-origins.json  where spam/archived mail came from, for the trip back
+        ├── unsubscribed.json    newsletters already unsubscribed from
+        ├── holiday-overrides.json / custom-holidays.json  scheduler calendar edits
+        └── scheduled/           one file per queued scheduled send</pre></div>
+
+<div class="callout warning">
+<strong><code>secret.key</code> is the one file you cannot regenerate.</strong>
+It decrypts every stored mailbox password and OAuth refresh token. Lose it and every
+account has to be signed in to again; replace it with a different value and Hmelj will
+fail to decrypt what it already has. If you set <code>HMELJ_SECRET</code> instead, that
+value <em>is</em> the key — treat it the same way.
+</div>
+
+<h2 id="data-cache">Putting the cache somewhere else</h2>
+<p>
+  <code>cache.sqlite</code> is written constantly by the background sync, and those writes
+  are synchronous. If <code>DATA_DIR</code> sits on network-attached storage — NFS, SMB, a
+  NAS mount — a slow write can block Node's event loop and stall completely unrelated
+  work, including interactive requests. Point just the cache at fast local disk:
+</p>
+<div class="code-block"><button class="copy-btn">Copy</button><pre>CACHE_DIR=/var/lib/hmelj-cache</pre></div>
+<p>
+  The cache is disposable. Deleting it costs nothing but a re-sync.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ First run ═══ -->
+<section id="first-run">
+<h1>First Run</h1>
+<p class="section-subtitle">From an empty container to reading your mail</p>
+
+<h2 id="first-user">The first user is the admin</h2>
+<p>
+  There is no default account and no default password. Open Hmelj, click
+  <strong>Sign up</strong>, and pick a username and password. That first account is
+  automatically an <strong>admin</strong>: it gets a Settings → Admin tab where it can
+  manage other users, control sign-ups, register OAuth clients, edit account presets and
+  upload fonts.
+</p>
+<p>
+  Hmelj accounts are entirely separate from mail accounts. The password you choose here is
+  a Hmelj password, hashed with scrypt in <code>auth.json</code>; it is never sent to any
+  mail server.
+</p>
+
+<div class="callout">
+<strong>"Stay signed in"</strong> gives you a 90-day sliding session in a persistent
+cookie. Left unchecked you get a one-day session in a cookie the browser drops when it
+closes. Either way, sessions live in memory — restarting Hmelj signs everyone out.
+Login attempts are rate-limited per IP.
+</div>
+
+<h2 id="first-signup">Letting others sign up</h2>
+<p>
+  By default anyone who can reach the page can create an account. Once your household or
+  team have theirs, turn it off — either with <code>ALLOW_SIGNUP=false</code> in the
+  environment, or at runtime in <strong>Settings → Admin → Sign-up</strong>. The very
+  first user can always register, so you cannot lock yourself out of a fresh install.
+</p>
+
+<h2 id="first-account">Attaching a mailbox</h2>
+<p>
+  A brand-new Hmelj account has no mail in it, because it has no mailbox yet. Open the
+  user menu (your avatar, bottom left) → <strong>Mail accounts</strong> →
+  <strong>Add mail account</strong>, and follow
+  <a data-section="accounts" href="#accounts">Accounts</a>.
+</p>
+<p>
+  The wizard tests the connection before saving, so a typo in a hostname or a wrong
+  password fails there and then rather than becoming a mysteriously empty inbox.
+</p>
+
+<figure>
+<img alt="The add-account wizard" data-src="screenshots/account-wizard.png" decoding="async" loading="lazy"/>
+<figcaption>The account wizard — choose a type, then fill in only what that type needs</figcaption>
+</figure>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Accounts ════ -->
+<section id="accounts">
+<h1>Accounts</h1>
+<p class="section-subtitle">Attaching mailboxes, and what each type needs</p>
+
+<h2 id="acc-types">Account types</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Type</th><th>Talks to</th><th>Credential</th><th>Use it for</th></tr></thead>
+<tbody>
+<tr>
+<td><strong>IMAP + SMTP</strong></td>
+<td>Your IMAP and SMTP servers directly</td>
+<td>Password (or app password)</td>
+<td>Anything standard — a home server, GMX, Fastmail, a hosting provider, Gmail with an app password</td>
+</tr>
+<tr>
+<td><strong>Gmail (sign in with Google)</strong></td>
+<td><code>imap.gmail.com</code> / <code>smtp.gmail.com</code>, with an OAuth token instead of a password</td>
+<td>Google sign-in</td>
+<td>Gmail, when you would rather not create an app password</td>
+</tr>
+<tr>
+<td><strong>Microsoft (Outlook / Microsoft 365)</strong></td>
+<td>Microsoft Graph — not IMAP at all</td>
+<td>Microsoft sign-in</td>
+<td>outlook.com, hotmail.com, live.com, and Microsoft 365 work accounts</td>
+</tr>
+<tr>
+<td><strong>Exchange (EWS)</strong></td>
+<td>An on-premises Exchange server's <code>Exchange.asmx</code> endpoint</td>
+<td>Username, password, NTLM domain</td>
+<td>Exchange 2013 and later, on your own network</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Mix them freely. Every type ends up in the same list, the same folder tree and the same
+  unified inbox; the differences are noted where they exist.
+</p>
+
+<h2 id="acc-wizard">The wizard, field by field</h2>
+
+<p><strong>Shared by every type:</strong></p>
+<ul>
+<li><strong>Account name</strong> — what you call it: Home, Work, GMX. Shown on the account chip.</li>
+<li><strong>E-mail address</strong> — the address this mailbox is; also the default IMAP username.</li>
+<li><strong>Sender name</strong> — shown next to your address on outgoing mail.</li>
+<li><strong>Colour</strong> — one of the swatches or a custom colour, used for this account's chip everywhere in the UI.</li>
+</ul>
+
+<p><strong>IMAP + SMTP only:</strong></p>
+<ul>
+<li><strong>Provider</strong> — an optional preset that prefills the server fields (see <a data-scroll="admin-presets" data-section="admin" href="#admin-presets">Account presets</a>).</li>
+<li><strong>Incoming (IMAP)</strong> — server and port, username (defaults to the e-mail address), password, <em>Use TLS</em>, <em>Allow self-signed certificate</em>.</li>
+<li><strong>Outgoing (SMTP)</strong> — <em>Same server as IMAP</em> and <em>Same credentials as IMAP</em> are on by default and hide the fields they cover; untick either to set them separately.</li>
+</ul>
+
+<p><strong>Exchange (EWS) only:</strong> the full <code>https://…/EWS/Exchange.asmx</code>
+URL, the NTLM domain if your server requires one, username, password, and an
+<em>Allow self-signed certificate</em> option.</p>
+
+<p><strong>The two sign-in types</strong> have no server, port or password fields at all —
+signing in <em>is</em> the configuration. You pick a provider and press
+<strong>Sign in</strong>; the provider's own page opens in a separate window (or your
+browser, in the Android app). Hmelj never sees your password, only the token the sign-in
+hands back, encrypted like every other credential.</p>
+
+<div class="callout">
+<strong>An admin has to register an OAuth client first.</strong>
+Until then the wizard says so instead of offering a sign-in button that could only fail.
+See <a data-scroll="gmail-client" data-section="gmail" href="#gmail-client">Creating the
+Google client ID</a> and <a data-scroll="ms-register" data-section="microsoft" href="#ms-register">Creating
+the app registration</a>.
+</div>
+
+<p>Finish with <strong>Test &amp; save</strong>. Hmelj connects, verifies the credentials,
+and auto-detects the Sent, Drafts, Trash, Junk and Archive folders from the server's own
+IMAP SPECIAL-USE flags — including Gmail's <code>[Gmail]/…</code> names. Only then is
+anything saved.</p>
+
+<h2 id="acc-monitor">Checking for new mail</h2>
+
+<p>
+  Set per account, in the wizard's <strong>New mail</strong> section. This is the single
+  biggest lever on how quickly mail appears and how much load Hmelj puts on the server.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Setting</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td><strong>Live</strong> (IMAP)</td><td>Holds one extra connection open using IMAP IDLE. New mail shows up in about a second, at the cost of that connection.</td></tr>
+<tr><td><strong>Live</strong> (Exchange)</td><td>A pull subscription polled every ~15 seconds. Exchange reports exactly what changed since the last watermark, which a plain timer cannot — a timer re-reads a fixed newest-50 window and a busy mailbox can outrun it. True EWS streaming is not possible over this project's NTLM transport.</td></tr>
+<tr><td><strong>Live</strong> (Microsoft Graph)</td><td>Asks Microsoft for the Inbox counts every ~30 seconds — one small request per check. Graph's real push would require this Hmelj to be reachable from the public internet, so it is not used.</td></tr>
+<tr><td><strong>Every 30 s … 15 min</strong></td><td>A fixed timer. Pick a long one for mailboxes you do not need to hear about immediately.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Mix freely — watch your main mailbox live and check a low-traffic one every 15 minutes.
+  Live accounts still run a slow background poll as a safety net, so a dropped watcher
+  costs latency and nothing else. Accounts that say nothing default to
+  <code>SYNC_INTERVAL_MS</code>.
+</p>
+
+<h2 id="acc-second">A second connection</h2>
+<p>
+  By default Hmelj holds <strong>one IMAP connection per account</strong> and every
+  operation takes an exclusive lock on it, so opening a message can end up queued behind
+  an in-flight background sync. <em>Allow a second connection</em> lets background sync
+  use its own.
+</p>
+<div class="callout warning">
+Off by default, and worth leaving off unless you know your provider allows more than one
+simultaneous connection per account. Some — Gmail in particular — throttle concurrent
+sessions harder than sequential ones, so a second connection can make things
+<em>slower</em>.
+</div>
+
+<h2 id="acc-shared">Sharing an account</h2>
+<p>
+  Settings → Accounts → <strong>Share</strong> on an account you own, then type another
+  Hmelj user's username. They see that mailbox in their own account list, badged
+  <em>🔗 Shared by &lt;your username&gt;</em>, and can read it and send through it.
+</p>
+<p>What stays with the owner:</p>
+<ul>
+<li>Special-folder mapping, and creating, renaming, deleting or emptying folders — these touch the real mailbox.</li>
+<li>Which folders are <em>synced</em>. A folder the owner excluded has nothing cached, so the grantee cannot show it either.</li>
+<li>The credentials. A grantee never sees them and cannot edit the connection.</li>
+</ul>
+<p>
+  What the grantee gets of their own: which of the account's folders appear in
+  <em>their</em> sidebar, and their own identities for sending through it. Revoking access
+  (the ✕ on the grantee's chip) removes both.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ Gmail ═══ -->
+<section id="gmail">
+<h1>Gmail</h1>
+<p class="section-subtitle">Two ways in, and the trade-off between them</p>
+
+<p>
+  Google stopped accepting an ordinary account password over IMAP years ago. Hmelj offers
+  the two things it does still accept:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th></th><th>App password</th><th>Sign in with Google</th></tr></thead>
+<tbody>
+<tr><td>Account type in the wizard</td><td>IMAP + SMTP</td><td>Gmail (sign in with Google)</td></tr>
+<tr><td>Set-up work for you</td><td>Two minutes in your Google account</td><td>None</td></tr>
+<tr><td>Set-up work for the Hmelj admin</td><td>None</td><td>A Google Cloud OAuth client, once per Hmelj server</td></tr>
+<tr><td>Requires 2-step verification on the Google account</td><td>Yes — app passwords do not exist without it</td><td>No</td></tr>
+<tr><td>What Hmelj stores</td><td>A 16-character password, encrypted</td><td>A refresh token, encrypted</td></tr>
+<tr><td>Underneath</td><td colspan="2">Identical: IMAP to <code>imap.gmail.com</code>, SMTP to <code>smtp.gmail.com</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="gmail-app-password">App password</h2>
+<div class="steps">
+<p><strong>1.</strong> Turn on 2-step verification at
+<a href="https://myaccount.google.com/security" rel="noopener" target="_blank">myaccount.google.com/security</a>
+if it is not on already. Google will not offer app passwords without it.</p>
+<p><strong>2.</strong> Go to
+<a href="https://myaccount.google.com/apppasswords" rel="noopener" target="_blank">myaccount.google.com/apppasswords</a>,
+name it "Hmelj", and copy the 16-character password it generates. Google shows it once.</p>
+<p><strong>3.</strong> In Hmelj, add an <strong>IMAP + SMTP</strong> account. Choose the
+Gmail preset if your admin left it in place, or enter the servers by hand:</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th></th><th>Server</th><th>Port</th><th>TLS</th></tr></thead>
+<tbody>
+<tr><td>IMAP</td><td><code>imap.gmail.com</code></td><td>993</td><td>Yes</td></tr>
+<tr><td>SMTP</td><td><code>smtp.gmail.com</code></td><td>465</td><td>Yes</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Username is your full Gmail address; the password is the app password, with the spaces
+removed.</p>
+
+<h2 id="gmail-oauth">Sign in with Google</h2>
+<p>
+  Choose the <strong>Gmail (sign in with Google)</strong> account type, press
+  <strong>Sign in</strong>, and complete Google's own sign-in page in the window that
+  opens. There is nothing else to fill in — Hmelj already knows Gmail's servers.
+</p>
+<p>
+  Google will warn that <em>this app is not verified</em>. That "app" is your own Hmelj
+  server, registered by your own admin in their own Google Cloud project. Choose
+  <strong>Advanced → Continue</strong>.
+</p>
+
+<div class="callout">
+The token is used exactly where the app password would have been: as an XOAUTH2
+credential on ordinary IMAP and SMTP. Hmelj does not use the Gmail API, so nothing about
+how your mail is read, sent, filtered or cached changes between the two methods.
+</div>
+
+<h2 id="gmail-client">Creating the Google client ID (admin, once)</h2>
+
+<p>
+  This is done once per Hmelj server by an administrator. It is free, and the client stays
+  yours — Hmelj deliberately has no shared client to fall back on.
+</p>
+
+<div class="steps">
+<p><strong>1. Create a project.</strong> Open the
+<a href="https://console.cloud.google.com/" rel="noopener" target="_blank">Google Cloud Console</a>
+and create a project (or reuse one). Everything below happens inside it.</p>
+
+<p><strong>2. Configure the OAuth consent screen.</strong> <em>APIs &amp; Services → OAuth
+consent screen</em>. Choose <strong>External</strong> unless you are a Google Workspace
+organisation configuring this for your own domain, fill in an app name and your own
+e-mail as the support and developer contact.</p>
+
+<p><strong>3. Add the scope.</strong> On the consent screen's <em>Scopes</em> step, add
+<code>https://mail.google.com/</code> — the only scope Google offers that permits IMAP
+access at all. It is listed as a <strong>restricted</strong> scope; that is expected and
+does not need verification for your own use.</p>
+
+<p><strong>4. Set the publishing status to "In production".</strong> This one matters more
+than it looks — see the warning below.</p>
+
+<p><strong>5. Create the client.</strong> <em>APIs &amp; Services → Credentials → Create
+credentials → OAuth client ID</em>, application type <strong>Web application</strong>.
+Under <em>Authorized redirect URIs</em> add exactly:</p>
+</div>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>https://your-hmelj-host/oauth/callback</pre></div>
+
+<p>
+  Settings → Admin → OAuth providers shows the exact string for your instance — copy it
+  from there. It must match byte for byte.
+</p>
+
+<div class="steps">
+<p><strong>6. Tell Hmelj.</strong> Google shows a <strong>Client ID</strong> (ending in
+<code>.apps.googleusercontent.com</code>) and a <strong>Client secret</strong> (starting
+<code>GOCSPX-</code>). Paste both into Settings → Admin → OAuth providers → Google, and
+save. The secret is stored encrypted and is never sent back to the browser.</p>
+</div>
+
+<div class="callout warning">
+<strong>Leave the consent screen in "Testing" and Google expires the refresh token after
+7 days.</strong> Every account signed in this way then dies weekly with an
+<code>invalid_grant</code> and a "sign in again" badge. Setting the publishing status to
+<strong>In production</strong> removes that expiry and does <em>not</em> require going
+through Google's verification review — the unverified-app warning simply stays, which is
+fine for a server you run for yourself.
+</div>
+
+<div class="callout">
+<strong>Why "Web application" and a secret, when Microsoft needs neither?</strong>
+Google's only server-side redirect flow is the Web-application client, and that is a
+<em>confidential</em> client whose token endpoint requires the secret. Google's
+alternative, "Desktop app", only accepts <code>http://localhost</code> or a custom-scheme
+redirect, which a server-side callback on a real hostname cannot use.
+</div>
+
+<p>
+  Instead of the Admin UI you can set <code>GOOGLE_OAUTH_CLIENT_ID</code> and
+  <code>GOOGLE_OAUTH_CLIENT_SECRET</code> in the environment; those win, and the Admin
+  fields then show as read-only.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═════════════════════════════════════════════════ Microsoft ═════════ -->
+<section id="microsoft">
+<h1>Microsoft / Outlook</h1>
+<p class="section-subtitle">Outlook.com, hotmail.com, live.com and Microsoft 365</p>
+
+<p>
+  Microsoft no longer accepts a password for IMAP or SMTP on these accounts — not even an
+  app password. They sign in with OAuth2, and Hmelj then talks to the mailbox over
+  <strong>Microsoft Graph</strong>. You complete the real Microsoft sign-in page once;
+  Hmelj stores the resulting refresh token, encrypted with the same key as everything else.
+</p>
+
+<h2 id="ms-why">Why Graph, not IMAP with a token</h2>
+<p>
+  Microsoft does still support IMAP with an OAuth token — but IMAP has to be switched on
+  for the mailbox itself, and it is <strong>off by default on personal Outlook.com
+  accounts</strong>. The result is a sign-in that visibly succeeds followed by
+  <code>User is authenticated but not connected</code>, a failure with no obvious cause
+  and no fix inside Hmelj. Graph never touches that stack, so there is nothing to enable
+  in your Outlook settings.
+</p>
+
+<h2 id="ms-register">Creating the app registration (admin, once)</h2>
+
+<p>You need your own Microsoft app registration. It is free, takes a few minutes, and
+stays yours.</p>
+
+<div class="steps">
+<p><strong>1. Register the app.</strong>
+<a href="https://entra.microsoft.com" rel="noopener" target="_blank">Microsoft Entra admin center</a>
+→ <em>App registrations</em> → <em>New registration</em>.</p>
+<ul>
+<li><strong>Supported account types:</strong> <em>Accounts in any organizational directory
+and personal Microsoft accounts</em>. This is what makes outlook.com / hotmail.com /
+live.com addresses work.</li>
+<li>Leave the Redirect URI blank here. It is added in the next step, where the platform
+matters.</li>
+</ul>
+
+<p><strong>2. Add the redirect URI — as a public client.</strong>
+<em>Authentication</em> → <em>Add a platform</em> → <strong>Mobile and desktop
+applications</strong> → <em>Custom redirect URIs</em>:</p>
+</div>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>https://your-hmelj-host/oauth/callback</pre></div>
+
+<div class="callout warning">
+<strong>The platform is the part people get wrong</strong>, because the same URI under the
+wrong one looks identical in the portal.
+<ul>
+<li>Registered as <strong>Web</strong>, Azure treats the app as a confidential client and
+the token endpoint demands a client secret — <code>AADSTS7000218</code>.</li>
+<li>Registered as <strong>Single-page application</strong>, it demands a browser-side
+token exchange Hmelj cannot do — <code>AADSTS9002327</code> — and caps refresh tokens at
+24 hours.</li>
+</ul>
+Only the <strong>Mobile and desktop applications</strong> platform gives a server-side
+PKCE exchange with no secret and the normal 90-day sliding refresh token.
+</div>
+
+<div class="steps">
+<p><strong>3. Do not create a client secret.</strong> There is nothing to add under
+<em>Certificates &amp; secrets</em>. Hmelj signs in as a public client and proves the
+exchange with PKCE. An old secret from a previous set-up can be deleted; Hmelj never
+sends one.</p>
+
+<p><strong>4. Grant the API permissions.</strong> <em>API permissions</em> → <em>Add a
+permission</em> → <strong>Microsoft Graph</strong> → <em>Delegated permissions</em>:</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Permission</th><th>Needed for</th></tr></thead>
+<tbody>
+<tr><td><code>Mail.ReadWrite</code></td><td>Reading, flagging, moving, deleting, drafts</td></tr>
+<tr><td><code>Mail.Send</code></td><td>Sending</td></tr>
+<tr><td><code>offline_access</code></td><td>Getting a refresh token at all — without it the account stops working in an hour</td></tr>
+<tr><td><code>Contacts.Read</code></td><td>Only the "Import from Microsoft" button in Settings → Contacts. Leave it out and everything else still works.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>openid</code> and <code>email</code> are also requested, purely so the token
+response carries an <code>id_token</code> Hmelj can read the signed-in address out of —
+that is what catches "you typed one address and signed in as another".</p>
+
+<h2 id="ms-hmelj">Telling Hmelj about it</h2>
+<div class="steps">
+<p><strong>5.</strong> Settings → Admin → <em>OAuth providers</em> → Microsoft. Paste the
+<strong>Application (client) ID</strong>. Leave <strong>Tenant</strong> as
+<code>common</code> unless you registered a single-tenant app. Save.</p>
+<p><strong>6.</strong> Settings → Accounts → <em>Add mail account</em> → account type
+<strong>Microsoft (Outlook / Microsoft 365)</strong> → type the address →
+<strong>Sign in</strong> → <strong>Test &amp; save</strong>. There is no server, port or
+password to fill in.</p>
+</div>
+
+<p>
+  The environment-variable equivalents are <code>MS_OAUTH_CLIENT_ID</code> and
+  <code>MS_OAUTH_TENANT</code>.
+</p>
+
+<div class="callout">
+<strong>Reusing a registration you already had?</strong> One written for a public-client
+flow is already the right kind — add the <code>/oauth/callback</code> URI under
+<em>Mobile and desktop applications</em>, check the Graph permissions above are present,
+and you are done. One registered for an older IMAP/XOAUTH2 set-up needs its redirect URI
+moved off the <strong>Web</strong> platform, and its <em>Office 365 Exchange Online</em>
+permissions replaced with the Graph ones — <code>IMAP.AccessAsUser.All</code> and
+<code>SMTP.Send</code> grant nothing to Graph.
+</div>
+
+<p>
+  Hmelj translates Microsoft's <code>AADSTS…</code> codes into what to change and where,
+  while keeping the original text — it carries the trace IDs Microsoft support asks for.
+</p>
+
+<h2 id="ms-differences">What behaves differently</h2>
+<ul>
+<li><strong>New mail</strong> on <em>Live</em> monitoring is a 30-second poll of the Inbox
+counts, not true push (see <a data-scroll="acc-monitor" data-section="accounts" href="#acc-monitor">Checking
+for new mail</a>).</li>
+<li><strong>"Replied to" markers are not tracked.</strong> Graph exposes that only as an
+extended MAPI property.</li>
+<li>Everything else — read, send, reply, flag, move, delete, drafts, search, attachments,
+filters, the unified inbox — behaves exactly as it does for an IMAP account.</li>
+</ul>
+
+<div class="callout warning">
+<strong>The sign-in page cannot be embedded.</strong> It opens in a popup on desktop, and
+in a Chrome Custom Tab in the Android app. Microsoft and Google both refuse to be framed,
+and Google rejects OAuth started inside an Android WebView outright
+(<code>403 disallowed_useragent</code>). If a popup blocker eats the window, allow popups
+for your Hmelj host.
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Exchange ═════ -->
+<section id="exchange">
+<h1>Exchange (EWS)</h1>
+<p class="section-subtitle">On-premises Exchange, over NTLM</p>
+
+<p>
+  For an Exchange server on your own network that speaks Exchange Web Services. Tested
+  against Exchange 2013; later versions use the same protocol.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>Server URL</td><td><code>https://mail.example.com/EWS/Exchange.asmx</code></td></tr>
+<tr><td>Domain</td><td>The NTLM domain, if your server requires one</td></tr>
+<tr><td>Username</td><td>Defaults to the e-mail address</td></tr>
+<tr><td>Password</td><td>The mailbox password</td></tr>
+<tr><td>Allow self-signed certificate</td><td>For an internal CA</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Reading, sending, moving, deleting, flagging, search, contact import and meeting
+  responses all work. <em>Live</em> monitoring is a 15-second pull subscription: Exchange
+  reports exactly what changed since the last watermark, which is more reliable than a
+  timer on a busy mailbox.
+</p>
+
+<div class="callout warning">
+<strong>The server process must be started with <code>--openssl-legacy-provider</code></strong>
+or every EWS sign-in throws. The Docker image and <code>npm start</code> already do; a
+hand-written systemd unit or process manager must too. See
+<a data-scroll="install-systemd" data-section="install" href="#install-systemd">systemd</a>.
+</div>
+
+<div class="callout">
+True EWS <em>streaming</em> notifications are not possible over this transport: the NTLM
+library builds its own keep-alive HTTP agent, ignores any agent handed to it, and hard-floors
+socket inactivity at 8 seconds — which kills a long poll every time. Hence the pull
+subscription.
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═════════════════════════════════════════════════════ Identities ════ -->
+<section id="identities">
+<h1>Identities &amp; Signatures</h1>
+<p class="section-subtitle">Who a message is from, and what it ends with</p>
+
+<p>
+  An <strong>identity</strong> is a from-address plus the details that travel with it.
+  Every identity is linked to a sending account, so a reply from your GMX identity goes
+  out through GMX's SMTP and lands in GMX's Sent folder. Aliases are just extra identities
+  on the same account.
+</p>
+
+<p>Settings → Identities. Each one has:</p>
+<ul>
+<li><strong>Name</strong> and <strong>e-mail address</strong> — what recipients see</li>
+<li><strong>Organization</strong> and <strong>Reply-To</strong> — optional headers</li>
+<li><strong>Account</strong> — which mailbox actually sends it</li>
+<li><strong>Default</strong> — the one preselected in a new message</li>
+<li><strong>Signature</strong>, with its own <strong>policy</strong>: new messages only,
+new messages and replies, always, or never</li>
+</ul>
+
+<p>
+  The signature is placed <strong>above the quoted original</strong> on a reply or
+  forward — where a person reads it — rather than at the very bottom under the whole
+  thread.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Folders ════ -->
+<section id="folders">
+<h1>Folders</h1>
+<p class="section-subtitle">The tree, the special ones, and what shows in the sidebar</p>
+
+<p>
+  Hmelj shows the account's full IMAP folder tree. Settings → Folders manages it, one
+  account at a time.
+</p>
+
+<h2 id="folders-special">Special folders</h2>
+<p>
+  Five roles are mapped to real folders: <strong>Sent</strong>, <strong>Drafts</strong>,
+  <strong>Trash</strong>, <strong>Junk/Spam</strong> and <strong>Archive</strong>.
+  Hmelj auto-detects them from the server when the account is added — using IMAP
+  SPECIAL-USE flags, which is what makes Gmail's <code>[Gmail]/Sent Mail</code> land in
+  the right place. Fix the mapping here if sending or saving a draft ever files something
+  in the wrong folder.
+</p>
+<p>
+  Junk and Archive may be set to <strong>(None)</strong>, and that genuinely means none:
+  <em>Mark as spam</em> and <em>Move to Archive</em> then stop appearing in the message
+  menus for that account.
+</p>
+
+<h2 id="folders-manage">Managing folders</h2>
+<ul>
+<li><strong>Show in sidebar</strong> — per folder, per account. Hiding a folder does not delete anything.</li>
+<li><strong>Create, rename, delete, empty</strong> — these act on the real mailbox.</li>
+<li><strong>Mark all as read</strong> and <strong>Mute</strong> live on the folder's own right-click menu in the sidebar.</li>
+<li>Each folder shows its message and unread counts.</li>
+</ul>
+
+<div class="callout">
+On a <a data-scroll="acc-shared" data-section="accounts" href="#acc-shared">shared</a>
+account, a grantee sees only the "show in sidebar" checkboxes — special folders and
+create/rename/delete/empty stay with the owner, because they change the real mailbox.
+A folder the owner excluded from sync has nothing cached to show, so its checkbox is
+locked off rather than offered as a false choice.
+</div>
+
+<h2 id="folders-scope">What gets synced</h2>
+<p>
+  The background sync does not walk every folder. It covers the Inbox and its subfolders
+  plus Sent — that is what the unified views and the fast lists are built from. Other
+  folders are browsed live against the server when you open them, and are always fully
+  reachable through <a data-scroll="search-scope" data-section="search" href="#search-scope">Search
+  everywhere</a>.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════ Message list ════ -->
+<section id="list">
+<h1>The Message List</h1>
+<p class="section-subtitle">Everything you can do without opening anything</p>
+
+<h2 id="list-views">All inboxes vs one account</h2>
+<p>
+  The account switcher at the top of the sidebar chooses between <strong>All
+  inboxes</strong> — a merged Inbox and merged Sent across every account, with a coloured
+  chip on each row naming its source — and one account's own full folder tree.
+</p>
+<p>
+  The unified view spans every folder of an account except Sent, Trash, Junk and Drafts,
+  so mail your server filed into a subfolder still shows up there.
+</p>
+
+<h2 id="list-menu">Right-click / long-press</h2>
+<p>Right-click a row on a desktop, long-press it on a phone:</p>
+<ul>
+<li><strong>Mark as read / unread</strong></li>
+<li><strong>Mark as spam</strong> or <strong>Not spam</strong>, and <strong>Move to Archive</strong> or <strong>Move out of Archive</strong> — whichever the account has folders for</li>
+<li><strong>Delete</strong></li>
+</ul>
+
+<h2 id="list-select">Select mode</h2>
+<p>
+  <strong>Ctrl+click</strong> (Cmd on a Mac) a row turns select mode on and ticks it; from
+  then on an ordinary click keeps toggling. Then act on the whole selection at once —
+  delete, move, mark read or unread. Desktop only: a touch screen has no modifier key, and
+  long-press already means something on these rows.
+</p>
+<p>
+  Ticking a <a data-section="conversation" href="#conversation">conversation</a> row selects
+  every message in it — but never the copies in Sent, so deleting an inbox thread never
+  deletes your own replies.
+</p>
+
+<h2 id="list-swipe">Swipe gestures</h2>
+<p>
+  On a phone, drag a row sideways. Past about a third of the width the action fires:
+  read/unread one way, delete the other. Which direction does which is a setting, and the
+  whole gesture can be turned off. A swipe-delete can be taken back from the message that
+  appears afterwards.
+</p>
+
+<h2 id="list-spam">Spam and Archive</h2>
+<p>
+  Neither entry appears unless the account actually <em>has</em> that folder — the answer
+  comes from the server's own folder list, so the menu can never offer something that then
+  fails. Hmelj also stands in the server's real <code>\Junk</code> / <code>\Archive</code>
+  folder if the stored name has gone stale.
+</p>
+<p>
+  On the way out, where each message came from is written down. On the way back,
+  <em>Not spam</em> returns each message to the folder it actually left — one move per
+  remembered folder, and the Inbox for anything unrecorded, which is the common case since
+  most spam was filed by the server and was never anywhere else. Both directions are
+  optimistic and offer an Undo.
+</p>
+
+<h2 id="list-sort">Sorting and filtering</h2>
+<p>
+  The list header sorts by date, sender or subject. The toolbar filters to unread only or
+  starred only. Note that a filter or a search switches conversation grouping off — a
+  count that meant "matching messages" rather than "messages" would be misleading.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Reading ═════ -->
+<section id="reading">
+<h1>Reading a Message</h1>
+<p class="section-subtitle">What the reading pane does, and why</p>
+
+<p>
+  Message bodies are sanitised on the server and then rendered inside a
+  <strong>sandboxed iframe</strong> with no same-origin access. A newsletter's own CSS
+  therefore cannot reach out and restyle Hmelj, and its scripts never run at all.
+  <code>&lt;style&gt;</code> blocks and inline styles are kept, because that is what makes
+  newsletters look like themselves; <code>@import</code>, <code>expression()</code> and
+  <code>behavior</code> are always stripped.
+</p>
+
+<figure>
+<img alt="A message open in the reading pane" data-src="screenshots/reading.png" decoding="async" loading="lazy"/>
+<figcaption>Header, body and attachments</figcaption>
+</figure>
+
+<p>
+  Every person in the header — From, To and Cc — is a chip showing both the display name
+  and the address. Right-click or long-press one for <strong>Copy address</strong> and
+  <strong>New message</strong>.
+</p>
+
+<h2 id="read-images">External images</h2>
+<p>
+  Remote images are the standard way a sender learns you opened their mail. Settings →
+  Reading offers four policies:
+</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Policy</th><th>Behaviour</th></tr></thead>
+<tbody>
+<tr><td><strong>Always load</strong></td><td>No protection; everything loads.</td></tr>
+<tr><td><strong>Only from trusted domains</strong> (default)</td><td>A list you keep, one domain per line, in Settings → Reading.</td></tr>
+<tr><td><strong>Ask per message</strong></td><td>A banner on each message with images to load.</td></tr>
+<tr><td><strong>Never load</strong></td><td>Images never load, no banner.</td></tr>
+</tbody>
+</table>
+</div>
+<p>
+  The banner also offers <strong>trust this sender's domain</strong>, which adds it to the
+  list in one click. CSS <code>url(...)</code> loads follow exactly the same policy as
+  <code>&lt;img&gt;</code> tags, so a tracking pixel cannot hide in a background image.
+</p>
+
+<h2 id="read-quotes">Collapsed quotes</h2>
+<p>
+  A reply shows what was written <em>this time</em>; the quoted conversation underneath it
+  sits behind a <strong>⋯</strong> button. Detection runs on the server, on the sanitised
+  HTML, and plain-text messages split on the usual quote markers.
+</p>
+
+<h2 id="read-unsub">Unsubscribe</h2>
+<p>
+  Newsletters that publish a <code>List-Unsubscribe</code> header get an
+  <strong>Unsubscribe</strong> button under the header. Three ways out, preferred in this
+  order:
+</p>
+<ol>
+<li>An <strong>RFC 8058 one-click POST</strong>, sent by the server — a browser cannot POST cross-origin.</li>
+<li>A <strong>mailto:</strong> unsubscribe message.</li>
+<li><strong>Opening the sender's page</strong>, done by the browser inside your click so no pop-up blocker eats it.</li>
+</ol>
+<p>
+  Most senders publish no header at all, so Hmelj falls back to finding the unsubscribe
+  link in the message footer. A body link is a guess, so it is only ever <em>opened</em> —
+  never posted to, never mailed — the banner says where it came from, and links inside a
+  collapsed quote are ignored.
+</p>
+<div class="callout">
+Nothing is ever sent without pressing the button, and the confirmation dialog always names
+where the request would go. Worth remembering that unsubscribing tells the sender your
+address is read — not always what you want on mail you never asked for.
+</div>
+<p>
+  On by default, with a <strong>compact</strong> mode (also default) that folds the banner
+  to just the 📭 icon and the button; clicking the icon unfolds the explanation for that
+  message. Both in Settings → Reading.
+</p>
+
+<h2 id="read-attach">Attachments</h2>
+<p>
+  Attachments appear as chips under the message. Clicking one opens a preview overlay for
+  images, PDFs, audio and video; anything else downloads.
+</p>
+<ul>
+<li>The download shows a <strong>progress bar</strong> with the real byte count, and can be cancelled.</li>
+<li>Video streams rather than buffering, so a large file starts playing immediately.</li>
+<li>Once fetched, an attachment is remembered by the browser <em>and</em> by the server, so a second look is instant.</li>
+<li>In the Android app, a non-previewable attachment is handed to whichever app can open it.</li>
+</ul>
+<div class="callout">
+Extracting one attachment costs far more than its size suggests: every backend answers by
+pulling the <em>whole</em> message down and parsing all of it to cut out one part. That is
+what <code>ATTACHMENT_CACHE_MB</code> exists for — see
+<a data-section="env" href="#env">Environment Variables</a>.
+</div>
+
+<figure>
+<img alt="The attachment preview overlay" data-src="screenshots/attachments.png" decoding="async" loading="lazy"/>
+<figcaption>Attachment preview, with a determinate progress bar</figcaption>
+</figure>
+
+<h2 id="read-find">Find in message</h2>
+<p>
+  <strong>Ctrl+F</strong> (Cmd+F on a Mac) over an open message, or ⋯ → <em>Search in
+  message</em>. Live match count, ↑/↓ or Enter / Shift+Enter to step through, and each hit
+  is scrolled clear of the floating bar. The search runs inside the sandboxed frame and
+  highlights without modifying the message.
+</p>
+
+<h2 id="read-invites">Calendar invitations</h2>
+<p>
+  A message carrying a meeting invitation shows the event details and three buttons —
+  <strong>Accept</strong>, <strong>Tentative</strong>, <strong>Decline</strong>. Each opens
+  a small menu:
+</p>
+<ul>
+<li><strong>Send the response now</strong></li>
+<li><strong>Edit the response first</strong> — add a message to the organiser</li>
+<li><strong>Do not send a response</strong> — answer for your own records only</li>
+</ul>
+
+<h2 id="read-receipts">Read receipts</h2>
+<p>
+  When a sender asks for a read receipt, Hmelj shows a banner and lets you decide. Nothing
+  is confirmed automatically. You can also request one on your own outgoing mail — per
+  message in the composer, or by default in Settings → Compose.
+</p>
+
+<h2 id="read-more">The ⋯ menu</h2>
+<p>Every open message has one, carrying:</p>
+<ul>
+<li><strong>Reply</strong>, <strong>Reply all</strong>, <strong>Forward</strong></li>
+<li><strong>Mark as read / unread</strong></li>
+<li><strong>Move</strong>, and the Spam / Archive entries the account supports</li>
+<li><strong>Search in message</strong></li>
+<li><strong>View headers</strong> — the full header block, copyable, and <strong>Save as EML</strong> next to it</li>
+<li><strong>Print</strong></li>
+<li><strong>Open in new view</strong> (desktop only)</li>
+<li><strong>Delete</strong></li>
+</ul>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════ Conversation view ══ -->
+<section id="conversation">
+<h1>Conversation View</h1>
+<p class="section-subtitle">A message and its replies as one row</p>
+
+<p>
+  <strong>Off by default</strong> — turn it on in Settings → General. With it on, a message
+  and its replies collapse into a single list row carrying a count chip. Opening that row
+  stacks the whole conversation in the reading pane, oldest at the top, newest at the
+  bottom and scrolled to.
+</p>
+
+<figure>
+<img alt="Conversation view" data-src="screenshots/conversation.png" decoding="async" loading="lazy"/>
+<figcaption>The newest message open, the earlier ones collapsed above it</figcaption>
+</figure>
+
+<ul>
+<li>Only the newest message is expanded; the rest are one-line headers you click to open.
+<strong>Expand every message in a conversation</strong> (Settings → General) changes that —
+at the cost of one fetch per message, so a long thread takes longer to open.</li>
+<li>The scope is <strong>the folder you are looking at, plus Sent</strong>, so your own
+replies appear inline between the incoming ones. Opened from All inboxes, the scope is the
+same set of folders that view spans, plus Sent.</li>
+<li>Actions on a conversation row never touch the copies in Sent.</li>
+<li>Each message is marked read as it is expanded — opening a 20-message thread does not
+silently mark all of it read.</li>
+</ul>
+
+<h2 id="conv-how">How messages are grouped</h2>
+<p>
+  By the <strong>root of the References chain</strong>, computed once for each message on
+  its way into the cache. Every message in a chain therefore derives the same key
+  independently of the order they arrive in. Microsoft Graph and Exchange use their own
+  <code>ConversationId</code> instead, which is better than anything reconstructed from
+  headers.
+</p>
+<p>
+  Subject-based merging is deliberately not done. It is what makes threading glue unrelated
+  mail together; header threading covers the overwhelming majority.
+</p>
+
+<div class="callout">
+Conversation grouping needs the local cache, so it is off whenever the cache is
+(<code>CACHE_ENABLED=false</code>), whenever a folder has not synced yet, and whenever a
+search or an unread/starred filter is active. In those cases the list falls back to one
+row per message.
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Compose ═════ -->
+<section id="compose">
+<h1>Composing</h1>
+<p class="section-subtitle">Writing, quoting, scheduling, sending</p>
+
+<p>
+  The composer is a floating window, so you can keep reading while you write. Open it with
+  the <strong>Compose</strong> button, or from Reply / Reply all / Forward on any message.
+</p>
+
+<figure>
+<img alt="The composer" data-src="screenshots/compose.png" decoding="async" loading="lazy"/>
+<figcaption>The composer, with the formatting toolbar</figcaption>
+</figure>
+
+<h2 id="compose-editor">The editor</h2>
+<ul>
+<li><strong>Rich HTML or plain text</strong>, per message; the default is a setting.</li>
+<li>Bold, italic, lists, links, font family, size and colour.</li>
+<li><strong>From</strong> chooses the identity — and with it, which account actually sends.</li>
+<li><strong>Cc</strong> and <strong>Bcc</strong>, revealed on demand.</li>
+<li><strong>Priority</strong> and <strong>Request a read receipt</strong>, per message.</li>
+<li><strong>Attachments</strong> — pick files or drag them in. Forwarding carries the original's attachments.</li>
+<li>Recipient fields autocomplete from your address book, and from your own identity and account addresses (badged <em>you</em>, and never stored as contacts).</li>
+</ul>
+<p>
+  Where the quoted original goes on a reply — <strong>below</strong> your reply,
+  <strong>above</strong> it, or <strong>not at all</strong> — is a setting. The signature
+  goes above the quote either way.
+</p>
+
+<h2 id="compose-drafts">Drafts</h2>
+<p>
+  Drafts autosave to the account's Drafts folder on an interval you choose (0 disables it),
+  and can be saved by hand at any time. Open one from Drafts to carry on writing.
+</p>
+
+<h2 id="compose-schedule">Scheduled sending</h2>
+<p>
+  Instead of sending now, pick a time. The message is queued <strong>on the server</strong>,
+  so it goes out whether or not your browser is open.
+</p>
+<ul>
+<li>Queued messages appear in a <strong>Scheduled</strong> view with their send time, account badge, and a click-to-read preview.</li>
+<li>Right-click or long-press one to <strong>Reschedule</strong> or <strong>Cancel and edit</strong>.</li>
+<li>A send that fails is retried with a growing backoff, and the reason is shown on the queued message and recorded in Settings → Log.</li>
+</ul>
+<div class="callout">
+Rescheduling never reopens the composer. Pushing a body back through the editor to change
+one timestamp risks the message coming back subtly different from the one you approved.
+</div>
+
+<h2 id="compose-spell">Spell checking</h2>
+<p>
+  On by default. Slovenian and English, detected automatically from what you are writing.
+  Spelling only — no grammar. Turning it off hands the job back to your browser's own
+  spellchecker.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Search ═════ -->
+<section id="search">
+<h1>Search</h1>
+<p class="section-subtitle">Gmail-style syntax, and an honest answer about what was searched</p>
+
+<h2 id="search-syntax">Syntax</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>You type</th><th>It means</th></tr></thead>
+<tbody>
+<tr><td><code>invoice</code></td><td>Must appear in the subject, sender or recipients</td></tr>
+<tr><td><code>invoice march</code></td><td>Both words must appear — terms are ANDed, not treated as one phrase</td></tr>
+<tr><td><code>"exact phrase"</code></td><td>Matched literally, spaces included</td></tr>
+<tr><td><code>-newsletter</code></td><td>Must <em>not</em> appear</td></tr>
+<tr><td><code>+word</code></td><td>Required — the same as a bare word, for symmetry with <code>-</code></td></tr>
+<tr><td><code>from:ana</code></td><td>Scoped to one field: <code>from</code>, <code>to</code>, <code>subject</code> or <code>body</code></td></tr>
+<tr><td><code>-from:noreply</code></td><td>Scoping composes with <code>+</code>, <code>-</code> and quoting</td></tr>
+<tr><td><code>subject:"weekly report"</code></td><td>A scoped phrase</td></tr>
+<tr><td><code>is:starred</code></td><td>Starred mail only — a flag, not text, and searched live across every folder</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<strong>A bare word does not search message bodies.</strong> Only <code>body:word</code>
+does. Bodies are never cached, so a <code>body:</code> term is the one thing that always
+forces a slow live round-trip to the mail server; everything else can be answered from the
+local cache instantly.
+</div>
+<p>
+  An unrecognised <code>word:</code> prefix — a URL like <code>http://example.com</code>,
+  or a time like <code>10:30</code> — is not treated as a field scope at all. It is kept as
+  plain text exactly as typed, rather than silently losing everything before the colon.
+</p>
+<p>
+  <strong>Search box autocomplete</strong> (Settings → General) finishes words as you type,
+  suggested from your own mail history. The suggestion appears as selected text, so just
+  keep typing to ignore it — or Tab to accept.
+</p>
+
+<h2 id="search-scope">What actually gets searched</h2>
+<p>
+  By default, the local cache: each folder's newest messages, indexed by subject, sender
+  and recipients. That is fast, and on a small mailbox it is also complete — but on a
+  mailbox with tens of thousands of messages and a 250-message-per-folder window, "two
+  results" can look like the whole truth when it is not.
+</p>
+<p>
+  So Hmelj says so. Under the results is a line naming what was searched, with a
+  <strong>Search everywhere</strong> link. That asks the <em>server</em> instead: every
+  folder of the account — including All Mail where the provider has one, which is the only
+  place archived Gmail lives — and message bodies too. It is a live search per folder and
+  can genuinely take seconds, so it says that while it runs.
+</p>
+<p>
+  Raise the cached window with <strong>Messages kept per folder</strong> in Settings →
+  General if you would rather have more of it answered instantly.
+</p>
+
+<figure>
+<img alt="Search results" data-src="screenshots/search.png" decoding="async" loading="lazy"/>
+<figcaption>Search results, with the line explaining the scope</figcaption>
+</figure>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Filters ════ -->
+<section id="filters">
+<h1>Filters</h1>
+<p class="section-subtitle">Rules that run on the server</p>
+
+<p>
+  Settings → Filters. Each filter belongs to one account, has a name, can be enabled or
+  disabled, and combines conditions with actions.
+</p>
+
+<figure>
+<img alt="The filter editor" data-src="screenshots/filters.png" decoding="async" loading="lazy"/>
+<figcaption>One filter — its account, its match mode, its rules and its actions</figcaption>
+</figure>
+
+<h2 id="filters-match">Matching</h2>
+<p>Three modes: <strong>All rules must match</strong>, <strong>At least one rule
+matches</strong>, or <strong>All messages</strong> (no conditions at all).</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Operators</th></tr></thead>
+<tbody>
+<tr><td>Subject, From, To, Content</td><td>contains · does not contain · is exactly</td></tr>
+<tr><td>Size (KB)</td><td>greater than · less than</td></tr>
+<tr><td>Date</td><td>greater than · less than</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="filters-actions">Actions</h2>
+<ul>
+<li><strong>Move to folder</strong> / <strong>Copy to folder</strong> — a dropdown of that account's real folders</li>
+<li><strong>Redirect to address</strong> — forwards the message on</li>
+<li><strong>Reply with message</strong> — an auto-reply; each sender is answered once</li>
+<li><strong>Mark as read</strong> / <strong>Mark as unread</strong></li>
+<li><strong>Star</strong></li>
+<li><strong>Delete</strong></li>
+</ul>
+<p>
+  A filter can carry several actions, and switching a filter to a different account swaps
+  its folder dropdowns to that account's tree — a folder target the new account does not
+  have is dropped rather than silently retargeted.
+</p>
+
+<h2 id="filters-when">When they run</h2>
+<ul>
+<li><strong>Automatically</strong>, as the background sync finds new mail. This is the main path.</li>
+<li><strong>On Inbox open</strong>, if <em>Run filters when opening Inbox</em> is on (Settings → General).</li>
+<li><strong>On demand</strong> — <em>Run filters</em> in the user menu.</li>
+</ul>
+<p>
+  A filter that fails — an unreachable server, a folder that no longer exists — is recorded
+  in Settings → Log with the reason, rather than failing silently.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Contacts ════ -->
+<section id="contacts">
+<h1>Contacts</h1>
+<p class="section-subtitle">An address book that mostly maintains itself</p>
+
+<p>
+  Settings → Contacts, or <strong>Contacts</strong> in the user menu. Contacts feed the
+  composer's recipient autocomplete.
+</p>
+
+<h2 id="contacts-auto">Learned automatically</h2>
+<p>Two opt-out behaviours, deliberately asymmetric:</p>
+<ul>
+<li><strong>People you send to are added.</strong> Only the ones <em>you</em> typed — a
+reply's prefilled recipients ride along and are subtracted, so replying to a mailing list
+does not swallow the whole list into your address book.</li>
+<li><strong>Incoming mail only ever fills in a missing name.</strong> It never adds anyone.
+Receiving mail is not consent to be in someone's address book.</li>
+</ul>
+<p>
+  Both can be turned off in Settings → Contacts. A contact can also be deleted straight
+  from the composer's autocomplete list.
+</p>
+
+<h2 id="contacts-import">Importing</h2>
+<ul>
+<li><strong>Google CSV / vCard</strong> — a <code>.csv</code>, <code>.vcf</code> or <code>.txt</code> export</li>
+<li><strong>Import from Microsoft</strong> — pulls the contacts of a Microsoft account you have attached (needs the <code>Contacts.Read</code> permission)</li>
+<li><strong>Import from Exchange</strong> — the same, for an EWS account</li>
+</ul>
+<p>
+  Hmelj also suggests people you correspond with who are not contacts yet, with how many
+  messages you have exchanged, so you can add them in a batch.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═════════════════════════════════════════════════════ Analytics ════ -->
+<section id="analytics">
+<h1>Mailbox Analytics</h1>
+<p class="section-subtitle">Where the quota went, and what is safe to delete</p>
+
+<p>
+  <strong>Mailbox analytics</strong> in the user menu. It answers questions the ordinary
+  message list cannot: how many messages there really are, who sends the most of them, and
+  which ones are eating the space.
+</p>
+
+<figure>
+<img alt="Mailbox analytics" data-src="screenshots/analytics.png" decoding="async" loading="lazy"/>
+<figcaption>The Overview tab, after a scan</figcaption>
+</figure>
+
+<p>
+  It needs its own index, so it starts with an explicit <strong>Scan</strong> you press.
+  The ordinary message cache deliberately holds only each folder's newest few hundred
+  messages; a 35,000-message inbox has a couple of hundred rows in it. The analytics scan
+  builds a second, complete-but-thin index — sender, subject, date, size, two flags, and no
+  bodies at all. It runs in the background, shows progress, and can be stopped.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Tab</th><th>Shows</th></tr></thead>
+<tbody>
+<tr><td><strong>Overview</strong></td><td>Totals, size, and how the mailbox is distributed</td></tr>
+<tr><td><strong>Senders</strong></td><td>Who sends the most, by count and by the space they cost</td></tr>
+<tr><td><strong>Largest</strong></td><td>The biggest individual messages</td></tr>
+<tr><td><strong>Search &amp; clean up</strong></td><td>Find matching mail across the whole index and act on it in bulk</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<strong>Gmail is counted honestly.</strong> On Gmail the same physical message appears
+under the Inbox and under every label it carries, so summing per-folder counts
+double-counts — and deleting from a label only removes that label, leaving the message in
+All Mail still consuming quota. So on Gmail the scan indexes All Mail (plus Trash and Spam,
+which hold quota of their own and are not in All Mail) and treats that as the truth.
+Everywhere else, folders are a non-overlapping tree and the scan simply walks all of them.
+Messages are de-duplicated by the server's own unique id on top of that.
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═════════════════════════════════════════════════ Notifications ════ -->
+<section id="notifications">
+<h1>Notifications</h1>
+<p class="section-subtitle">New mail on your desktop and phone, on your schedule</p>
+
+<p>
+  Turn them on per device in <strong>Settings → General → Notifications</strong>. Where the
+  browser supports it, they arrive even with Hmelj fully closed, with the sender and
+  subject. On Android and desktop the notification itself carries <strong>Mark as
+  read</strong> and <strong>Delete</strong>; tapping it opens straight to the message.
+</p>
+<p>
+  <strong>Send test notification</strong> pushes to <em>every</em> device you have enabled,
+  not just the one you are on — so you can trigger it from a laptop while watching your
+  phone, without waiting for real mail.
+</p>
+
+<h2 id="notif-web">Web Push (VAPID)</h2>
+<p>
+  Real browsers and installed PWAs use Web Push. The server needs a VAPID key pair; until
+  it has one, notifications stay off. Generate a pair once:
+</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>npm run vapid-keys</pre></div>
+
+<p>…then put both halves in the environment:</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>VAPID_PUBLIC_KEY=…
+VAPID_PRIVATE_KEY=…
+VAPID_SUBJECT=mailto:you@example.com</pre></div>
+
+<p>
+  <code>VAPID_SUBJECT</code> must be a <code>mailto:</code> or <code>https:</code> address
+  identifying you; some push services use it to reach you if your server misbehaves, and
+  reject requests without one.
+</p>
+
+<div class="callout warning">
+<strong>Changing the keys later invalidates every existing subscription</strong> — everyone
+has to switch notifications off and on again on every device. Generate them once and keep
+them.
+</div>
+
+<div class="callout">
+<strong>Why <code>PUSH_TTL_SECONDS</code> defaults to 15 minutes.</strong> A browser only
+talks to its push service while it is <em>running</em>, so everything sent while it was
+closed is queued there and delivered in one burst at start-up. A long TTL turns switching a
+laptop on into a replay of every notification it missed — mail you have very likely already
+read on your phone. Fifteen minutes still covers a suspended laptop, a dropped Wi-Fi link
+or an Android Doze window; anything older has stopped being news. Raise it if you would
+rather see late notifications than miss them; <code>0</code> means "deliver now or not at
+all".
+</div>
+
+<h2 id="notif-devices">Devices</h2>
+<p>
+  Settings → General lists every device currently registered for this Hmelj account, with
+  what it is. Enabling notifications on one device does not register any other, so a phone
+  you no longer use can be removed here without needing to sign in from it.
+</p>
+<p>
+  Android app devices are listed too — they go through Firebase instead of Web Push, since
+  Android's WebView has no Push API at all. See <a data-section="android" href="#android">Android
+  App</a>.
+</p>
+
+<h2 id="notif-schedule">Quiet hours &amp; the scheduler</h2>
+<p>
+  Settings → <strong>Scheduler</strong>, per account. An account-wide schedule applies to
+  all its folders, and any folder can override it.
+</p>
+
+<figure>
+<img alt="The notification scheduler" data-src="screenshots/scheduler.png" decoding="async" loading="lazy"/>
+<figcaption>Account-wide notification hours, with per-folder overrides</figcaption>
+</figure>
+
+<ul>
+<li><strong>Always</strong> — notify whenever mail arrives</li>
+<li><strong>Never</strong> — mail still syncs, you are simply not told</li>
+<li><strong>Scheduled</strong> — a time window and the weekdays it applies to</li>
+<li><strong>Skip public holidays</strong> — see below</li>
+</ul>
+<p>
+  Per-folder rows show whether they <em>Inherit</em> the account setting or carry their own,
+  and an override can be cleared to go back to inheriting.
+</p>
+
+<div class="callout">
+<strong>The holiday calendar is Slovenian.</strong> It is computed rather than listed
+(Easter included), and covers both work-free days and non-work-free state observances.
+Only work-free days are skipped by default, but any individual holiday's work-free flag can
+be flipped — and you can add your own dates. If you are not in Slovenia, the time-window
+and weekday parts of the scheduler still work exactly as described; only the built-in
+holiday list will not be yours.
+</div>
+
+<h2 id="notif-mute">Muting a folder</h2>
+<p>
+  Right-click or long-press a folder in the sidebar → <strong>Mute</strong>: for a set
+  period, until tomorrow morning, or until a time you pick. A muted folder shows a 🔕
+  marker, and the mute can be lifted from the sidebar or from the Scheduler tab — which is
+  also where a mysteriously quiet folder gets explained.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Settings ════ -->
+<section id="settings">
+<h1>Settings Reference</h1>
+<p class="section-subtitle">Every tab, every option</p>
+
+<p>
+  Settings are per Hmelj user. A few — marked <em>this device</em> below — are stored in
+  the browser instead, because they describe the screen you are looking at rather than the
+  account.
+</p>
+
+<h2 id="set-general">General</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Language</td><td>English or Slovenščina</td></tr>
+<tr><td>App font / size / weight <em>(this device)</em></td><td>The whole interface. The reading pane has its own font setting under Reading.</td></tr>
+<tr><td>Keep the screen on <em>(this device)</em></td><td>Stops the screen dimming and locking while Hmelj is open. Phones and tablets only, where it means something. On by default.</td></tr>
+<tr><td>Time format</td><td>24-hour or 12-hour</td></tr>
+<tr><td>Date format</td><td><code>31.12.2026</code>, <code>12/31/2026</code>, <code>2026-12-31</code> or <code>31 Dec 2026</code></td></tr>
+<tr><td>Conversation view</td><td>Group a message and its replies into one row. Off by default — see <a data-section="conversation" href="#conversation">Conversation View</a>.</td></tr>
+<tr><td>Expand every message in a conversation</td><td>Otherwise only the newest opens. Each expanded message is its own fetch, so a long thread is slower to open.</td></tr>
+<tr><td>Messages per page</td><td>10–200</td></tr>
+<tr><td>Messages kept per folder</td><td>How many of each folder's newest messages are cached locally for fast browsing (50–5000). Lower syncs faster; the rest is always still on the server and reachable via <em>Search everywhere</em>.</td></tr>
+<tr><td>Messages kept ready to open instantly</td><td>How many of each folder's newest messages have their full content pre-fetched, so opening them is instant. <code>0</code> turns it off — a message is still cached the first time you open it, just not before. Cannot exceed the setting above.</td></tr>
+<tr><td>Search box autocomplete</td><td>Finishes words as you type, from your own mail history</td></tr>
+<tr><td>Run filters when opening Inbox</td><td>In addition to the automatic run on new mail</td></tr>
+<tr><td>Delete behavior</td><td>Move to Trash · only mark <code>\Deleted</code> and leave in place · delete permanently (expunge)</td></tr>
+<tr><td>Mark as read when deleting</td><td></td></tr>
+<tr><td>Notifications</td><td>Master switch for this device, plus the test button and the device list — see <a data-section="notifications" href="#notifications">Notifications</a></td></tr>
+<tr><td>Swipe gestures on mobile</td><td>And which direction does read/unread vs delete</td></tr>
+</tbody>
+</table>
+</div>
+<p>
+  The <strong>theme</strong> is not here — it lives in the user menu's Theme picker, which
+  previews each theme live and applies it the moment you pick one, and can also set custom
+  background and foreground colours.
+</p>
+
+<h2 id="set-reading">Reading</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Reading pane</td><td>Right side · Bottom · New window · List only</td></tr>
+<tr><td>Auto mark as read</td><td>Immediately on open · After a delay · Only via the ✉ icon in the list · Never</td></tr>
+<tr><td>Mark-as-read delay</td><td>0–120 seconds, used by "After a delay"</td></tr>
+<tr><td>External images</td><td>Always · Only from trusted domains · Ask per message · Never</td></tr>
+<tr><td>Trusted domains</td><td>One per line</td></tr>
+<tr><td>Show deleted messages</td><td>Messages flagged <code>\Deleted</code> appear struck through</td></tr>
+<tr><td>Unsubscribe button</td><td>And whether its banner is shown compact</td></tr>
+<tr><td>Message font / size</td><td>The reading pane only</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="set-compose">Compose</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Default format</td><td>HTML (rich text) or plain text</td></tr>
+<tr><td>Default font</td><td>For what you write — not the quoted original. Rich text only; the toolbar still overrides it per message.</td></tr>
+<tr><td>Quoted message on reply</td><td>Below my reply · Above my reply · Do not quote</td></tr>
+<tr><td>Autosave drafts every</td><td>Seconds; <code>0</code> disables autosave</td></tr>
+<tr><td>Request read receipts by default</td><td></td></tr>
+<tr><td>Check spelling as I type</td><td>Slovenian and English, detected automatically. Off uses the browser's own spellchecker.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="set-identities">Identities</h2>
+<p>See <a data-section="identities" href="#identities">Identities &amp; Signatures</a>.</p>
+
+<h2 id="set-filters">Filters</h2>
+<p>See <a data-section="filters" href="#filters">Filters</a>.</p>
+
+<h2 id="set-folders">Folders</h2>
+<p>See <a data-section="folders" href="#folders">Folders</a>.</p>
+
+<h2 id="set-scheduler">Scheduler</h2>
+<p>See <a data-scroll="notif-schedule" data-section="notifications" href="#notif-schedule">Quiet hours &amp; the scheduler</a>.</p>
+
+<h2 id="set-contacts">Contacts</h2>
+<p>See <a data-section="contacts" href="#contacts">Contacts</a>.</p>
+
+<h2 id="set-accounts">Accounts</h2>
+<p>See <a data-section="accounts" href="#accounts">Accounts</a>. This tab also carries
+<strong>Share</strong>, and the entry into the Folders tab for a given account.</p>
+
+<h2 id="set-login">Login</h2>
+<p>
+  Your Hmelj credentials — not any mailbox's. <strong>Change password</strong> asks for the
+  current one. <strong>Change username</strong> signs you out on every device, since the
+  login name is what sessions are tied to; changing only the capitalisation of your own
+  name is a display change and does not.
+</p>
+
+<h2 id="set-log">Log</h2>
+<p>
+  Problems with <em>your</em> accounts, in plain language: filters that failed, mail that
+  could not be sent, servers that could not be reached. Filter by Errors / Warnings / Info,
+  expand an entry for the detail, and clear the whole log when you have dealt with it.
+  Debug noise, per-poll timings and internal state stay in the server's own log and never
+  appear here.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Admin ══════ -->
+<section id="admin">
+<h1>Admin</h1>
+<p class="section-subtitle">The tab only administrators see</p>
+
+<p>
+  The first user to sign up is an admin. The Admin tab is hidden entirely for everyone else.
+</p>
+
+<figure>
+<img alt="Settings → Admin" data-src="screenshots/settings-admin.png" decoding="async" loading="lazy"/>
+<figcaption>Users, sign-up, OAuth providers, presets and fonts</figcaption>
+</figure>
+
+<h2 id="admin-users">Users</h2>
+<p>
+  Every Hmelj login account, with its admin and disabled state. Each can be
+  <strong>disabled</strong> (kept, but unable to sign in) or <strong>removed</strong>.
+</p>
+
+<h2 id="admin-signup">Sign-up</h2>
+<p>
+  <strong>Allow new users to sign up</strong> — the runtime equivalent of
+  <code>ALLOW_SIGNUP</code>. Turn it off once everyone who needs an account has one.
+</p>
+
+<h2 id="admin-oauth">OAuth providers</h2>
+<p>
+  Registers the client IDs that let users add a mailbox by signing in with the provider
+  instead of storing a password — required for Outlook.com and Microsoft 365, and the
+  alternative to an app password for Gmail.
+</p>
+<p>
+  Each provider card shows the <strong>exact redirect URI</strong> to register — click it
+  to select it — and a line saying precisely how that provider expects the app to be
+  registered, because the two disagree:
+</p>
+<ul>
+<li><strong>Microsoft</strong> — a public client (Mobile and desktop applications platform), client ID only, no secret. Tenant defaults to <code>common</code>.</li>
+<li><strong>Google</strong> — a Web application client, which is confidential and needs its secret as well.</li>
+</ul>
+<p>
+  The stored secret is never sent back to the browser: the field shows only whether one
+  exists, and blank means "keep the one you have" — the same rule as every password field
+  in Hmelj. Setting the matching environment variables instead makes the card read-only and
+  say so.
+</p>
+<p>Full walkthroughs: <a data-scroll="gmail-client" data-section="gmail" href="#gmail-client">Google</a>
+· <a data-scroll="ms-register" data-section="microsoft" href="#ms-register">Microsoft</a>.</p>
+
+<h2 id="admin-presets">Account presets</h2>
+<p>
+  Named server configurations that prefill the account wizard — IMAP and SMTP host, port
+  and TLS, plus optional help text and a help link shown to the user. Instance-wide, so
+  adding one for your own mail provider saves every user on the server from typing it.
+</p>
+
+<h2 id="admin-fonts">Custom fonts</h2>
+<p>
+  Upload <code>.ttf</code>, <code>.otf</code>, <code>.woff</code> or <code>.woff2</code>
+  files and they appear in every user's App font and Message font pickers. Select several
+  at once — the family name and style (Regular / Bold / Italic / Bold Italic) are detected
+  from each filename, so <code>Bookerly-Regular.ttf</code> and
+  <code>Bookerly-BoldItalic.ttf</code> land in the right slots by themselves.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ Env ═════ -->
+<section id="env">
+<h1>Environment Variables</h1>
+<p class="section-subtitle">Everything Hmelj reads from the environment</p>
+
+<p>
+  All of these are optional — every one has a working default. In Docker they go in the
+  <code>.env</code> file named by <code>env_file:</code>, or straight into
+  <code>environment:</code>. The repository's <code>.env.example</code> is the same list
+  with the reasoning attached.
+</p>
+
+<h2 id="env-core">Core</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>PORT</code></td><td><code>3000</code></td><td>Port to listen on</td></tr>
+<tr><td><code>HOST</code></td><td><code>0.0.0.0</code></td><td>Bind address</td></tr>
+<tr><td><code>DATA_DIR</code></td><td><code>./data</code> (<code>/data</code> in Docker)</td><td>Where everything persistent lives — see <a data-section="data-dir" href="#data-dir">Data Directory</a></td></tr>
+<tr><td><code>CACHE_DIR</code></td><td><code>DATA_DIR</code></td><td>Where <code>cache.sqlite</code> lives. Point it at fast local disk if <code>DATA_DIR</code> is on a network mount — those writes are synchronous and can stall the whole process.</td></tr>
+<tr><td><code>HMELJ_SECRET</code></td><td>auto-generated</td><td>Key encrypting stored mailbox passwords and OAuth tokens. Unset, Hmelj writes <code>DATA_DIR/secret.key</code> instead. <strong>Back it up.</strong></td></tr>
+<tr><td><code>ALLOW_SIGNUP</code></td><td><code>true</code></td><td>Whether new users may register. The first user always can. Also togglable in Settings → Admin.</td></tr>
+<tr><td><code>LOG</code></td><td><code>info</code></td><td><code>error</code> · <code>warn</code> · <code>info</code> · <code>debug</code>. <code>debug</code> logs every IMAP round trip and HTTP request — useful while diagnosing, very noisy otherwise.</td></tr>
+<tr><td><code>HMELJ_PUBLIC_URL</code></td><td>derived per request</td><td>Public base URL, no trailing slash. Only OAuth needs it. Set it if a reverse proxy rewrites the host.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="env-sync">Sync and caching</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>SYNC_INTERVAL_MS</code></td><td><code>120000</code></td><td>Default poll interval for the background sync, minimum 30000. Each account can override it, or opt out entirely — see <a data-scroll="acc-monitor" data-section="accounts" href="#acc-monitor">Checking for new mail</a>.</td></tr>
+<tr><td><code>CACHE_ENABLED</code></td><td><code>true</code></td><td>Kill switch for the background poller <em>and</em> the SQLite cache. <code>false</code> runs Hmelj fully live: unified views are fetched fresh from the mail server on every request. Slower, but nothing can go stale. Conversation view and cached search need the cache and switch off with it.</td></tr>
+<tr><td><code>ATTACHMENT_CACHE_MB</code></td><td><code>32</code></td><td>RAM — never disk — held aside for attachment bytes already extracted once. Emptied on restart; <code>0</code> disables it.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="env-push">Notifications</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>VAPID_PUBLIC_KEY</code></td><td>—</td><td rowspan="2">Web Push key pair, from <code>npm run vapid-keys</code>. Notifications stay off until both are set.</td></tr>
+<tr><td><code>VAPID_PRIVATE_KEY</code></td><td>—</td></tr>
+<tr><td><code>VAPID_SUBJECT</code></td><td><code>mailto:admin@localhost</code></td><td>A <code>mailto:</code> or <code>https:</code> address identifying you. Some push services reject requests without one.</td></tr>
+<tr><td><code>PUSH_TTL_SECONDS</code></td><td><code>900</code></td><td>How long a push service may hold a notification for an unreachable device. <code>0</code> means deliver now or not at all.</td></tr>
+<tr><td><code>FCM_SERVICE_ACCOUNT_PATH</code></td><td><code>DATA_DIR/fcm-service-account.json</code></td><td>Firebase service-account key, for Android app push. Just dropping the file at the default path needs no variable at all.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="env-oauth">OAuth clients</h2>
+<p>
+  The environment alternative to Settings → Admin → OAuth providers. Set here, these win,
+  and the Admin fields become read-only.
+</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variable</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>MS_OAUTH_CLIENT_ID</code></td><td>Azure Application (client) ID. No secret — the registration is a public client.</td></tr>
+<tr><td><code>MS_OAUTH_TENANT</code></td><td><code>common</code> unless you registered a single-tenant app</td></tr>
+<tr><td><code>GOOGLE_OAUTH_CLIENT_ID</code></td><td>Ends in <code>.apps.googleusercontent.com</code></td></tr>
+<tr><td><code>GOOGLE_OAUTH_CLIENT_SECRET</code></td><td>Starts with <code>GOCSPX-</code>. Google's Web-application client is confidential and needs it.</td></tr>
+</tbody>
+</table>
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═════════════════════════════════════════════════════ Languages ════ -->
+<section id="languages">
+<h1>Languages</h1>
+<p class="section-subtitle">English and Slovenščina</p>
+
+<p>
+  The interface language is per user, in Settings → General. The login page has its own
+  selector, since you have not signed in yet.
+</p>
+<p>
+  Translation is keyed on the English source string and applied by a
+  <code>MutationObserver</code>, so static HTML and dynamically rendered content translate
+  alike and no template needs marking up. Message content is never translated — the reading
+  pane, editors and input fields are excluded.
+</p>
+
+<h2 id="lang-adding">Adding a language</h2>
+<p>
+  Copy <code>public/i18n/sl.json</code> to your language code, translate the values (the
+  keys are the English source strings and must stay exactly as they are), and add the code
+  to the language list in <code>public/js/i18n.js</code>. Nothing else needs touching.
+</p>
+<p>
+  The Android shell has its own strings, already translated into English, Slovenian,
+  German, Spanish, French, Italian and Portuguese — but those only cover the native chrome:
+  the server-URL screen and the notification action buttons. Everything else a user sees is
+  the web app.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ Security ═══ -->
+<section id="security">
+<h1>Security &amp; Privacy</h1>
+<p class="section-subtitle">What is stored, where, and who can see it</p>
+
+<h2 id="sec-storage">Credentials</h2>
+<ul>
+<li><strong>Hmelj passwords</strong> are scrypt-hashed in <code>auth.json</code> and never stored in a recoverable form.</li>
+<li><strong>Mailbox passwords and OAuth refresh tokens</strong> are encrypted at rest with AES-256-GCM, using <code>HMELJ_SECRET</code> or the auto-generated <code>secret.key</code> (mode 600).</li>
+<li><strong>Google's OAuth client secret</strong> is encrypted with the same key and is never sent back to the browser.</li>
+<li><strong>Sessions</strong> are httpOnly cookies backed by in-memory state — a restart signs everyone out. Login attempts are rate-limited per IP.</li>
+</ul>
+
+<h2 id="sec-rendering">Message rendering</h2>
+<ul>
+<li>HTML is sanitised server-side, then rendered in a sandboxed iframe with no same-origin access. Scripts never run.</li>
+<li><code>@import</code>, <code>expression()</code> and <code>behavior</code> are always stripped.</li>
+<li>CSS <code>url(...)</code> loads obey the same external-image policy as <code>&lt;img&gt;</code>, so a tracker cannot hide in a background.</li>
+<li>Read receipts are never confirmed automatically.</li>
+</ul>
+
+<h2 id="sec-network">The network</h2>
+<div class="callout warning">
+<strong>Run Hmelj behind TLS.</strong> Mailbox passwords travel over this connection, and
+PWA installation requires HTTPS anyway. See
+<a data-scroll="install-proxy" data-section="install" href="#install-proxy">Reverse proxy &amp; TLS</a>.
+</div>
+<p>
+  Hmelj connects out to the mail servers you configure, to the push services your browsers
+  and devices use (Mozilla's autopush, Google's FCM, Apple's relay), and to Google or
+  Microsoft when someone signs in with OAuth. Nothing else. There is no telemetry, no
+  analytics, no ads, and no Hmelj-operated service of any kind — the project's authors never
+  receive, see or store any of your data.
+</p>
+<p>The full statement, in the form Google Play asks for, is on the
+<a href="privacy.html">Privacy Policy</a> page.</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ PWA ═══ -->
+<section id="pwa">
+<h1>Install as an App (PWA)</h1>
+<p class="section-subtitle">Hmelj in its own window, on any platform</p>
+
+<p>
+  Hmelj is a Progressive Web App. Installing it gives you a window with no browser chrome,
+  a launcher icon, and a "Compose" shortcut on the icon's context menu.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Platform</th><th>How</th></tr></thead>
+<tbody>
+<tr><td>Chrome / Edge, desktop</td><td>The install icon in the address bar, or ⋮ → <em>Install</em></td></tr>
+<tr><td>Android (Chrome)</td><td>⋮ → <em>Add to Home screen</em>, or use the <a data-section="android" href="#android">native app</a></td></tr>
+<tr><td>iOS / iPadOS (Safari)</td><td>Share → <em>Add to Home Screen</em></td></tr>
+<tr><td>Firefox, desktop</td><td>No install; it works as an ordinary tab, with notifications</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warning">
+<strong>Installation requires HTTPS</strong> (or <code>localhost</code>). A Hmelj served
+over plain HTTP on a LAN address will not offer to install.
+</div>
+
+<p>
+  The service worker is <strong>network-first</strong> for the app shell, so you always get
+  the current version and a local edit shows up on refresh. <code>/api/*</code> is never
+  cached — mail data is always live, and going offline produces a clean error rather than
+  stale content.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Android ═══ -->
+<section id="android">
+<h1>Android App</h1>
+<p class="section-subtitle">A native shell around the same web app</p>
+
+<p>
+  The Android app is a full-screen WebView pointed at <em>your</em> Hmelj server. It
+  contains no mail code. On first launch it asks for the server URL and remembers it; press
+  back twice on the main screen to change it.
+</p>
+
+<figure>
+<img alt="The Android app's first-run screen" data-src="screenshots/android/server-select.png" decoding="async" loading="lazy"/>
+<figcaption>First run — point it at your server</figcaption>
+</figure>
+
+<h2 id="android-install">Installing it</h2>
+<p>
+  Download the APK from <a href="https://github.com/thehijacker/hmelj/releases" id="dyn-releases-link" rel="noopener" target="_blank">GitHub Releases</a>
+  and install it. Android will ask you to allow installing from that source; that is the
+  normal sideloading prompt, not a warning about the app.
+</p>
+<p>
+  Each release carries a <strong>release</strong> APK (what you want) and a
+  <strong>debug</strong> APK (larger, unoptimised, for diagnosing a problem). Both are
+  signed, so an update installs over the previous version.
+</p>
+<div class="callout warning">
+An APK you build yourself is signed with <em>your</em> key, and Android refuses to install
+it over one signed with a different key. Uninstall first — which erases the app's stored
+server URL and its notification permission — or build with the same key. See
+<a data-scroll="build-studio" data-section="building" href="#build-studio">Android Studio</a>.
+</div>
+<p>
+  Google Play distribution is planned but not live yet.
+</p>
+
+<h2 id="android-push">Why it exists</h2>
+<p>
+  Android's WebView implements no Web Notification or Push API at all — on every Android
+  version, in every WebView build. It is a platform gap, not a permission you can grant. So
+  a Hmelj PWA on Android cannot receive push while it is closed, and the native shell exists
+  to fill exactly that hole, using Firebase Cloud Messaging.
+</p>
+<p>What the shell adds over the PWA:</p>
+<ul>
+<li><strong>Push while fully closed</strong>, with <em>Mark as read</em> and <em>Delete</em> buttons on the notification</li>
+<li><strong>An unread badge</strong> on the launcher icon</li>
+<li><strong>OAuth sign-in in a real browser tab</strong> — Google rejects OAuth started inside a WebView outright</li>
+<li><strong>Attachment hand-off</strong> to whichever installed app can open the file</li>
+<li><strong>Keep the screen on</strong>, and correct padding for notches and gesture bars</li>
+<li><strong>Battery-optimisation exemption</strong> prompt, so background delivery is not killed by Doze</li>
+</ul>
+
+<figure>
+<img alt="A new-mail notification with action buttons" data-src="screenshots/android/notification.png" decoding="async" loading="lazy"/>
+<figcaption>Mark as read and Delete, without opening the app</figcaption>
+</figure>
+
+<h2 id="android-firebase">Firebase setup</h2>
+<p>
+  Android push needs a Firebase project. Two pieces, on two sides:
+</p>
+
+<h3 id="android-fb-app">1. In the app — <code>google-services.json</code></h3>
+<div class="steps">
+<p><strong>a.</strong> Open the <a href="https://console.firebase.google.com/" rel="noopener" target="_blank">Firebase console</a>
+and create a project (the free Spark tier is enough for FCM), or open one you already use.
+Reusing a project is what keeps an existing server-side key working; a project ID can never
+be changed once created, only its display name.</p>
+<p><strong>b.</strong> The ⚙ gear next to <em>Project Overview</em> → <strong>Project
+settings</strong> → the <strong>General</strong> tab → scroll to <strong>Your apps</strong>.</p>
+<p><strong>c.</strong> <strong>Add app</strong> → the <strong>Android</strong> icon.</p>
+<p><strong>d.</strong> Fill in the registration:</p>
+<ul>
+<li><strong>Android package name</strong> — <code>com.hmelj.app</code>, exactly and case-sensitively. A typo here produces a config that looks fine and fails the build with an unhelpful message.</li>
+<li><strong>App nickname</strong> — anything; a console-only label.</li>
+<li><strong>Debug signing certificate SHA-1</strong> — <strong>leave empty</strong>. It is needed for Google Sign-In, Dynamic Links, Phone Auth and App Check, none of which this app uses. FCM does not need it.</li>
+</ul>
+<p><strong>e.</strong> <strong>Download google-services.json</strong> and save it as
+<code>Android/app/google-services.json</code>.</p>
+<p><strong>f.</strong> The wizard then offers "Add Firebase SDK" Gradle snippets —
+<strong>skip them</strong>. <code>app/build.gradle</code> already applies the plugin
+(conditionally, only when the file exists) and already declares the messaging dependency.
+Next → Next → Continue to console.</p>
+<p><strong>g.</strong> <em>Optional:</em> repeat with the package name
+<code>com.hmelj.app.debug</code> if you want push in debug builds and side-by-side debug
+and release installs. Download <code>google-services.json</code> once at the end — one file
+describes every app in the project.</p>
+</div>
+
+<div class="callout warning">
+<strong>The Gradle plugin fails the build outright</strong> for an application ID that has
+no client in <code>google-services.json</code> — it does not merely disable push. That is
+why <code>com.hmelj.app.debug</code> only gets its <code>.debug</code> suffix when a client
+for it actually exists.
+</div>
+
+<h3 id="android-fb-server">2. On the server — the service-account key</h3>
+<div class="steps">
+<p><strong>a.</strong> Firebase console → <strong>Project settings</strong> →
+<strong>Service accounts</strong> → <strong>Generate new private key</strong>. This
+downloads a JSON credential.</p>
+<p><strong>b.</strong> Put it on the Hmelj server at
+<code>DATA_DIR/fcm-service-account.json</code> and <code>chmod 600</code> it. That is the
+default path, so no environment variable is needed. Restart Hmelj.</p>
+</div>
+<p>
+  The startup log says which it found, or that it found none and Android push is therefore
+  off — everything else is unaffected either way.
+</p>
+<div class="callout warning">
+This key is a <strong>server</strong> credential. It never goes in the app, never in the
+APK, and never in version control. It is project-level, so one key covers every app
+registered under that Firebase project.
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Building ══ -->
+<section id="building">
+<h1>Building &amp; Releasing</h1>
+<p class="section-subtitle">Docker images, signing keys, and cutting a release</p>
+
+<p>
+  Everything here is automated by GitHub Actions in the repository. This section is for
+  whoever maintains it — or for anyone building their own fork.
+</p>
+
+<h2 id="build-docker">Docker images</h2>
+<p>
+  <code>.github/workflows/docker.yml</code> runs the test suite, then builds a multi-arch
+  image (<code>linux/amd64</code> and <code>linux/arm64</code>) with QEMU and Buildx and
+  pushes it to GitHub Container Registry.
+</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Trigger</th><th>Tags pushed</th></tr></thead>
+<tbody>
+<tr><td>Push to <code>main</code></td><td><code>:dev</code></td></tr>
+<tr><td>Tag <code>v1.2.3</code></td><td><code>:latest</code>, <code>:1.2.3</code>, <code>:1.2</code></td></tr>
+<tr><td>Pull request</td><td>builds only, pushes nothing</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout">
+<strong>No secret to create.</strong> It authenticates with the built-in
+<code>GITHUB_TOKEN</code>, granted <code>packages: write</code> in the workflow. After the
+first successful run the image appears under your GitHub profile → <em>Packages</em>; a
+package starts private, so link it to the repository and set it public if you want others
+to pull it.
+</div>
+<p>
+  Building locally instead is one command — but note that an emulated <code>arm64</code>
+  leg compiles <code>better-sqlite3</code> from source under QEMU and is slow:
+</p>
+<div class="code-block"><button class="copy-btn">Copy</button><pre>docker buildx build --platform linux/amd64,linux/arm64 -t hmelj:local .</pre></div>
+
+<h2 id="build-keys">Android signing keys</h2>
+
+<p>
+  Android will only install an update over an existing app if the new APK carries the
+  <strong>same signing certificate</strong>. That makes the signing key a long-lived
+  commitment, and it is why Hmelj keeps two of them apart:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th>Signs</th><th>Why separate</th></tr></thead>
+<tbody>
+<tr><td><strong>Dev / sideload key</strong></td><td>The APK attached to every GitHub Release</td><td>People install these by hand. If the key ever changes, none of them can update — they have to uninstall and lose their settings.</td></tr>
+<tr><td><strong>Play upload key</strong></td><td>The AAB uploaded to Google Play</td><td>Play re-signs with its own app-signing key anyway; the upload key only proves the upload is from you.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warning">
+The release-APK build deliberately never looks at the Play key. Mixing the two once made the
+sideload APK silently switch identity the moment a Play secret was added, breaking every
+existing install's next update.
+</div>
+
+<div class="callout warning">
+<strong>Already signing releases with a keystore? Use that one.</strong>
+Do not generate a new key just because the project is new. Whatever key signed the APK
+people already have installed is the only key whose next build they can install as an
+update — and the alias matters as much as the file. Take the <code>storeFile</code>,
+<code>storePassword</code>, <code>keyAlias</code> and <code>keyPassword</code> out of your
+existing <code>Android/keystore.properties</code> and put those into the
+<code>DEV_KEYSTORE_*</code> secrets below. The steps that follow are for a project that has
+never released anything.
+</div>
+
+<p><strong>Create the dev / sideload keystore</strong> — do this once, and keep the file
+somewhere you will still have it in five years:</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>keytool -genkeypair \
+  -keystore dev-release.jks \
+  -alias hmelj-release \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Your Name, OU=Hmelj, O=Hmelj, L=City, ST=State, C=SI"</pre></div>
+
+<p><strong>Create the Play upload keystore</strong> — only when you are ready to publish:</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>keytool -genkeypair \
+  -keystore play-upload.jks \
+  -alias hmelj-upload \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Your Name, OU=Hmelj, O=Hmelj, L=City, ST=State, C=SI"</pre></div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Flag</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><code>-keystore</code></td><td>The file that holds the key. Guard it like a password — it cannot be regenerated.</td></tr>
+<tr><td><code>-alias</code></td><td>The key's name inside that file. You need it again to sign.</td></tr>
+<tr><td><code>-validity 10000</code></td><td>Days — about 27 years. Google Play requires a certificate valid until at least 2033.</td></tr>
+<tr><td><code>-dname</code></td><td>The certificate subject. Nobody verifies it; fill in something honest.</td></tr>
+</tbody>
+</table>
+</div>
+<p>
+  <code>keytool</code> prompts for a store password and a key password. They may be the
+  same. Write both down.
+</p>
+
+<h2 id="build-secrets">GitHub secrets</h2>
+<p>
+  Repository → <strong>Settings</strong> → <strong>Secrets and variables</strong> →
+  <strong>Actions</strong> → <em>New repository secret</em>. Keystores and the Firebase
+  config are binary or multi-line, so they go in base64-encoded:
+</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>base64 -w0 dev-release.jks                  # Linux
+base64 -i dev-release.jks                  # macOS
+certutil -encode dev-release.jks out.txt   # Windows</pre></div>
+
+<p>
+  Paste the whole result, newlines and all. The workflows strip line breaks and the
+  <code>-----BEGIN/END-----</code> wrappers <code>certutil</code> adds, so output from any
+  of the three works as-is.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Secret</th><th>Value</th><th>Needed for</th></tr></thead>
+<tbody>
+<tr><td><code>DEV_KEYSTORE_FILE</code></td><td><code>dev-release.jks</code>, base64</td><td rowspan="4">The sideload APK attached to each Release. Without these, CI signs it with a <strong>throwaway</strong> key and the result cannot be installed as an update.</td></tr>
+<tr><td><code>DEV_KEYSTORE_PASSWORD</code></td><td>Store password</td></tr>
+<tr><td><code>DEV_KEY_ALIAS</code></td><td>The alias inside that keystore — <code>keytool -list -keystore &lt;file&gt;</code> prints it</td></tr>
+<tr><td><code>DEV_KEY_PASSWORD</code></td><td>Key password</td></tr>
+<tr><td><code>KEYSTORE_FILE</code></td><td><code>play-upload.jks</code>, base64</td><td rowspan="4">The Play AAB. Optional until you publish — without them the AAB falls back to the dev key and is still built.</td></tr>
+<tr><td><code>KEYSTORE_PASSWORD</code></td><td>Store password</td></tr>
+<tr><td><code>KEY_ALIAS</code></td><td>The alias inside the upload keystore</td></tr>
+<tr><td><code>KEY_PASSWORD</code></td><td>Key password</td></tr>
+<tr><td><code>GOOGLE_SERVICES_JSON</code></td><td><code>google-services.json</code>, base64</td><td>Android push in CI builds. Without it the APK still builds; push is simply off.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="build-studio">Building in Android Studio</h2>
+<p>
+  Requires <strong>JDK 17</strong> and the Android SDK with <strong>API 35</strong>. Open
+  the <code>Android/</code> directory as the project.
+</p>
+<p>
+  To produce an APK that installs <em>over</em> a CI-built one, sign it with the same key.
+  Create <code>Android/keystore.properties</code> — it is git-ignored — next to
+  <code>build.gradle</code>:
+</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>storeFile=keystore/dev-release.jks
+storePassword=your-store-password
+keyAlias=hmelj-release
+keyPassword=your-key-password</pre></div>
+
+<p>
+  <code>storeFile</code> is resolved relative to the <code>Android/</code> directory, so
+  putting the <code>.jks</code> in <code>Android/keystore/</code> (also git-ignored) works
+  as written. Then:
+</p>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>gradlew.bat assembleDebug      :: app\build\outputs\apk\debug\
+gradlew.bat assembleRelease    :: app\build\outputs\apk\release\
+gradlew.bat bundleRelease      :: app\build\outputs\bundle\release\  (Google Play)</pre></div>
+
+<p>
+  …or Build → <em>Generate Signed App Bundle / APK</em> in the IDE. Drop
+  <code>google-services.json</code> into <code>Android/app/</code> first if you want push in
+  your local build.
+</p>
+<div class="callout">
+The signing config picks the first source it finds: the CI Play-key environment variables,
+then the CI dev-key ones, then <code>keystore.properties</code>. If none is present, the
+release build is left <strong>unsigned</strong> on purpose — falling back to the debug key
+would produce an APK that installs once and can never be updated.
+</div>
+
+<h2 id="build-release">Cutting a release</h2>
+<div class="steps">
+<p><strong>1.</strong> Bump the version in <code>package.json</code>, and
+<code>versionCode</code> / <code>versionName</code> in
+<code>Android/app/build.gradle</code>. Play refuses an upload whose
+<code>versionCode</code> is not higher than the last one.</p>
+<p><strong>2.</strong> Update <code>CHANGELOG.md</code>, commit, and push.</p>
+<p><strong>3.</strong> Tag and push the tag:</p>
+</div>
+
+<div class="code-block"><button class="copy-btn">Copy</button><pre>git tag -a v1.0.0 -m "Hmelj 1.0.0"
+git push origin v1.0.0</pre></div>
+
+<p>That one push starts both release workflows:</p>
+<ul>
+<li><strong>Docker</strong> — pushes <code>:latest</code>, <code>:1.0.0</code> and <code>:1.0</code>.</li>
+<li><strong>Android</strong> — builds the debug and release APKs and attaches them to the GitHub Release, and builds the AAB as a run <span id="dyn-ci-label">GitHub Actions artifact</span>. The AAB is deliberately <em>not</em> attached to the public Release: download it from the run and upload it to Play Console yourself, to the Internal testing track first.</li>
+</ul>
+
+<h2 id="build-pages">Publishing these docs</h2>
+<p>
+  Repository → <strong>Settings</strong> → <strong>Pages</strong> → Source: <em>Deploy from
+  a branch</em>, branch <code>main</code>, folder <strong><code>/docs</code></strong>. The
+  site is plain static files with no build step, so it goes live within a minute or two at
+  <code>https://&lt;user&gt;.github.io/hmelj/</code>.
+</p>
+<p>
+  Screenshots live in <code>docs/screenshots/</code>. They ship as blank placeholders so
+  nothing 404s; replace them one at a time with real captures.
+  <code>docs/screenshots/README.md</code> lists what each one should show, and
+  <code>node scripts/gen-placeholder.mjs</code> regenerates any that go missing.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ══════════════════════════════════════════════ Troubleshooting ════ -->
+<section id="troubleshooting">
+<h1>Troubleshooting</h1>
+<p class="section-subtitle">The failures that actually happen</p>
+
+<h2 id="ts-first">Look here first</h2>
+<p>
+  <strong>Settings → Log</strong> records the problems that concern <em>your</em> accounts
+  in plain language — a filter that failed, mail that could not be sent, a server that could
+  not be reached. Most questions are answered there before the server log is worth opening.
+</p>
+<p>
+  For the server side, <code>docker compose logs -f hmelj</code>, and
+  <code>LOG=debug</code> when you need every IMAP round trip and HTTP request.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead>
+<tbody>
+<tr>
+<td>OAuth sign-in fails at the very last step, after Microsoft or Google accepted the login</td>
+<td>The redirect URI does not match byte for byte. Copy it from Settings → Admin → OAuth providers, and set <code>HMELJ_PUBLIC_URL</code> if a proxy rewrites the host.</td>
+</tr>
+<tr>
+<td><code>AADSTS7000218</code> — "client_assertion or client_secret required"</td>
+<td>The Azure redirect URI is registered under the <strong>Web</strong> platform. Move it to <em>Mobile and desktop applications</em>.</td>
+</tr>
+<tr>
+<td><code>AADSTS9002327</code></td>
+<td>Registered as a <strong>Single-page application</strong>. Same fix.</td>
+</tr>
+<tr>
+<td>A Gmail OAuth account stops working every 7 days with <code>invalid_grant</code></td>
+<td>The Google consent screen is still in <strong>Testing</strong>. Set the publishing status to <em>In production</em>.</td>
+</tr>
+<tr>
+<td>Google says "this app is not verified"</td>
+<td>Expected. That app is your own Hmelj server. Advanced → Continue.</td>
+</tr>
+<tr>
+<td>Outlook.com: "User is authenticated but not connected"</td>
+<td>An IMAP account against Outlook.com. Use the <strong>Microsoft (Outlook / Microsoft 365)</strong> account type, which goes through Graph instead.</td>
+</tr>
+<tr>
+<td>Every Exchange sign-in crashes the process</td>
+<td>Missing <code>--openssl-legacy-provider</code>. See <a data-scroll="install-systemd" data-section="install" href="#install-systemd">systemd</a>.</td>
+</tr>
+<tr>
+<td>Notifications never arrive on any device</td>
+<td><code>VAPID_PUBLIC_KEY</code> / <code>VAPID_PRIVATE_KEY</code> are not set, so Web Push is off. Check the startup log.</td>
+</tr>
+<tr>
+<td>Notifications arrive everywhere except the Android app</td>
+<td>No Firebase service-account key on the server, or the APK was built without <code>google-services.json</code>. The startup log says which.</td>
+</tr>
+<tr>
+<td>A burst of stale notifications when a laptop wakes up</td>
+<td>Expected, and bounded by <code>PUSH_TTL_SECONDS</code> (default 15 minutes). Lower it, or set it to <code>0</code>.</td>
+</tr>
+<tr>
+<td>Cross-device updates arrive in delayed bursts</td>
+<td>A proxy is buffering <code>/api/events</code>. Hmelj sends <code>X-Accel-Buffering: no</code>, which nginx honours; a proxy that ignores it needs <code>proxy_buffering off;</code>.</td>
+</tr>
+<tr>
+<td>Search finds far fewer messages than you expect</td>
+<td>It searched the local cache. Use <strong>Search everywhere</strong>, or raise <em>Messages kept per folder</em>.</td>
+</tr>
+<tr>
+<td>Sending fails, or drafts vanish</td>
+<td>The Sent or Drafts folder is mapped to the wrong path. Settings → Folders → Special folders.</td>
+</tr>
+<tr>
+<td>Everything is slow, and the container is on a NAS</td>
+<td>Synchronous cache writes on a network mount. Set <code>CACHE_DIR</code> to local disk.</td>
+</tr>
+<tr>
+<td>Accounts appear to have vanished after a move or upgrade</td>
+<td>The volume was not carried across, or <code>HMELJ_SECRET</code> changed. The data is intact; the key is what is missing.</td>
+</tr>
+<tr>
+<td>The APK will not install over the existing one</td>
+<td>It is signed with a different key. Uninstall first, or build with the same keystore.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="ts-reset">Starting the cache over</h2>
+<p>
+  The message cache is disposable. If it has drifted from the server, stop Hmelj, delete
+  <code>cache.sqlite</code> and its <code>-wal</code> / <code>-shm</code> sidecars, and
+  start again — it rebuilds on the next sync. Nothing else in
+  <code>DATA_DIR</code> is safe to delete this way.
+</p>
+<p>
+  To rule the cache out of a problem entirely, run with <code>CACHE_ENABLED=false</code>:
+  no background polling and no local cache, with everything fetched live.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+</main><aside id="toc"><div id="toc-inner"></div></aside></div>
+</div>
+<script src="js/docs.js"></script>
+</body>
+</html>

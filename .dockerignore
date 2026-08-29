@@ -1,0 +1,24 @@
+# Everything here is excluded from the build CONTEXT — the tarball sent to the
+# builder before the first instruction runs. The Dockerfile only COPYs
+# package.json, package-lock.json, server/ and public/, so nothing below is
+# needed; keeping it out mostly saves upload time (Android/ alone is tens of MB
+# of Gradle caches) and keeps local secrets out of the daemon entirely.
+node_modules
+data
+.env
+.git
+.github
+.claude
+*.tar.gz
+
+# Not part of the runtime image
+test
+scripts
+Android
+docs
+restore
+temp
+Dockerfile
+docker-compose.yml
+*.md
+LICENSE

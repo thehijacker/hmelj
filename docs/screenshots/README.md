@@ -1,0 +1,33 @@
+# Screenshots
+
+Every file here is a blank placeholder written by `node scripts/gen-placeholder.mjs`.
+Replace them with real captures one at a time — the generator leaves existing files
+alone unless you pass `--force`.
+
+Desktop shots are 1600×900, phone shots 720×1480. Nothing depends on the exact size;
+the documentation site scales them, and these are just what the placeholders are.
+
+| File | What it should show |
+|---|---|
+| `inbox.png` | The three-pane view: folder sidebar, message list, reading pane |
+| `unified.png` | "All inboxes" with a coloured account chip on every row |
+| `reading.png` | A message open in the reading pane, header chips and attachments visible |
+| `conversation.png` | Conversation view: newest message expanded, older ones collapsed above it |
+| `compose.png` | The floating composer with the formatting toolbar open |
+| `search.png` | Search results, with the scope selector visible |
+| `attachments.png` | The attachment preview overlay showing an image or PDF |
+| `analytics.png` | Mailbox analytics — the Overview tab |
+| `contacts.png` | Settings › Contacts, with the address book and suggestions |
+| `filters.png` | Settings › Filters, with one rule expanded |
+| `scheduler.png` | Settings › Scheduler — quiet hours and per-folder overrides |
+| `account-wizard.png` | The add-account wizard, on the provider/preset step |
+| `settings-general.png` | Settings › General |
+| `settings-accounts.png` | Settings › Accounts, listing two or three mail accounts |
+| `settings-admin.png` | Settings › Admin — users, sign-up, OAuth providers, presets, fonts |
+| `dark.png` | The same inbox in the dark theme |
+| `mobile/list.png` | The message list on a phone |
+| `mobile/message.png` | A message open on a phone |
+| `mobile/compose.png` | The composer on a phone |
+| `mobile/menu.png` | The bottom-sheet user menu on a phone |
+| `android/server-select.png` | The Android app's "enter your server URL" first-run screen |
+| `android/notification.png` | A new-mail push notification with its Mark as read / Delete buttons |

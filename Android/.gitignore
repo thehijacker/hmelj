@@ -1,0 +1,14 @@
+# Gradle build outputs
+.gradle/
+build/
+app/build/
+.kotlin/
+
+# Local signing keystore and properties — never commit these
+keystore/
+keystore.properties
+
+# Android Studio
+.idea/
+*.iml
+local.properties

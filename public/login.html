@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hmelj — sign in</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<!-- Single dynamic tag — see index.html's comment on the same pattern. -->
+<meta name="theme-color" content="#0b57d0" id="theme-color-meta">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hmelj">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px 36px; width: min(400px, 92vw); box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  .login-card .logo { font-size: 44px; text-align: center; }
+  .login-card h1 { font-size: 22px; font-weight: 500; text-align: center; margin: 8px 0 4px; color: var(--text); }
+  .login-card .sub { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+  .login-card label { display: block; font-size: 13px; color: var(--text-muted); margin: 14px 0 4px; }
+  .login-card input { width: 100%; box-sizing: border-box; padding: 11px 12px; font-size: 15px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+  .login-card input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .login-card button { width: 100%; margin-top: 22px; padding: 12px; font-size: 15px; font-weight: 500;
+    background: var(--accent); color: var(--on-accent, #fff); border: 0; border-radius: 24px; cursor: pointer; }
+  .login-card button:disabled { opacity: .6; cursor: default; }
+  .login-error { color: var(--danger); font-size: 13px; margin-top: 14px; text-align: center; min-height: 18px; }
+  .lang-row { display: flex; justify-content: flex-end; }
+  .lang-row select { font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+  .login-alt { text-align: center; margin-top: 16px; }
+  .login-alt .link-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13.5px; }
+  .remember-row { display: flex; align-items: center; gap: 7px; margin: 16px 0 0; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+  .remember-row input { width: auto; padding: 0; }
+  .offline-banner { display: flex; align-items: center; gap: 8px; background: var(--danger-bg, rgba(217,48,37,.1));
+    color: var(--danger); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 18px; }
+  .offline-banner[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="lang-row"><select id="lang-select" title="Language"><option value="en">English</option><option value="sl">Slovenščina</option></select></div>
+    <div class="logo">🌿</div>
+    <h1 id="mode-title">Sign in to Hmelj</h1>
+    <div class="sub" id="mode-sub"></div>
+    <div class="offline-banner" id="offline-banner" hidden>📶 <span id="offline-banner-text">Offline — waiting for a connection</span></div>
+    <label for="username">Username or e-mail</label>
+    <input id="username" type="text" autocomplete="username" autofocus>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <label class="remember-row"><input id="remember" type="checkbox" checked> <span id="remember-label">Stay signed in</span></label>
+    <button id="btn-login">Sign in</button>
+    <div class="login-error" id="error"></div>
+    <div class="login-alt"><button class="link-btn" id="btn-mode" hidden>Create account</button></div>
+  </div>
+</div>
+<script src="/js/i18n.js"></script>
+<script>
+(async () => {
+  // Language: saved choice, else browser language. Selectable right here.
+  // Always persist the resolved value (not just on explicit change) — a
+  // fresh signup with a browser already set to Slovenian must not silently
+  // fall back to English on first load of the app just because the user
+  // never touched the dropdown themselves.
+  const saved = localStorage.getItem('hmelj-lang');
+  let lang = saved || (navigator.language?.toLowerCase().startsWith('sl') ? 'sl' : 'en');
+  localStorage.setItem('hmelj-lang', lang);
+  const langSel = document.getElementById('lang-select');
+  langSel.value = lang;
+  await I18n.init(lang);
+  // <title> lives in <head>, outside the subtree the DOM-walking translator
+  // watches (see i18n.js) — set it explicitly instead of leaving the
+  // English fallback from the static <title> tag in place.
+  document.title = 'Hmelj — ' + I18n.t('Sign in');
+  langSel.addEventListener('change', () => {
+    localStorage.setItem('hmelj-lang', langSel.value);
+    location.reload();
+  });
+
+  document.documentElement.dataset.theme =
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  const themeMeta = document.getElementById('theme-color-meta');
+  if (bg && themeMeta) themeMeta.content = bg;
+
+  // Offline handling — this page is precached (see sw.js's SHELL list) so it
+  // still opens with no connection at all (e.g. a PWA launched in airplane
+  // mode), but every /api/* call obviously can't succeed until connectivity
+  // is back. Rather than let that surface as a vague "Cannot reach the
+  // Hmelj server" the moment someone tries to sign in, detect it up front
+  // and say so plainly — then reload automatically the instant the device
+  // reconnects, so there's nothing left for the user to do but wait.
+  const offlineBanner = document.getElementById('offline-banner');
+  const offlineBannerText = document.getElementById('offline-banner-text');
+  function setOfflineBanner(online) {
+    offlineBanner.hidden = online;
+    if (!online) offlineBannerText.textContent = I18n.t("Offline — waiting for a connection");
+    document.getElementById('btn-login').disabled = !online;
+  }
+  window.addEventListener('offline', () => setOfflineBanner(false));
+  // A plain reload is simplest and safest here (unlike the already-logged-in
+  // app, there's no live session/poll state to preserve) — it re-runs the
+  // /api/session check below fresh and lands on a form that actually works.
+  window.addEventListener('online', () => location.reload());
+  setOfflineBanner(navigator.onLine);
+
+  let signupMode = false;
+  let allowSignup = false;
+
+  if (navigator.onLine) {
+    try {
+      const s = await fetch('/api/session').then((r) => r.json());
+      if (s.loggedIn) { location.replace('/'); return; }
+      allowSignup = !!s.allowSignup;
+      if (s.firstRun) {
+        signupMode = true;
+        document.getElementById('mode-sub').textContent = I18n.t('Welcome! Create the first Hmelj account.');
+      }
+    } catch { /* server unreachable (down, DNS, TLS…) rather than this device being offline — the form still renders, submit() below reports it */ }
+  }
+
+  const modeBtn = document.getElementById('btn-mode');
+  const applyMode = () => {
+    document.getElementById('mode-title').textContent = I18n.t(signupMode ? 'Create a Hmelj account' : 'Sign in to Hmelj');
+    document.getElementById('btn-login').textContent = I18n.t(signupMode ? 'Create account' : 'Sign in');
+    modeBtn.hidden = !allowSignup;
+    modeBtn.textContent = I18n.t(signupMode ? 'I already have an account' : 'Create account');
+  };
+  modeBtn.addEventListener('click', () => { signupMode = !signupMode; applyMode(); });
+  applyMode();
+
+  const err = document.getElementById('error');
+  const btn = document.getElementById('btn-login');
+  async function submit() {
+    err.textContent = '';
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const remember = document.getElementById('remember').checked;
+    if (!username || !password) return;
+    // Checked up front, not just left to whatever error the fetch below
+    // happens to produce — the service worker's own /api/* offline fallback
+    // (sw.js) already returns a fairly clear synthetic error, but this
+    // covers the moment right after a fresh PWA launch too, before the SW
+    // has necessarily taken control of this page's requests yet.
+    if (!navigator.onLine) { setOfflineBanner(false); return; }
+    btn.disabled = true;
+    try {
+      const r = await fetch(signupMode ? '/api/signup' : '/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, remember }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { location.replace('/'); return; }
+      err.textContent = I18n.t(d.error || 'Invalid username or password');
+    } catch {
+      // A genuine network failure (not merely offline — navigator.onLine
+      // was true above) means the device has a connection but the Hmelj
+      // server itself is unreachable (down, DNS, TLS…) — a different
+      // problem than "no internet," worth saying so distinctly.
+      err.textContent = I18n.t('Cannot reach the Hmelj server');
+    }
+    btn.disabled = false;
+  }
+  btn.addEventListener('click', submit);
+  document.querySelectorAll('input').forEach((i) =>
+    i.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+name: Build & push Docker image
+
+# Publishes a multi-arch image to GitHub Container Registry:
+#   push to main   -> ghcr.io/<owner>/hmelj:dev            (never touches :latest)
+#   tag vX.Y.Z     -> ghcr.io/<owner>/hmelj:latest, :X.Y.Z, :X.Y
+#
+# No secrets to create: the built-in GITHUB_TOKEN can write packages, which is
+# what `permissions: packages: write` below grants it.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Gate the image on the test suite. These are plain Node scripts with no
+  # framework and no services to stand up, so this costs under a minute.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Node
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      # arm64 is built by emulation on an amd64 runner. better-sqlite3 is a
+      # native module with no musl prebuild, so the arm64 leg compiles it from
+      # source under QEMU — that is the slow half of this job, and the half most
+      # likely to be what breaks.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Compute image name and tags
+        id: meta
+        env:
+          GH_REF: ${{ github.ref }}
+          GH_REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Registry paths must be lowercase; a GitHub username need not be.
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          if [[ "$GH_REF" == refs/tags/v* ]]; then
+            VERSION="${GH_REF_NAME#v}"
+            MINOR="${VERSION%.*}"
+            TAGS="${IMAGE}:latest,${IMAGE}:${VERSION},${IMAGE}:${MINOR}"
+          else
+            # Plain push to main — publish under :dev only, never touch :latest.
+            TAGS="${IMAGE}:dev"
+          fi
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS"   >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        # Skipped on pull requests: a PR from a fork has a read-only token, and
+        # the build below runs with push=false there anyway.
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-platform image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+    <!-- Background shows through the WebView's top/left/right safe-area margin (see
+         setupNativeSafeAreaPadding() in MainActivity.kt) — set to match the web app's
+         current theme background at runtime (JsBridge.setBackgroundColor()), not a
+         fixed color, so the gap doesn't stay light/white against a dark theme. -->
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</LinearLayout>

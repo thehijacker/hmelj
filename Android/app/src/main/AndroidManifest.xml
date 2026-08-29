@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Lets the web app trigger local notifications (Android 13+ requires runtime consent,
+         requested via the JS bridge's requestNotificationPermission()). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets the JS bridge prompt the user to exempt this app from battery optimization,
+         so backgrounded sync / notifications aren't killed by Doze on some OEMs. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Package visibility (Android 11+): without this, queryIntentActivities/ACTION_VIEW
+         can't see the PDF readers and other viewer apps installed on the device, so the
+         "Open with…" chooser for a downloaded attachment comes up empty. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".HmeljApplication"
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.Hmelj">
+
+        <!-- singleTop: tapping a push notification sends FLAG_ACTIVITY_CLEAR_TOP. With
+             the default "standard" launch mode that DESTROYS and recreates this activity
+             (so onNewIntent never fires and the WebView reloads from scratch, losing the
+             message you were reading); with singleTop the existing instance is reused and
+             onNewIntent delivers the routing data as intended. -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ServerSelectActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Lets a downloaded attachment be handed to another app: an ACTION_VIEW on a
+             file:// URI throws FileUriExposedException on Android 7+, so the file is
+             shared as a content:// URI with a one-shot read grant instead. Scoped to
+             the app's own cache/attachments directory (res/xml/file_paths.xml) — nothing
+             else in this app's storage is reachable through it. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- "Mark as read" / "Delete" on a new-mail notification. exported=false:
+             only this app's own PendingIntents (built in
+             NotificationActionReceiver.pendingIntent) may fire it — nothing on the
+             device should be able to broadcast a "delete that message" intent at us. -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:exported="false" />
+
+        <!-- Real push (FCM). No-op unless app/google-services.json is present (see
+             app/google-services.json.example.txt) — Firebase simply won't initialize
+             without it, so this is safe to leave declared even when unused. -->
+        <service
+            android:name=".HmeljFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_launcher_foreground" />
+        <!-- Fallback channel for any message FCM auto-displays itself (i.e. one that
+             didn't go through onMessageReceived). Without it such a notification lands
+             on a system-created "Miscellaneous" channel at low importance. -->
+        <!-- Must stay byte-identical to MailNotifications.CHANNEL_MAIL, which keeps
+             its historical `codexa_` prefix because a channel id is a persistence
+             key for the user's sound/importance choices. See the comment there. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="codexa_mail_v2" />
+    </application>
+</manifest>

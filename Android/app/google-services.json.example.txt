@@ -1,0 +1,43 @@
+This file explains app/google-services.json — it is NOT itself a valid config.
+
+app/google-services.json is git-ignored on purpose: it identifies ONE Firebase project,
+and a fork building this repo has no business sending its device tokens there. Add your
+own to enable push in your own builds; the official release APK gets it from CI, out of
+the GOOGLE_SERVICES_JSON repository secret.
+
+Without this file the project builds and runs normally — BuildConfig.PUSH_ENABLED is
+false, so the app reports push as unsupported and the web app says so. Web Push for real
+browsers and installed PWAs is a different mechanism entirely and is unaffected.
+
+(Full click-by-click walkthrough: the documentation site, "Android push (Firebase)".
+The short version:)
+
+1. Go to https://console.firebase.google.com and create a project (the free Spark tier
+   is enough for FCM), or open the one you already use — reusing it is what keeps an
+   existing server-side service-account key working.
+2. Project settings (the gear next to Project Overview) -> General -> Your apps -> Add
+   app -> Android. Register the applicationId you want push for: com.hmelj.app, and
+   separately com.hmelj.app.debug if you also want push in debug builds. It must match
+   exactly and case-sensitively; leave the optional debug SHA-1 field empty, FCM does
+   not need it. Several Android apps can live under one Firebase project and one
+   google-services.json covers all of them, so download it once at the end.
+   NOTE: an applicationId that is NOT registered here does not merely lose push — the
+   google-services Gradle plugin fails that variant's build outright.
+3. Download the resulting google-services.json and place it at:
+       app/google-services.json
+   (the same folder as this file). It is picked up automatically — app/build.gradle
+   applies the Google Services Gradle plugin only when this file is present.
+4. In the Firebase console -> Project settings -> Service accounts -> "Generate new
+   private key" — this downloads a *server-side* JSON credential. That one does NOT go
+   in this Android project; it goes on the Hmelj server, at DATA_DIR/fcm-service-account.json
+   (chmod 600), and is what lets the server actually send pushes via the Firebase Admin
+   SDK. Keep it secret: never commit it, never ship it inside the APK.
+5. Rebuild: ./gradlew assembleRelease (gradlew.bat on Windows). Push is now active.
+
+To put the file into GitHub Actions instead of committing it:
+
+    base64 -w0 app/google-services.json      # Linux/macOS
+    certutil -encode app\google-services.json out.txt   # Windows, then strip the header
+
+and paste the result into the repository secret GOOGLE_SERVICES_JSON
+(Settings -> Secrets and variables -> Actions).

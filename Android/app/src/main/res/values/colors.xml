@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light-mode colours for the native chrome (the server-URL screen, dialogs).
+     The web UI inside the WebView has its own themes and ignores these. -->
+<resources>
+    <color name="color_bg">#f5f7fa</color>
+    <color name="color_surface">#ffffff</color>
+    <color name="color_accent">#0D3B66</color>
+    <color name="color_text">#0D3B66</color>
+    <color name="color_text_muted">#5b7590</color>
+    <color name="color_border">#d7dee6</color>
+</resources>

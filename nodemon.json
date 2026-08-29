@@ -1,0 +1,6 @@
+{
+  "watch": ["server", "public"],
+  "ext": "js,html,css,json",
+  "ignore": ["data/**", "node_modules/**", "test/**"],
+  "nodeArgs": ["--openssl-legacy-provider"]
+}

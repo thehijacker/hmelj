@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- app_name (launcher label) and brand_name (shown on the "enter your server
+         URL" screen) are supplied by resValue in app/build.gradle's defaultConfig,
+         which overrides these. They stay here only as a safety net so a build that
+         somehow loses those resValues still resolves @string/app_name. -->
+    <string name="app_name" translatable="false">Hmelj</string>
+    <string name="brand_name" translatable="false">Hmelj</string>
+
+    <string name="server_select_subtitle">Point this app at your server</string>
+    <string name="server_select_label">Server URL</string>
+    <string name="dialog_hint">https://your-server.com</string>
+    <string name="dialog_ok">Connect</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="error_invalid_url">Please enter a valid URL starting with http:// or https://</string>
+    <string name="back_press_hint">Press back again to change server URL</string>
+    <string name="eink_mode_label">E-ink mode</string>
+    <string name="file_chooser_unavailable">No app available to choose files</string>
+    <!-- Content text for the silent, minimum-priority summary notification that
+         drives the launcher icon's unread-count badge — see MainActivity's
+         setUnreadBadgeCount(). Not shown prominently (the notification itself is
+         silent/low-priority by design), so left untranslated in other locales
+         rather than asking for a translation pass over something this minor. -->
+    <string name="unread_badge_text" translatable="false">%d unread</string>
+    <!-- Name shown for the badge channel in Android's per-app notification settings. -->
+    <string name="unread_badge_channel_name" translatable="false">Unread count</string>
+    <!-- Attachment hand-off: the mail app downloads an attachment with the
+         session cookie and offers it to another app (MainActivity#openAttachmentFromServer). -->
+    <string name="attachment_downloading">Downloading…</string>
+    <string name="attachment_open_with">Open with</string>
+    <string name="attachment_failed">Could not download the attachment</string>
+    <string name="attachment_saved">Saved to Downloads</string>
+    <string name="attachment_no_app">No app can open this file</string>
+    <string name="no_browser_for_signin">No browser available to sign in with</string>
+    <!-- Notification tray action buttons ("Mark as read" / "Delete") and what we
+         say when one of them could not be applied. These are only a FALLBACK:
+         the server sends its own titles in the push payload, already in the
+         language the user reads Hmelj in (see server/pushI18n.js), and those
+         win when present — these cover an older server, or a payload without
+         them. -->
+    <string name="notification_action_mark_read">Mark as read</string>
+    <string name="notification_action_delete">Delete</string>
+    <string name="notification_action_read_failed">Couldn\'t mark that message as read — it is unchanged</string>
+    <string name="notification_action_delete_failed">Couldn\'t delete that message — it is unchanged</string>
+</resources>

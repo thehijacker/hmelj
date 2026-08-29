@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- user-scalable=no: native pinch/double-tap zoom is disabled for the whole
+     app UI on purpose — a message's own content still pinch-zooms, just via
+     its own self-contained handling inside messageFrame.js's iframe, never
+     the page itself (see the pinch-zoom IIFE there). -->
+<!-- viewport-fit=cover: lets the page draw under the status bar/notch — required
+     for env(safe-area-inset-*) below to report real values instead of always 0.
+     Must come before any script that probes safe-area values (see the inset
+     probe further down) — probing before this tag is parsed reads 0 even with
+     it present later in the document. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Hmelj</title>
+<script>
+// Held invisible until the safe-area inset probe below has a real answer (see
+// that script) — otherwise a PWA launch can flash the wrong (usually zero)
+// inset for the first paint or two before snapping to the correct value, most
+// noticeable on iOS where env() is unreliable for the first several hundred
+// ms. Only for an installed standalone launch, where safe-area insets are
+// actually in play at all — a plain browser tab (even on mobile) already has
+// its own chrome reserving the notch/status-bar area normally, so this delay
+// would be pure, pointless cost there. A safety timeout below guarantees this
+// can never leave the page stuck invisible if something in the probe breaks.
+(function () {
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) {
+    document.documentElement.style.visibility = 'hidden';
+  }
+})();
+// Applies this device's theme/font before the stylesheet paints anything,
+// so a hard reload doesn't flash the default look for the second or so
+// boot() needs to fetch the session/settings over the network. Reads
+// straight from localStorage (see DEVICE_SETTINGS_KEYS in app.js) — that's
+// synchronous and instant, unlike the server round-trip boot() also does,
+// which is what was causing the flash. boot() re-applies the same values
+// once it has settled; this is purely about not painting the wrong thing
+// first.
+(function () {
+  try {
+    // 'hmail-device-settings' is the pre-rename key: read as a fallback so
+    // the first load after the rename still paints the right theme rather
+    // than flashing the default (app.js migrates it to the new name on boot).
+    var d = JSON.parse(localStorage.getItem('hmelj-device-settings')
+      || localStorage.getItem('hmail-device-settings') || '{}');
+    var theme = d.theme;
+    document.documentElement.dataset.theme = (theme && theme !== 'system')
+      ? theme
+      : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var root = document.documentElement.style;
+    if (d.uiFont) root.setProperty('--ui-font', d.uiFont === 'system-ui' ? 'system-ui' : ("'" + d.uiFont + "', system-ui, sans-serif"));
+    if (d.uiFontSize) root.setProperty('--ui-scale', d.uiFontSize / 14);
+    if (d.uiFontWeight) root.setProperty('--ui-weight', d.uiFontWeight);
+  } catch (e) { /* ignore — boot() applies the real values shortly regardless */ }
+})();
+// Safe-area inset probe — see app.css's :root{--sat:...} block for why this
+// exists at all (env() alone, referenced live from CSS, would be enough on
+// its own except that it's provably unreliable for the first moment after an
+// installed PWA launches — 0, or on iOS 26 specifically a wrong non-zero
+// value, until the OS/browser chrome finishes settling). Probes via an
+// invisible DOM element's rendered height rather than trusting a single
+// getComputedStyle read, and re-checks a couple of times after load instead
+// of only once, snapshotting into --sat/--sab/--sal/--sar (which app.css's
+// own env() defaults then only ever act as a *fallback* for, never
+// overriding a value already set here).
+(function () {
+  function probeEnvPx(cssExpr) {
+    var el = document.createElement('div');
+    el.style.cssText = 'position:fixed;pointer-events:none;opacity:0;top:0;left:0;width:1px;height:' + cssExpr + ';';
+    document.documentElement.appendChild(el);
+    var h = el.getBoundingClientRect().height;
+    el.remove();
+    return h;
+  }
+  // iOS home-screen web apps draw *underneath* the status bar (that's what
+  // the black-translucent meta below buys), but WebKit does not reliably
+  // report an inset for it: env(safe-area-inset-top) comes back 0 in a
+  // standalone web app on several iOS versions — including one installed
+  // from Chrome, which goes through the manifest rather than Safari's own
+  // Add to Home Screen. Nothing then pads the top, the search/menu bar sits
+  // under the clock, and its buttons can't be tapped at all because the
+  // touches land on the status bar instead of the page.
+  //
+  // So on iOS standalone only, put a floor under whatever env() reports.
+  // Portrait only: a notched iPhone in landscape genuinely has no top inset
+  // (the notch moves to the side, where --sal/--sar already handle it).
+  function iosStandaloneTopFloor() {
+    var ua = navigator.userAgent || '';
+    // iPadOS reports itself as a Mac; maxTouchPoints is what still gives it away.
+    var iOS = /iPad|iPhone|iPod/.test(ua) || (ua.indexOf('Mac') >= 0 && navigator.maxTouchPoints > 1);
+    if (!iOS) return 0;
+    var mm = window.matchMedia;
+    var standalone = navigator.standalone === true ||
+      (mm && (mm('(display-mode: standalone)').matches || mm('(display-mode: fullscreen)').matches));
+    if (!standalone) return 0;                              // in a normal tab the browser's own chrome is above us
+    if (window.innerWidth > window.innerHeight) return 0;   // landscape: no top inset to clear
+    // 812 CSS px tall is the iPhone X, the first with a status bar taller
+    // than the classic 20px. Everything from there up is at least 44 (a
+    // Dynamic Island reports 59, but 44 already clears enough of it that
+    // only padding, never content, ends up behind the island — and env()
+    // supplies the exact number whenever it works at all, since this is
+    // only ever a floor).
+    return Math.max(screen.width, screen.height) >= 812 ? 44 : 20;
+  }
+  function applyInsets() {
+    var root = document.documentElement;
+    root.style.setProperty('--sat', Math.max(probeEnvPx('env(safe-area-inset-top,0px)'), iosStandaloneTopFloor()) + 'px');
+    root.style.setProperty('--sab', probeEnvPx('env(safe-area-inset-bottom,0px)') + 'px');
+    root.style.setProperty('--sal', probeEnvPx('env(safe-area-inset-left,0px)') + 'px');
+    root.style.setProperty('--sar', probeEnvPx('env(safe-area-inset-right,0px)') + 'px');
+  }
+  function reveal() { document.documentElement.style.visibility = ''; }
+  applyInsets(); // immediate — already correct on Android/desktop
+  window.addEventListener('DOMContentLoaded', function () {
+    // 500ms: iOS PWA chrome has usually settled by here — reveal once this
+    // lands rather than immediately, so iOS never shows the wrong value
+    // first. 1000ms: last-chance re-check, page already visible by then.
+    setTimeout(function () { applyInsets(); reveal(); }, 500);
+    setTimeout(applyInsets, 1000);
+  });
+  setTimeout(reveal, 2000); // safety net regardless of the above
+  // The insets are a snapshot written as inline px on <html>, so once set they
+  // outrank the live env() fallback in app.css's :root for good — nothing
+  // re-derives them on its own. Rotating the phone changes all four (a notch
+  // moves from the top to the side), and coming back from the background is
+  // where iOS most often settles on a different value than it gave at launch.
+  // Cheap enough to just re-probe: four 1px elements, measured and removed.
+  var insetTimer;
+  function reprobe() { clearTimeout(insetTimer); insetTimer = setTimeout(applyInsets, 150); }
+  window.addEventListener('orientationchange', reprobe);
+  window.addEventListener('resize', reprobe);
+  window.addEventListener('pageshow', reprobe);
+  // Native Android app shell (a separate project) hides/shows system bars
+  // itself and can't know this page's own timers — exposed so it can force
+  // a fresh re-probe right after it does, instead of this page holding a
+  // stale value until its own next unrelated re-check.
+  window.__applyInsets = applyInsets;
+})();
+</script>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<!-- Single dynamic tag (not two static prefers-color-scheme-gated ones) — those
+     only ever reflected the OS's own light/dark preference, not the app's
+     actual resolved theme (Midnight/Sepia/a theme forced against system
+     preference), and never updated after initial parse. app.js's applyTheme()
+     keeps this in sync with the real --bg on every theme change/switch. -->
+<meta name="theme-color" content="#0b57d0" id="theme-color-meta">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<!-- black-translucent (not "default") is what lets content draw *underneath*
+     the iOS status bar instead of the OS reserving a solid bar and shrinking
+     the viewport above it — the top-safe-area padding driven by --sat above
+     is what keeps content clear of it instead. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hmelj">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="app" hidden>
+
+  <!-- Shown whenever the Hmelj server can't be reached (see js/connection.js).
+       A layout child rather than an overlay, so it pushes the app down instead
+       of covering the toolbar it's warning you about. -->
+  <div class="offline-bar" id="offline-banner" hidden>
+    <span class="offline-bar-icon">📶</span>
+    <span class="offline-bar-text">No connection to the Hmelj server — mail can’t be loaded or sent until it’s back.</span>
+    <button type="button" class="btn-sm" id="offline-banner-retry">Retry</button>
+  </div>
+
+  <div class="main">
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand" id="btn-reload-app" title="Reload" role="button" tabindex="0">
+        <img class="brand-icon" src="/icons/icon.svg" alt="">
+        <span class="brand-name">Hmelj</span>
+        <span class="brand-version" id="brand-version"></span>
+      </div>
+      <div class="sidebar-actions">
+        <button class="compose-btn" id="btn-compose">✏️&nbsp; Compose</button>
+        <button class="icon-btn" id="btn-accounts-edit" title="Reorder accounts">↕</button>
+      </div>
+      <div class="sidebar-scroll">
+        <ul class="account-list" id="account-list"></ul>
+        <ul class="folder-list" id="folder-list"></ul>
+      </div>
+      <div class="sidebar-footer">
+        <button class="user-menu-trigger" id="btn-user-menu">
+          <span class="user-avatar" id="user-avatar"></span>
+          <span class="user-menu-label" id="user-menu-label"></span>
+          <span class="user-menu-arrow">▾</span>
+        </button>
+      </div>
+    </nav>
+    <div class="col-resizer" id="resizer-sidebar" title="Drag to resize"></div>
+
+    <!-- Content: list + reading pane -->
+    <div class="content" id="content">
+      <section class="msg-list-pane" id="msg-list-pane" data-layout="table">
+        <div class="list-search-bar">
+          <button class="icon-btn" id="btn-menu" title="Toggle sidebar">☰</button>
+          <div class="search">
+            <input id="search-input" type="search" placeholder="Search mail (subject, from, to)" title="hello world → both words (subject, from, to)&#10;&quot;hello world&quot; → exact phrase&#10;+hello -world → require / exclude a word&#10;from:alice  to:bob  subject:&quot;weekly report&quot;&#10;body:word → also search message text (slower)&#10;is:starred → every starred message, all folders (live)&#10;-from:newsletter" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other">
+            <button class="icon-btn small" id="btn-search-clear" title="Clear search" hidden>✕</button>
+            <button class="icon-btn" id="btn-search" title="Search">🔍</button>
+          </div>
+          <span id="conn-status" class="conn" title="Connection status">●</span>
+          <button class="icon-btn" id="btn-refresh" title="Refresh">⟳</button>
+        </div>
+        <div class="list-toolbar">
+          <button class="icon-btn" id="btn-select-mode" title="Select messages">☑</button>
+          <div class="layout-menu-wrap">
+            <button class="icon-btn" id="btn-layout" title="Layout">▤</button>
+            <div class="layout-menu" id="layout-menu">
+              <button data-layout="table">☰ <span>Table</span></button>
+              <button data-layout="small">▁ <span>Small</span></button>
+              <button data-layout="compact">▂ <span>Compact</span></button>
+              <button data-layout="comfort">▄ <span>Comfort</span></button>
+              <button data-layout="wide">▆ <span>Wide</span></button>
+            </div>
+          </div>
+          <button type="button" class="icon-btn small" id="btn-unread-only" title="Show only unread messages" aria-pressed="false">●</button>
+          <button type="button" class="icon-btn small" id="btn-show-muted" title="Also show (and count) messages hidden by the notification scheduler" aria-pressed="false" hidden>🔔</button>
+          <button type="button" class="icon-btn small" id="btn-starred-only" title="Show only starred messages" aria-pressed="false">★</button>
+          <span class="spacer"></span>
+          <span id="pager" class="pager"></span>
+        </div>
+        <div class="select-toolbar" id="select-toolbar" hidden>
+          <button class="select-count" id="select-count" title="Select all / none">0 selected</button>
+          <span class="spacer"></span>
+          <button class="icon-btn" id="sel-read" title="Mark read">✉</button>
+          <button class="icon-btn" id="sel-unread" title="Mark unread">📩</button>
+          <button class="icon-btn" id="sel-delete" title="Delete">🗑</button>
+          <select id="sel-move-target" title="Move selected to…"><option value="">Move to…</option></select>
+          <button class="icon-btn" id="sel-exit" title="Exit selection">✕</button>
+        </div>
+        <div class="msg-list-header" id="msg-list-header">
+          <span class="lh-cb" aria-hidden="true"></span>
+          <span class="lh-star" aria-hidden="true"></span>
+          <span class="lh-chip" id="lh-chip" aria-hidden="true" hidden></span>
+          <button class="col-head" data-sort="sender" id="col-head-from" style="flex:0 0 var(--col-from,170px);width:var(--col-from,170px)">
+            <span class="col-head-label">Sender</span><span class="sort-arrow"></span>
+            <span class="col-resize" data-col="from" title="Drag to resize"></span>
+          </button>
+          <button class="col-head" data-sort="subject" id="col-head-subject" style="flex:1;min-width:0">
+            <span class="col-head-label">Subject</span><span class="sort-arrow"></span>
+          </button>
+          <button class="col-head" data-sort="date" id="col-head-date" style="flex:0 0 var(--col-date,92px);width:var(--col-date,92px)">
+            <span class="col-head-label">Date</span><span class="sort-arrow"></span>
+            <span class="col-resize" data-col="date" title="Drag to resize"></span>
+          </button>
+        </div>
+        <ul class="msg-list" id="msg-list"></ul>
+      </section>
+
+      <div class="col-resizer" id="resizer-list" title="Drag to resize"></div>
+      <section class="reading-pane" id="reading-pane">
+        <button class="mv-back-btn" id="btn-mv-back" title="Back">← <span>Back</span></button>
+        <div class="empty-state" id="empty-state">
+          <div class="empty-glyph">🌿</div>
+          <p>Select a message to read it here.</p>
+        </div>
+        <div class="message-view" id="message-view" hidden></div>
+      </section>
+    </div>
+  </div>
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+  <!-- Mobile-only floating compose button — see the mobile media query in
+       app.css for exactly when it's hidden (viewing a message, Settings
+       open, Compose itself already open, or the sidebar drawer pulled out,
+       which already has its own Compose button visible). -->
+  <button class="fab-compose" id="btn-fab-compose" title="Compose">+</button>
+
+  <!-- Compose window (floating, Gmail-style) -->
+  <div class="compose-window" id="compose-window" hidden>
+    <div class="compose-titlebar" id="compose-titlebar">
+      <span id="compose-title">New message</span>
+      <span class="spacer"></span>
+      <span class="draft-status" id="draft-status"></span>
+      <button class="icon-btn small" id="btn-compose-min" title="Minimize">—</button>
+      <button class="icon-btn small" id="btn-compose-enlarge" title="Enlarge">⤢</button>
+      <button class="icon-btn small" id="btn-compose-close" title="Close">✕</button>
+    </div>
+    <div class="compose-body" id="compose-body">
+      <div class="compose-row">
+        <label>From</label>
+        <select id="c-identity"></select>
+      </div>
+      <div class="compose-row">
+        <label>To</label>
+        <input id="c-to" placeholder="recipient@example.com, …">
+        <!-- Out of the tab sequence (tabindex="-1", also on the toolbar below):
+             Tab from To goes straight to Subject, and from Subject into the
+             message body, instead of stopping on chrome nobody tabs to on
+             purpose. Still fully clickable; the Cc/Bcc inputs it reveals are
+             normal tab stops once shown. -->
+        <button class="link-btn" id="btn-cc-toggle" tabindex="-1">Cc/Bcc</button>
+      </div>
+      <div class="compose-row cc-row" hidden><label>Cc</label><input id="c-cc"></div>
+      <div class="compose-row cc-row" hidden><label>Bcc</label><input id="c-bcc"></div>
+      <div class="compose-row"><label>Subject</label><input id="c-subject"></div>
+
+      <!-- Every control here is tabindex="-1" on purpose: Tab from Subject
+           must land in the message body, not on Bold. Bold/Italic/Underline
+           still have their native Ctrl+B/I/U in the contenteditable, and
+           everything here stays mouse/touch operable as before. -->
+      <div class="editor-toolbar" id="editor-toolbar">
+        <button data-cmd="bold" title="Bold" tabindex="-1"><b>B</b></button>
+        <button data-cmd="italic" title="Italic" tabindex="-1"><i>I</i></button>
+        <button data-cmd="underline" title="Underline" tabindex="-1"><u>U</u></button>
+        <button data-cmd="insertUnorderedList" title="Bullet list" tabindex="-1">•≡</button>
+        <button data-cmd="insertOrderedList" title="Numbered list" tabindex="-1">1≡</button>
+        <button data-cmd="createLink" title="Insert link" tabindex="-1">🔗</button>
+        <button data-cmd="removeFormat" title="Clear formatting" tabindex="-1">⌫ᴬ</button>
+        <select id="c-font" title="Font" tabindex="-1"></select>
+        <!-- Spell-check language. Shows the auto-detected code (dimmed) until
+             it's pinned; hidden entirely when spell checking is off or the
+             browser has no Custom Highlight API. See public/js/proofread.js. -->
+        <button id="c-lang" class="pf-lang pf-lang-auto" title="Spell-check language" tabindex="-1" hidden>AUTO</button>
+        <span class="spacer"></span>
+        <label class="mini-toggle" title="Plain text mode"><input type="checkbox" id="c-plain" tabindex="-1"> Plain</label>
+      </div>
+      <div id="c-editor" class="compose-editor" contenteditable="true"></div>
+      <textarea id="c-editor-plain" class="compose-editor-plain" hidden></textarea>
+
+      <div class="attach-list" id="c-attach-list"></div>
+    </div>
+    <div class="compose-footer">
+      <span class="send-split">
+        <button class="send-btn" id="btn-send">Send</button>
+        <button class="send-btn send-later" id="btn-send-later" title="Send later" aria-label="Send later">▾</button>
+      </span>
+      <input type="file" id="c-file" multiple hidden>
+      <button class="icon-btn" id="btn-attach" title="Attach files">📎</button>
+      <select id="c-priority" title="Priority">
+        <option value="normal">Normal priority</option>
+        <option value="high">High priority</option>
+        <option value="low">Low priority</option>
+      </select>
+      <label class="mini-toggle" title="Request read receipt"><input type="checkbox" id="c-receipt"> Receipt</label>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="btn-draft-save" title="Save draft now">💾</button>
+      <button class="icon-btn" id="btn-compose-discard" title="Discard draft">🗑</button>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div class="modal-backdrop" id="settings-modal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <div class="modal-header-actions">
+          <!-- Mobile only (see app.css's mobile media query) — Save shares the
+               title row instead of its own full-width bar, which used to push
+               the tab strip down and waste vertical space. Hidden on desktop,
+               where Save stays in .modal-footer as it always has. -->
+          <span id="settings-status-mobile" class="mobile-save-status"></span>
+          <button class="send-btn mobile-save-btn" id="btn-settings-save-mobile">Save</button>
+          <button class="icon-btn" id="btn-settings-close">✕</button>
+        </div>
+      </div>
+      <div class="modal-nav-body">
+        <div class="modal-tabs" id="settings-tabs">
+          <button data-tab="general" class="active"><span class="tab-icon">⚙️</span><span>General</span></button>
+          <button data-tab="reading"><span class="tab-icon">📖</span><span>Reading</span></button>
+          <button data-tab="compose"><span class="tab-icon">✏️</span><span>Compose</span></button>
+          <button data-tab="identities"><span class="tab-icon">👤</span><span>Identities</span></button>
+          <button data-tab="filters"><span class="tab-icon">🧹</span><span>Filters</span></button>
+          <button data-tab="folders"><span class="tab-icon">📁</span><span>Folders</span></button>
+          <button data-tab="scheduler"><span class="tab-icon">🔔</span><span>Scheduler</span></button>
+          <button data-tab="contacts"><span class="tab-icon">👥</span><span>Contacts</span></button>
+          <button data-tab="accounts"><span class="tab-icon">✉️</span><span>Accounts</span></button>
+          <button data-tab="security"><span class="tab-icon">🔑</span><span>Login</span></button>
+          <button data-tab="admin" id="tab-admin" hidden><span class="tab-icon">🛡️</span><span>Admin</span></button>
+          <button data-tab="log"><span class="tab-icon">📜</span><span>Log</span></button>
+        </div>
+        <div class="modal-content-col">
+          <div class="modal-body" id="settings-body"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span id="settings-status"></span>
+        <button class="send-btn" id="btn-settings-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mailbox analytics (see js/analytics.js / server/analytics.js). Same
+       full-screen modal shell as Settings, including the mobile safe-area
+       padding rules that go with it. Content is rendered by JS. -->
+  <div class="modal-backdrop" id="analytics-modal" hidden>
+    <div class="modal">
+      <!-- Close is a direct child, not inside .modal-header-actions, so the
+           mobile layout can keep it on the title row (where there's always
+           room for it) while the account picker and Scan wrap to a second
+           row — see the #analytics-modal .modal-header rules in app.css. -->
+      <div class="modal-header">
+        <h2>Mailbox analytics</h2>
+        <div class="modal-header-actions">
+          <select id="an-account" title="Account"></select>
+          <button class="btn-sm" id="btn-an-scan">Scan</button>
+        </div>
+        <button class="icon-btn" id="btn-an-close" title="Close">✕</button>
+      </div>
+      <div class="modal-nav-body">
+        <div class="modal-tabs" id="an-tabs">
+          <button class="active" data-tab="overview"><span class="tab-icon">📊</span> Overview</button>
+          <button data-tab="senders"><span class="tab-icon">👤</span> Senders</button>
+          <button data-tab="largest"><span class="tab-icon">📦</span> Largest</button>
+          <button data-tab="cleanup"><span class="tab-icon">🧹</span> Search &amp; clean up</button>
+        </div>
+        <div class="modal-content-col">
+          <div class="an-scanbar" id="an-scanbar" hidden>
+            <span id="an-scan-text"></span>
+            <span class="spacer"></span>
+            <button class="link-btn" id="btn-an-cancel">Stop</button>
+          </div>
+          <div class="modal-body" id="an-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User menu (bottom sheet) -->
+  <div class="sheet-backdrop" id="user-menu-backdrop">
+    <div class="bottom-sheet" id="user-menu-sheet">
+      <div class="bottom-sheet-header">
+        <span class="user-avatar" id="user-menu-avatar-lg"></span>
+        <span id="user-menu-username"></span>
+      </div>
+      <button class="sheet-item" id="btn-accounts-manage">✉️ <span>Mail accounts</span></button>
+      <button class="sheet-item" id="btn-folders-manage">📁 <span>Manage folders</span></button>
+      <button class="sheet-item" id="btn-contacts">👥 <span>Contacts</span></button>
+      <button class="sheet-item" id="btn-run-filters">🧹 <span>Run filters</span></button>
+      <button class="sheet-item" id="btn-analytics">📊 <span>Mailbox analytics</span></button>
+      <div class="sheet-divider"></div>
+      <button class="sheet-item" id="btn-theme">◐ <span>Theme</span></button>
+      <button class="sheet-item" id="btn-settings">⚙ <span>Settings</span></button>
+      <button class="sheet-item danger" id="btn-logout">⏻ <span>Log out</span></button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+</div>
+
+<!-- Boot-time offline screen. #app stays hidden until a session is confirmed, so
+     when the very first request can't reach the server there is no UI to hang a
+     banner on — this stands in for it, and js/connection.js reloads the page by
+     itself the moment the server answers again. Deliberately NOT the login page:
+     being unreachable is not being signed out. -->
+<div id="boot-offline" class="boot-offline" hidden>
+  <div class="boot-offline-card">
+    <div class="boot-offline-icon">📶</div>
+    <h1>No connection to the Hmelj server</h1>
+    <p>Hmelj keeps your mail on the server, so it needs that connection to show anything at all. This screen will disappear on its own as soon as the server can be reached again.</p>
+    <button type="button" class="btn-sm" id="boot-offline-retry">Retry now</button>
+  </div>
+</div>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/connection.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/dialog.js"></script>
+<script src="/js/scheduleUtil.js"></script>
+<script src="/js/messageFrame.js"></script>
+<script src="/js/messageFind.js"></script>
+<script src="/js/attachmentViewer.js"></script>
+<script src="/js/oauth.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/analytics.js"></script>
+<script src="/js/proofread.js"></script>
+<script src="/js/compose.js"></script>
+<script src="/js/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  addEventListener('load', async () => {
+    let reg;
+    try { reg = await navigator.serviceWorker.register('/sw.js'); } catch { return; }
+    // Browsers throttle their own automatic service-worker update checks to
+    // roughly once per 24h per registration — fine for a stable app, far
+    // too slow while actively iterating (sw.js's VERSION can bump several
+    // times in one test session and a device can still be running
+    // yesterday's install a day later). Force an immediate check on every
+    // load instead of waiting for that window.
+    reg.update().catch(() => {});
+  });
+  // A new service worker taking over this page (after install+activate —
+  // sw.js's skipWaiting()/clients.claim() make that happen promptly, not
+  // only on the next full relaunch) does NOT retroactively update this
+  // page's *already-loaded* JS (app.js, settings.js, ...) — only an actual
+  // reload fetches those fresh. Without this, a PWA that's merely brought
+  // back to the foreground (not truly relaunched — common on Android/iOS,
+  // which suspend rather than kill backgrounded apps) can keep running old
+  // in-memory code indefinitely even once a newer version is fully
+  // installed and active underneath it. One reload, guarded against firing
+  // twice for the same takeover.
+  let reloadedForNewSw = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedForNewSw) return;
+    reloadedForNewSw = true;
+    location.reload();
+  });
+}
+</script>
+</body>
+</html>

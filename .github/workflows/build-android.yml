@@ -1,0 +1,156 @@
+name: Build Android APK
+
+# CI build only — verifies the app builds on every push/PR touching Android/** and keeps
+# short-lived artifacts around for manual inspection. Does NOT publish anything to a GitHub
+# Release; that only happens for official version tags, in release-android.yml.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Android/**'
+      - '.github/workflows/build-android.yml'
+  pull_request:
+    paths:
+      - 'Android/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # app/google-services.json is git-ignored: it identifies ONE Firebase project,
+      # and a fork building this repo has no business sending its device tokens
+      # there. Without the file the build still succeeds — the google-services
+      # plugin simply isn't applied, BuildConfig.PUSH_ENABLED is false, and the
+      # APK has no Android push. Web Push for browsers/PWAs is unaffected.
+      - name: Prepare Firebase config
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | grep -v '^-' | tr -d '\r\n ' | base64 -d > Android/app/google-services.json
+            echo "Wrote Android/app/google-services.json from the GOOGLE_SERVICES_JSON secret"
+          else
+            echo "No GOOGLE_SERVICES_JSON secret — building without Firebase (Android push disabled)"
+          fi
+
+      - name: Build debug APK
+        working-directory: Android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      # The task names and output paths here have no flavor segment because the app
+      # module has no product flavors — applicationId/versionCode/versionName live
+      # in defaultConfig. Re-introducing a flavor dimension would make these
+      # assembleDebug/assembleRelease/bundleRelease calls build EVERY flavor and
+      # move the outputs to app/build/outputs/apk/<flavor>/<type>/, silently
+      # producing empty artifacts here.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hmelj-debug
+          path: Android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      # ── Release APK (sideload / GitHub Release) ───────────────────────────────
+      # This keystore choice must stay stable forever: existing users update in place by
+      # installing over their current APK, which Android only allows if it's signed with the
+      # exact same certificate as what's already on their device. Deliberately never considers
+      # KEYSTORE_FILE (the Play upload key, prepared separately below for the AAB only) —
+      # mixing the two here used to make this APK silently switch signing identity the moment a
+      # KEYSTORE_FILE secret was added, breaking every existing sideloaded install's next update.
+      # Priority 1: DEV_KEYSTORE_* secrets → persistent dev key stored in secrets
+      # Priority 2: No secret → generate a fresh throwaway keystore on the fly (CI-only, never
+      #   used for a real release — release-android.yml always has DEV_KEYSTORE_* configured)
+      - name: Prepare DEV keystore (for sideload APK)
+        id: dev_keystore
+        working-directory: Android
+        env:
+          DEV_KEYSTORE_FILE_B64:  ${{ secrets.DEV_KEYSTORE_FILE }}
+          DEV_KEYSTORE_PASSWORD:  ${{ secrets.DEV_KEYSTORE_PASSWORD }}
+          DEV_KEY_ALIAS:          ${{ secrets.DEV_KEY_ALIAS }}
+          DEV_KEY_PASSWORD:       ${{ secrets.DEV_KEY_PASSWORD }}
+        run: |
+          if [ -n "$DEV_KEYSTORE_FILE_B64" ]; then
+            echo "Using dev keystore from DEV_KEYSTORE_FILE secret"
+            echo "$DEV_KEYSTORE_FILE_B64" | grep -v '^-' | tr -d '\r\n ' | base64 -d > /tmp/dev-release.jks
+            echo "DEV_KEYSTORE_FILE=/tmp/dev-release.jks"       >> $GITHUB_ENV
+            echo "DEV_KEYSTORE_PASSWORD=$DEV_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+            echo "DEV_KEY_ALIAS=$DEV_KEY_ALIAS"                 >> $GITHUB_ENV
+            echo "DEV_KEY_PASSWORD=$DEV_KEY_PASSWORD"           >> $GITHUB_ENV
+          else
+            echo "No DEV_KEYSTORE_FILE secret found — generating throwaway keystore"
+            keytool -genkeypair \
+              -keystore /tmp/dev-release.jks \
+              -alias hmelj-release \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass hmelj-ci-store \
+              -keypass hmelj-ci-key \
+              -dname "CN=Hmelj CI, OU=Hmelj, O=Hmelj, L=Unknown, ST=Unknown, C=SI"
+            echo "DEV_KEYSTORE_FILE=/tmp/dev-release.jks"   >> $GITHUB_ENV
+            echo "DEV_KEYSTORE_PASSWORD=hmelj-ci-store"     >> $GITHUB_ENV
+            echo "DEV_KEY_ALIAS=hmelj-release"              >> $GITHUB_ENV
+            echo "DEV_KEY_PASSWORD=hmelj-ci-key"            >> $GITHUB_ENV
+          fi
+
+      - name: Build release APK
+        working-directory: Android
+        run: ./gradlew assembleRelease
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hmelj-release
+          path: Android/app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
+      # ── Release AAB (Google Play only) ────────────────────────────────────────
+      # Google Play requires an .aab, not the .apk above — Play itself slices it into
+      # per-device APKs at install time. Sets the bare KEYSTORE_FILE/KEYSTORE_PASSWORD/KEY_ALIAS/
+      # KEY_PASSWORD env vars (no DEV_ prefix) so build.gradle's signingConfigs.release takes its
+      # "Priority 1: Google Play / production keystore" branch instead of the DEV_* one used by
+      # the APK above — each ./gradlew invocation re-reads the environment at build-configuration
+      # time, so this doesn't affect the already-built APK. Falls back to reusing the DEV
+      # keystore prepared above if KEYSTORE_FILE isn't set yet, so this still produces a working
+      # (if not Play-intended) AAB before Play secrets exist.
+      - name: Prepare Play keystore (for AAB)
+        working-directory: Android
+        env:
+          KEYSTORE_FILE_B64: ${{ secrets.KEYSTORE_FILE }}
+        run: |
+          if [ -n "$KEYSTORE_FILE_B64" ]; then
+            echo "Using Play upload keystore from KEYSTORE_FILE secret"
+            echo "$KEYSTORE_FILE_B64" | grep -v '^-' | tr -d '\r\n ' | base64 -d > /tmp/play-release.jks
+            echo "KEYSTORE_FILE=/tmp/play-release.jks"                >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"                 >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}"           >> $GITHUB_ENV
+          else
+            echo "No KEYSTORE_FILE secret found — AAB will fall back to the DEV keystore prepared above"
+          fi
+
+      - name: Build release bundle (AAB)
+        working-directory: Android
+        run: ./gradlew bundleRelease
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hmelj-release-aab
+          path: Android/app/build/outputs/bundle/release/*.aab
+          retention-days: 90

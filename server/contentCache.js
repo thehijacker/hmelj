@@ -1,0 +1,171 @@
+// Hmelj — cache-first message content reads. The one place all "give me a
+// parsed message" calls go through (the message-open route, and sync.js's
+// proactive new-mail/backfill caching and push-notification preview) — on a
+// cache hit this is a plain SQLite read, no IMAP/EWS round trip at all; on a
+// miss it does the exact same live fetch as before and opportunistically
+// populates the cache for next time. imapClient.js/ewsClient.js are
+// untouched by this — matches this codebase's existing convention of
+// keeping cache orchestration in callers (index.js, sync.js), not inside
+// the protocol clients themselves.
+import { config } from './config.js';
+import { store } from './store.js';
+import * as cache from './cache.js';
+import * as mailClient from './mailClient.js';
+import { log } from './log.js';
+import { receiptAddressOf } from './readReceipt.js';
+import { repairQuotedPrintable } from './transferEncoding.js';
+
+const slog = log.scope('contentCache');
+
+// Not a user-facing setting (contentCacheLimit — "how many" — is; see
+// store.js) — a fixed safety valve so one unusually large HTML newsletter
+// (embedded base64 images inline in the markup, not real attachments —
+// those are never part of this cache, see cache.js's table comment) can't
+// bloat the cache unbounded. Generous for ordinary mail, which this rarely
+// if ever hits.
+const MAX_CACHE_BYTES = 2 * 1024 * 1024; // 2MB of parsed JSON
+
+/**
+ * Bump whenever messageParse.js starts producing a field the UI relies on.
+ * Everything cached under an older stamp is re-fetched once, on next open.
+ *
+ *   1 — listUnsubscribe (2026-08-26)
+ */
+// 2 (2026-08-27): messages gained `invitation` — a meeting request parsed out
+// of its text/calendar part. Nothing can synthesise that from an already-cached
+// object the way normalize() repairs a shape, so this is the case the stamp
+// exists for: every message re-parses once, on its next open.
+const CONTENT_VERSION = 2;
+
+/**
+ * Cache-first parsed-message read. Returns the exact same shape
+ * mailClient.getMessage() always has (`{uid, subject, from, to, html,
+ * text, attachments, ...}`) whether served from cache or fetched live.
+ */
+export async function getMessage(uKey, accountId, folder, uid) {
+  if (config.cacheEnabled) {
+    const cached = cache.getMessageContent(uKey, accountId, folder, uid);
+    // A cached message is JSON written by whatever messageParse.js was running
+    // at the time, and nothing ever re-parses it — so a message read often
+    // enough to matter is exactly the one that never picks up a new field. That
+    // is not theoretical: the read-receipt banner shipped reading a field that
+    // every cached message lacked, and looked simply broken. A stamp mismatch
+    // is treated as a miss: one live fetch, then it is current again.
+    if (cached && cached.__v === CONTENT_VERSION) return normalize(cached);
+  }
+  const msg = await mailClient.getMessage(folder, uid);
+  msg.__v = CONTENT_VERSION;
+  if (config.cacheEnabled) {
+    try {
+      const json = JSON.stringify(msg);
+      const tooBig = json.length > MAX_CACHE_BYTES;
+      cache.saveMessageContent(uKey, accountId, folder, uid, tooBig ? null : msg, json.length);
+      if (tooBig) slog.debug(`${folder}/${uid}: parsed content is ${(json.length / 1024 / 1024).toFixed(1)}MB, over the cache cap — will stay live on every open`);
+    } catch (e) {
+      slog.warn(`Could not cache content for ${folder}/${uid}:`, e.message); // never let a caching failure break the actual read
+    }
+  }
+  return normalize(msg);
+}
+
+/**
+ * Fixes up a parsed message on the way out, for fields whose SHAPE has changed
+ * since it might have been cached. Cached content is JSON written by whatever
+ * version of messageParse.js was running at the time, and it is never
+ * re-parsed on its own — so a parse-time fix reaches old rows only when they
+ * happen to be evicted, which for a read-often message is never.
+ *
+ * Two things so far, both idempotent — running either on already-fixed content
+ * gives back what it was handed:
+ *
+ *  - Disposition-Notification-To used to be stored as mailparser's address
+ *    OBJECT, which the reading pane rendered as "[object Object]" in the
+ *    read-receipt banner.
+ *  - A text part that arrived as undecoded quoted-printable
+ *    (server/transferEncoding.js). Repaired here as well as at parse time so
+ *    the messages already in the cache — 14 of 2256 on the live instance —
+ *    come right on the next read, rather than only if they are ever evicted.
+ *    Cheaper than bumping CONTENT_VERSION, which would re-fetch every message
+ *    in the cache to fix fourteen.
+ */
+function normalize(msg) {
+  let out = msg;
+  const dnt = out?.headers?.dispositionNotificationTo;
+  if (dnt && typeof dnt !== 'string') {
+    out = { ...out, headers: { ...out.headers, dispositionNotificationTo: receiptAddressOf(dnt) || null } };
+  }
+  if (out?.text) {
+    const fixed = repairQuotedPrintable(out.text);
+    if (fixed !== out.text) out = { ...out, text: fixed };
+  }
+  return out;
+}
+
+// Small, fixed per-tick budget for the backfill pass (catching up already-
+// cached-envelope messages that don't have content cached yet) — same
+// "never do it all at once" reasoning as sync.js's own
+// FULL_RESYNC_EVERY_N_TICKS/DATE_SORT_CANDIDATE_CAP: a large backfill (a
+// freshly-raised contentCacheLimit, or a folder that just entered scope)
+// trickles in over several minutes of ticks instead of bursting a wall of
+// fetches at once, which is exactly the kind of concurrent-load spike
+// Gmail throttles hardest (see imapClient.js's connection pool comment).
+// Genuinely NEW mail (see cacheNewMail below) is never subject to this —
+// it's naturally small per tick and should never wait behind a backlog.
+const BACKFILL_BUDGET_PER_TICK = 8;
+
+/** Proactively cache content for every message in `messages` (already
+ * envelope-cached elsewhere by the caller) — used for genuinely new mail,
+ * uncapped since that set is naturally small (a handful of messages per
+ * folder per tick, not a backlog). Errors on one message never abort the
+ * rest — a slow/broken fetch for one shouldn't cost the others their cache
+ * warm-up. */
+export async function cacheMessages(uKey, accountId, folder, messages) {
+  if (!config.cacheEnabled) return;
+  for (const m of messages) {
+    try { await getMessage(uKey, accountId, folder, m.uid); }
+    catch (e) { slog.debug(`${folder}/${m.uid}: proactive cache fetch failed:`, e.message); }
+  }
+}
+
+/**
+ * Throttled catch-up pass: content-cache whichever of the newest
+ * `contentCacheLimit` (Settings > General) envelope-cached messages in this
+ * folder don't have it yet, up to BACKFILL_BUDGET_PER_TICK per call, then
+ * prune anything that's fallen out of that window. Safe to call every poll
+ * tick regardless of whether this folder had any new mail this time.
+ */
+export async function backfillAndPrune(uKey, accountId, folder) {
+  if (!config.cacheEnabled) return;
+  const limit = store.getSettings().contentCacheLimit;
+  if (!limit) { cache.pruneMessageContent(uKey, accountId, folder, []); return; } // disabled — don't keep a stale cache around either
+  const recentUids = cache.getRecentUids(uKey, accountId, folder, limit);
+  const already = new Set(cache.getCachedContentUids(uKey, accountId, folder, recentUids));
+  const missing = recentUids.filter((u) => !already.has(u)).slice(0, BACKFILL_BUDGET_PER_TICK);
+  for (const uid of missing) {
+    try {
+      await getMessage(uKey, accountId, folder, uid);
+    } catch (e) {
+      slog.debug(`${folder}/${uid}: backfill cache fetch failed:`, e.message);
+      // "Message not found" means the server no longer has it — the envelope
+      // row is stale. Most common cause: a message deleted through Gmail's All
+      // Mail (or any other label view), which removes it from every label,
+      // while the cache only ever cleaned the folder the delete was aimed at.
+      //
+      // Dropping the row now rather than waiting for the next full scan to
+      // prune it matters for more than tidiness: a dead uid stays in
+      // getRecentUids and so keeps consuming this tick's backfill budget, which
+      // means genuinely cacheable messages don't get pre-fetched for as long as
+      // it lingers (up to ~20 minutes at the default full-scan cadence).
+      //
+      // Deliberately narrow — only this one error, never a generic failure. A
+      // timeout or a dropped connection says nothing about whether the message
+      // still exists, and evicting on those would remove rows that are fine.
+      if (/message not found/i.test(e.message || '')) {
+        const delta = cache.removeMessages(uKey, accountId, folder, [uid]);
+        cache.adjustFolderCounts(uKey, accountId, folder, delta);
+        slog.debug(`${folder}/${uid}: gone from the server — dropped the stale cache row`);
+      }
+    }
+  }
+  cache.pruneMessageContent(uKey, accountId, folder, recentUids);
+}

@@ -1,0 +1,2086 @@
+/* Hmelj — Gmail-like layout, themed via CSS variables */
+
+:root {
+  --bg: #f6f8fc;
+  --surface: #ffffff;
+  --surface-2: #eef2f9;
+  --text: #1f1f1f;
+  --text-dim: #5f6368;
+  --border: #e0e3e8;
+  --accent: #0b57d0;
+  --accent-soft: #d3e3fd;
+  --unread-bg: #ffffff;
+  --read-bg: #f2f6fc;
+  --hover: rgba(32, 33, 36, 0.07);
+  --danger: #c5221f;
+  --shadow: 0 1px 3px rgba(0,0,0,.18);
+  --radius: 16px;
+  /* UI chrome font (Settings › General) — every font-size in this file is
+     `calc(Npx * var(--ui-scale))` so the one --ui-scale knob resizes the
+     whole app proportionally, not just body copy. --ui-weight only lands on
+     the base `body` rule (below), so explicit heavier weights used for
+     hierarchy elsewhere (headers, badges) aren't flattened by it. This is
+     chrome-only — the message *content* pane has its own separate
+     messageFont/messageFontSize setting, unaffected by these. */
+  --ui-font: 'Segoe UI', system-ui, Roboto, sans-serif;
+  --ui-scale: 1;
+  --ui-weight: 400;
+  /* Safe-area insets (notch / status bar / gesture-nav edges) — live
+     references to env(), not baked-in values, so they keep correcting
+     themselves as the browser's own understanding of the safe area changes
+     (rotation, chrome settling). index.html's inline probe script
+     overwrites these with a directly-measured px value shortly after load
+     (env() alone is unreliable for the first moment on some platforms,
+     iOS in particular) — this env() default is what's in effect before
+     that first probe lands, and the fallback for any page that doesn't run
+     it (message.html, login.html). requires viewport-fit=cover in the
+     <meta name="viewport"> tag to ever resolve to anything but 0. */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/* Explicit (not just the :root default) so a theme swatch preview — a small
+   nested element carrying its own [data-theme] — can force "light" even
+   while the surrounding page is in a different theme; see .theme-swatch. */
+[data-theme="light"] {
+  --bg: #f6f8fc;
+  --surface: #ffffff;
+  --surface-2: #eef2f9;
+  --text: #1f1f1f;
+  --text-dim: #5f6368;
+  --border: #e0e3e8;
+  --accent: #0b57d0;
+  --accent-soft: #d3e3fd;
+  --unread-bg: #ffffff;
+  --read-bg: #f2f6fc;
+  --hover: rgba(32, 33, 36, 0.07);
+  --danger: #c5221f;
+  --shadow: 0 1px 3px rgba(0,0,0,.18);
+}
+
+[data-theme="dark"] {
+  --bg: #101418;
+  --surface: #1b1f24;
+  --surface-2: #23282e;
+  --text: #e3e6ea;
+  --text-dim: #9aa0a6;
+  --border: #30363d;
+  --accent: #8ab4f8;
+  --accent-soft: #1f3a5f;
+  --unread-bg: #1b1f24;
+  --read-bg: #14181c;
+  --hover: rgba(255,255,255,0.08);
+  --danger: #f28b82;
+  --shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+
+/* Warm, low-blue-light paper tone — easier on tired eyes for long reading
+   sessions than stark white. */
+[data-theme="sepia"] {
+  --bg: #f4ecd8;
+  --surface: #fbf5e6;
+  --surface-2: #ece0c4;
+  --text: #3b2f22;
+  --text-dim: #7a6a52;
+  --border: #ddd0af;
+  --accent: #8a5a2b;
+  --accent-soft: #e8d5ab;
+  --unread-bg: #fbf5e6;
+  --read-bg: #f1e6cd;
+  --hover: rgba(59, 47, 34, 0.08);
+  --danger: #a33b2b;
+  --shadow: 0 1px 3px rgba(59, 47, 34, .18);
+}
+
+/* Near-black text on white, thicker/darker borders, saturated accent —
+   maximum-legibility option for low vision, not a stylistic variant. */
+[data-theme="contrast"] {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #eeeeee;
+  --text: #000000;
+  --text-dim: #333333;
+  --border: #000000;
+  --accent: #0000cc;
+  --accent-soft: #cfe0ff;
+  --unread-bg: #ffffff;
+  --read-bg: #ececec;
+  --hover: rgba(0, 0, 0, 0.12);
+  --danger: #b00000;
+  --shadow: 0 0 0 1px #000;
+}
+
+/* Near-black (not just dark grey) — deeper than the default Dark theme for
+   OLED screens / darker rooms. */
+[data-theme="midnight"] {
+  --bg: #000000;
+  --surface: #0b0b0d;
+  --surface-2: #17171a;
+  --text: #f0f0f0;
+  --text-dim: #97979a;
+  --border: #2a2a2d;
+  --accent: #7aa2ff;
+  --accent-soft: #1b2a4d;
+  --unread-bg: #0b0b0d;
+  --read-bg: #060607;
+  --hover: rgba(255, 255, 255, 0.1);
+  --danger: #ff6b6b;
+  --shadow: 0 1px 4px rgba(0,0,0,.8);
+}
+[data-theme="midnight"] .send-btn { color: #0a0e1a; }
+
+[data-theme="purple"] {
+  --bg: #f7f4fc;
+  --surface: #ffffff;
+  --surface-2: #efe8fa;
+  --text: #2c1f3d;
+  --text-dim: #6c5c82;
+  --border: #ddd0ee;
+  --accent: #7c3aed;
+  --accent-soft: #e6d9fb;
+  --unread-bg: #ffffff;
+  --read-bg: #f2ecfa;
+  --hover: rgba(124, 58, 237, 0.08);
+  --danger: #c5221f;
+  --shadow: 0 1px 3px rgba(60, 30, 90, .18);
+}
+[data-theme="pink"] {
+  --bg: #fdf3f7;
+  --surface: #ffffff;
+  --surface-2: #fbe7f0;
+  --text: #3d1f2c;
+  --text-dim: #8a5c72;
+  --border: #f2d0e0;
+  --accent: #d6297a;
+  --accent-soft: #fad3e6;
+  --unread-bg: #ffffff;
+  --read-bg: #fbebf2;
+  --hover: rgba(214, 41, 122, 0.08);
+  --danger: #c5221f;
+  --shadow: 0 1px 3px rgba(90, 30, 55, .18);
+}
+[data-theme="red"] {
+  --bg: #fdf4f3;
+  --surface: #ffffff;
+  --surface-2: #fbe6e3;
+  --text: #3d211f;
+  --text-dim: #8a5f5a;
+  --border: #f2d2ce;
+  --accent: #c5221f;
+  --accent-soft: #f8d5d2;
+  --unread-bg: #ffffff;
+  --read-bg: #fbebe9;
+  --hover: rgba(197, 34, 31, 0.08);
+  --danger: #8a1a17;
+  --shadow: 0 1px 3px rgba(90, 30, 27, .18);
+}
+[data-theme="green"] {
+  --bg: #f3faf5;
+  --surface: #ffffff;
+  --surface-2: #e5f5ea;
+  --text: #1f3324;
+  --text-dim: #5c7a66;
+  --border: #cfe8d8;
+  --accent: #188038;
+  --accent-soft: #cdead9;
+  --unread-bg: #ffffff;
+  --read-bg: #eaf7ee;
+  --hover: rgba(24, 128, 56, 0.08);
+  --danger: #c5221f;
+  --shadow: 0 1px 3px rgba(20, 60, 35, .18);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--ui-font);
+  font-size: calc(14px * var(--ui-scale));
+  font-weight: var(--ui-weight);
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text);
+}
+/* 100vh first as a fallback for browsers old enough not to support lvh (an
+   unsupported unit makes the whole declaration invalid and ignored, so the
+   line above stays in effect there) — 100lvh (large viewport height, the
+   true un-shrunk screen size) overrides it where supported. Matters on iOS
+   standalone PWA specifically: 100vh there reports the screen height *minus*
+   the status bar, which combined with this layout separately padding its own
+   --sat top inset leaves a gap of exactly that inset's height at the bottom.
+   Android/desktop don't have this quirk (100vh is already correct there),
+   but 100lvh resolves to the same correct value on those too, so there's no
+   platform-specific branching needed here. */
+#app { display: flex; flex-direction: column; height: 100vh; height: 100lvh; }
+/* #app starts `hidden` in index.html so a not-logged-in visitor never sees the
+   full mail UI flash before boot()'s session check redirects to the login page.
+   The [hidden] attribute alone wouldn't win here: the UA default `[hidden]{display:
+   none}` rule has lower specificity than the ID rule right above, which would
+   otherwise keep #app visible even while hidden is set. */
+#app[hidden] { display: none; }
+/* Themed, narrower scrollbars everywhere — inherited (scrollbar-color is an
+   inherited property) from :root down into every scrolling region in the
+   app, so this one declaration is enough rather than repeating it per
+   scroll container. Firefox/current Chrome+Edge read scrollbar-color
+   directly; the ::-webkit-scrollbar rules are for engines that don't (or
+   want finer width control than scrollbar-width:thin gives). */
+:root { scrollbar-color: var(--text-dim) var(--surface-2); scrollbar-width: thin; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--surface-2); }
+::-webkit-scrollbar-thumb { background: var(--text-dim); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.spacer { flex: 1; }
+[hidden] { display: none !important; }
+
+/* ---------- message list search bar (top bar was removed — see
+   .list-search-bar in the layout section below for where these now live) ---------- */
+/* align-items: center — without it, flex's default (stretch) doesn't
+   actually stretch the fixed-size icon buttons (they have an explicit
+   width/height), so they fall back to flex-start and sit pinned to the
+   top of the row instead of centered against the input's own vertically-
+   centered text; most noticeable on the smaller .small clear button. */
+.search { flex: 1; min-width: 0; display: flex; align-items: center; background: var(--surface-2); border-radius: 24px; padding: 2px 6px 2px 16px; }
+.search input { flex: 1; min-width: 0; border: none; background: transparent; padding: 9px 0; }
+.search input:focus { outline: none; }
+/* ---------- offline ----------
+   The server-unreachable bar (see js/connection.js). A flex child of #app, ahead
+   of .main, so it pushes the app down rather than covering the toolbar — and so
+   it survives every view (list, message, settings modal) without a z-index race
+   against the dialogs. It carries the top safe-area inset while it's up, and
+   .main's own consumers of --sat stand down for the duration (they'd otherwise
+   add a second inset's worth of padding under it). */
+.offline-bar {
+  display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+  padding: 9px 14px; padding-top: calc(9px + var(--sat, 0px));
+  background: #f9a825; color: #1a1a1a;
+  font-size: calc(13px * var(--ui-scale)); line-height: 1.35;
+}
+.offline-bar[hidden] { display: none; }
+.offline-bar-icon { flex: 0 0 auto; }
+.offline-bar-text { flex: 1; min-width: 0; }
+.offline-bar .btn-sm { flex: 0 0 auto; border-color: rgba(0,0,0,.35); color: #1a1a1a; }
+.offline-bar .btn-sm:hover { background: rgba(0,0,0,.08); }
+#app.offline .main { --sat: 0px; }
+
+/* Boot-time offline screen — the app never got far enough to have a UI. */
+.boot-offline {
+  position: fixed; inset: 0; z-index: 400; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: var(--bg); color: var(--text);
+}
+.boot-offline[hidden] { display: none; }
+.boot-offline-card { max-width: 420px; text-align: center; }
+.boot-offline-icon { font-size: 42px; margin-bottom: 10px; }
+.boot-offline-card h1 { font-size: calc(19px * var(--ui-scale)); margin: 0 0 10px; }
+.boot-offline-card p { color: var(--text-dim); font-size: calc(13.5px * var(--ui-scale)); margin: 0 0 18px; }
+
+.conn { font-size: calc(12px * var(--ui-scale)); color: var(--danger); flex: 0 0 auto; }
+.conn.ok { color: #188038; }
+.conn.offline { color: #f9a825; } /* distinct from .ok (green) and the plain-red "no accounts/error" default — this device knows it's offline, not erroring */
+@keyframes hmelj-spin { to { transform: rotate(360deg); } }
+.icon-btn.spinning { animation: hmelj-spin 0.8s linear infinite; pointer-events: none; }
+
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: calc(16px * var(--ui-scale)); color: var(--text-dim);
+}
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.icon-btn.small { width: 26px; height: 26px; font-size: calc(13px * var(--ui-scale)); }
+/* Checked/pressed state for an icon-btn used as a toggle (e.g. the list toolbar's
+   Unread-only / Show-muted buttons) — same "selected chip" treatment as .msg-row.picked
+   elsewhere, so a filter currently in effect reads as visually "on" without needing a
+   second icon swapped in for the active state. */
+.icon-btn.active { background: var(--accent-soft); color: var(--accent); }
+/* The starred-only filter keeps the list rows' own star gold when it's on, so the
+   toolbar button and the thing it filters by read as the same idea. */
+#btn-starred-only.active { color: #f4b400; }
+.icon-btn.active:hover { background: var(--accent-soft); }
+.link-btn { color: var(--accent); padding: 4px 6px; border-radius: 4px; }
+.link-btn:hover { background: var(--hover); }
+/* Destructive secondary action (e.g. a dialog's "Delete draft" next to a
+   primary "Save draft") — tinted rather than filled, so it stays clearly
+   subordinate to the primary .send-btn.danger treatment. */
+.link-btn.danger { color: var(--danger); }
+.btn-sm {
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px;
+  font-size: calc(12.5px * var(--ui-scale)); color: var(--text); background: transparent;
+}
+.btn-sm:hover { background: var(--hover); }
+.btn-sm.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.ac-status { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- layout ---------- */
+/* Edge-to-edge, the three insets that were missing.
+   --sat (the status bar / camera cutout) was already honoured everywhere it
+   mattered; the other three only bite in LANDSCAPE on a phone, which is where
+   this showed up: the cutout moves to one side and the navigation bar to the
+   other (or along the bottom), and the message list's last rows, the reading
+   pane's text and the sidebar's footer all ran underneath the nav buttons.
+   The side insets go on the container, so the app background — not content —
+   is what sits beside the bars; the bottom inset goes on each SCROLL container
+   (below), so content scrolls clear of the bar while backgrounds still run to
+   the screen edge.
+   All four are 0 on desktop, and 0 inside the native Android shell too, which
+   shrinks its own WebView instead (see .list-search-bar's note) — so none of
+   this double-pads there. */
+.main { flex: 1; display: flex; min-height: 0; padding-left: var(--sal); padding-right: var(--sar); }
+
+.sidebar {
+  width: 232px; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 8px;
+  /* No overflow-y here — only .sidebar-scroll (accounts + folders) scrolls,
+     so the brand row up top and the user-menu trigger at the bottom stay
+     pinned in place no matter how many folders an account has. */
+}
+.sidebar.collapsed { display: none; }
+/* Doubles as a manual "reload" button (see #btn-reload-app in app.js) — the
+   app already force-checks for a new service-worker version on every fresh
+   page load and auto-reloads once one takes over (see index.html's own
+   inline bootstrap script), but a WebView-wrapped install left running in
+   the background never gets a fresh load on its own (resuming isn't the
+   same as relaunching), so that check never re-fires until the app is
+   actually killed and reopened. Tapping this is the same fresh reload
+   without needing to do that. */
+.sidebar-brand { display: flex; align-items: center; gap: 8px; padding: 4px 6px; flex: 0 0 auto; padding-top: calc(4px + var(--sat)); cursor: pointer; border-radius: 6px; }
+.sidebar-brand:hover { background: var(--hover); }
+.sidebar-brand .brand-icon { width: 22px; height: 22px; flex: 0 0 auto; }
+.sidebar-brand .brand-name { font-weight: 600; font-size: calc(15px * var(--ui-scale)); }
+.sidebar-brand .brand-version { font-size: calc(11px * var(--ui-scale)); color: var(--text-dim); margin-left: auto; }
+/* Compose + the account-reorder toggle share one row. The row (not the button)
+   is now the sidebar flex child, so .compose-btn no longer needs align-self —
+   it's the row that stays left-aligned and only as wide as its contents. */
+.sidebar-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.compose-btn {
+  flex: 0 0 auto;
+  background: var(--accent-soft); color: var(--text);
+  padding: 8px 18px; border-radius: var(--radius); box-shadow: var(--shadow);
+  font-weight: 500;
+}
+.compose-btn:hover { filter: brightness(1.03); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+/* Mobile-only floating Compose shortcut — desktop always has .compose-btn
+   itself visible in the sidebar, no need for this too. Shown/hidden by
+   context inside the mobile media query below. */
+.fab-compose { display: none; }
+.sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+.folder-list { list-style: none; margin: 8px 0 0; padding: 0; flex: 1; }
+.folder-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px 7px 14px; border-radius: 0 20px 20px 0;
+  cursor: pointer; color: var(--text); user-select: none;
+}
+.folder-list li:hover { background: var(--hover); }
+.folder-list li.active { background: var(--accent-soft); font-weight: 600; }
+.folder-list .f-count { margin-left: auto; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.folder-list li.active .f-count { color: var(--text); }
+.folder-list .f-icon { width: 18px; text-align: center; }
+.sidebar-footer { padding-bottom: calc(4px + var(--sab)); flex: 0 0 auto; }
+.user-menu-trigger {
+  display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box;
+  padding: 8px; border-radius: 10px; text-align: left;
+}
+.user-menu-trigger:hover { background: var(--hover); }
+.user-avatar {
+  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--accent-soft); color: var(--text);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: calc(13px * var(--ui-scale)); font-weight: 600;
+}
+.user-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(13px * var(--ui-scale)); }
+.user-menu-arrow { color: var(--text-dim); font-size: calc(11px * var(--ui-scale)); flex: 0 0 auto; }
+
+/* ---------- content ---------- */
+.content { flex: 1; display: flex; min-width: 0; padding: 0 12px 12px 0; gap: 12px; }
+.content.pane-bottom { flex-direction: column; }
+.content.pane-off .reading-pane { display: none; }
+
+.msg-list-pane {
+  flex: 1; min-width: 320px; display: flex; flex-direction: column;
+  background: var(--surface); border-radius: var(--radius); overflow: hidden;
+}
+.content.pane-right .msg-list-pane { max-width: 46%; }
+.content.pane-off .msg-list-pane, .content.pane-window .msg-list-pane { max-width: none; }
+.content.pane-window .reading-pane { display: none; }
+
+.list-search-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+  /* --sat (see :root above) is 0 on any device without a notch/status-bar
+     overlay (desktop, most non-mobile browsers) — calc() collapses back to
+     the plain 8px above, so this is a no-op everywhere except a phone whose
+     status bar the page is now drawing under (see viewport-fit=cover in
+     index.html). Inside the native Android app shell specifically, this
+     rule doesn't even need to fire at all — that project pads the WebView's
+     own native view directly rather than relying on this page's CSS, so
+     --sat there can safely stay whatever it defaults to (usually 0, since a
+     bare WebView doesn't compute env(safe-area-inset-*) itself either). */
+  padding-top: calc(8px + var(--sat));
+}
+.list-toolbar {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
+}
+.list-toolbar select { max-width: 130px; }
+.mini-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); cursor: pointer; }
+.pager { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); display: inline-flex; gap: 4px; align-items: center; }
+.pager button { padding: 2px 8px; border-radius: 4px; }
+.pager button:hover { background: var(--hover); }
+.pager-total { padding: 0 2px; border-radius: 3px; text-decoration: underline dotted; text-underline-offset: 2px; }
+.pager-total:hover { background: var(--hover); color: var(--text); }
+#btn-select-mode.active { background: var(--accent-soft); color: var(--text); }
+
+/* Injected in place of .list-toolbar's normal contents while selecting —
+   see app.js#setSelectMode. Same row/height as .list-toolbar so nothing
+   jumps when it appears. */
+.select-toolbar {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+}
+.select-toolbar select { max-width: 130px; }
+.select-count { font-size: calc(13px * var(--ui-scale)); font-weight: 600; padding: 5px 10px; border-radius: 14px; }
+.select-count:hover { background: var(--hover); }
+
+/* Layout button popover (Table/Small/Compact/Comfort/Wide) — same
+   class-toggle transition pattern as the bottom sheet/sidebar, just a
+   small anchored menu instead of a full overlay. */
+.layout-menu-wrap { position: relative; }
+.layout-menu {
+  position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 4px; min-width: 140px;
+  opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.layout-menu.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.layout-menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px;
+  border-radius: 6px; font-size: calc(13px * var(--ui-scale)); text-align: left; color: var(--text);
+}
+.layout-menu button:hover { background: var(--hover); }
+.layout-menu button.active { color: var(--accent); font-weight: 600; }
+
+/* overflow-x: a transformed box still contributes to its scroller's scrollable
+   overflow, and `overflow-y: auto` alone makes `overflow-x: visible` compute to
+   `auto` — so bindSwipe()'s translateX() handed this list a horizontal
+   scrollbar the moment a row moved right. Only right: in LTR, overflow past the
+   left edge is unreachable and never scrolls, which is why swiping left to mark
+   read looked fine while swiping right to delete grew a bar along the bottom.
+   The rows are all ellipsis + min-width:0 and never want to scroll sideways, so
+   clipping costs nothing and also keeps a flung-away row inside the list. */
+/* Nothing in the list is text you read — it is a grid of rows you click. On a
+   desktop, dragging the mouse across it selected subjects and senders instead
+   of doing nothing, which is what Ctrl+click (see app.js's row handler) now
+   uses that drag gesture's space for. On a phone it also stops the browser's
+   selection handles racing bindLongPress for the same press.
+   Deliberately only the LIST: the reading pane's header and body stay fully
+   selectable, apart from the address chips, which have their own Copy. */
+.msg-list {
+  list-style: none; margin: 0; padding: 0 0 var(--sab); overflow-y: auto; overflow-x: hidden; flex: 1;
+  user-select: none; -webkit-user-select: none;
+}
+.msg-list-loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100%; color: var(--text-dim); text-align: center;
+}
+.msg-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px 8px 11px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent;
+  cursor: pointer; background: var(--read-bg); color: var(--text-dim);
+}
+/* font-weight alone used to be the whole signal — invisible once the App
+   font weight setting (Settings > General) is itself set to Bold, since
+   every row (read included) then inherits that same weight and there's
+   nothing left to distinguish. The left accent stripe is unaffected by
+   that setting entirely; `bolder` (not a fixed 600) keeps stepping unread
+   one weight heavier than whatever the base is, rather than colliding with
+   it — 400->700 normally, but also 700->900 if the base itself is Bold, so
+   unread still reads as heavier either way instead of the same or lighter. */
+.msg-row.unread { background: var(--unread-bg); color: var(--text); font-weight: bolder; border-left-color: var(--accent); }
+.msg-row:hover { box-shadow: inset 0 0 0 999px var(--hover); }
+.msg-row.selected { background: var(--accent-soft); color: var(--text); }
+/* Bulk-selected (select mode), distinct from .selected (open in reading
+   pane) — same highlight weight, so either state reads as "this row is
+   the one that matters right now." */
+.msg-row.picked { background: var(--accent-soft); color: var(--text); }
+.msg-row .m-from { width: var(--col-from, 170px); flex: 0 0 var(--col-from, 170px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-row .m-subject { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.msg-row .m-subject .m-preview { font-weight: 400; color: var(--text-dim); }
+.msg-row .m-date { width: var(--col-date, 92px); flex: 0 0 var(--col-date, 92px); text-align: right; font-size: calc(12px * var(--ui-scale)); }
+.msg-row .m-star { color: var(--text-dim); flex: 0 0 20px; width: 20px; text-align: center; }
+.msg-row .m-star.on { color: #f4b400; }
+.msg-row .m-attach { font-size: calc(12px * var(--ui-scale)); flex: 0 0 auto; }
+/* Conversation size. Lives inside .m-subject with the reply marker below, for
+   the same reasons: no layout of its own to maintain across the five row
+   densities, and it stays glued to the subject it describes. */
+.msg-row .m-thread {
+  display: inline-block; min-width: 16px; margin-right: 5px; padding: 0 5px;
+  border-radius: 9px; text-align: center;
+  background: var(--surface-2); color: var(--text-dim);
+  font-size: calc(11px * var(--ui-scale)); font-weight: 600; line-height: 1.5;
+  vertical-align: baseline;
+}
+.msg-row.unread .m-thread { background: var(--accent-soft); color: var(--accent); }
+/* Reply/forward marker. Lives inside .m-subject (see answerMarkHtml in app.js),
+   so it needs no grid placement and survives the subject's own ellipsis. Dimmed
+   and slightly smaller: it's a status hint, not something to read past. */
+.msg-row .m-answered { color: var(--accent); font-size: calc(12px * var(--ui-scale)); margin-right: 4px; }
+/* Spelled out in the reading pane, where there's room for the sentence. */
+.mv-answered { color: var(--text-dim); font-size: calc(12.5px * var(--ui-scale)); margin-top: 4px; }
+/* Scheduled rows (app.js#scheduledRow) reuse .m-date so the send time lands in
+   whichever cell the current layout already reserves for a time — the Date
+   column in the table layout, the bottom-right of the card in the other four.
+   Without that class it had no grid placement at all and auto-flowed into a row
+   of its own. .m-when only adds what is different: a status word can be longer
+   than a timestamp, so it is allowed to wrap, and "Sending…" / "May have been
+   sent" are called out. */
+.msg-row .m-date.m-when { white-space: normal; }
+.msg-row .m-date.m-when.late { color: var(--danger); }
+/* The account badge on a scheduled row says which account the message will go
+   out through — it is not the read/unread toggle .acct-chip is everywhere else
+   (an unsent message has no read state), so it must not look clickable. */
+.acct-chip.acct-chip-static { cursor: default; }
+.acct-chip.acct-chip-static:hover { background: color-mix(in srgb, var(--chip) 20%, transparent); }
+.msg-row.deleted { text-decoration: line-through; opacity: .55; }
+
+/* Selection control — a round checkmark button (not a bare native
+   checkbox), the same 20px size as the account badge it shares a slot
+   with in the card layouts. Only ever shown while #msg-list-pane has
+   .select-mode (see app.js#setSelectMode); "permanent checkbox column"
+   is gone otherwise, in every layout including Table. */
+#msg-list-pane:not(.select-mode) .msg-row .cb { display: none; }
+.msg-row .cb { flex: 0 0 20px; width: 20px; }
+.cb input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; margin: 0; display: block;
+  width: 20px; height: 20px; border-radius: 50%; box-sizing: border-box;
+  background: var(--surface-2); border: 1px solid var(--border); cursor: pointer; position: relative;
+}
+.cb input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.cb input[type="checkbox"]:checked::after {
+  content: '✓'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: calc(12px * var(--ui-scale)); font-weight: 700;
+}
+
+/* ---------- message list column header (sort + resize) ---------- */
+.msg-list-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border-bottom: 1px solid var(--border);
+  background: var(--surface-2); font-size: calc(11px * var(--ui-scale)); color: var(--text-dim);
+}
+.msg-list-header .lh-cb { flex: 0 0 20px; width: 20px; }
+.msg-list-header .lh-star { flex: 0 0 20px; width: 20px; }
+.msg-list-header .lh-chip { flex: 0 0 20px; width: 20px; }
+.col-head {
+  position: relative; display: flex; align-items: center; gap: 3px;
+  text-align: left; font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: .2px;
+  color: var(--text-dim); text-transform: uppercase; padding: 2px 8px 2px 0; overflow: hidden;
+}
+.col-head:hover, .col-head.active { color: var(--text); }
+.col-head .col-head-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#col-head-date { justify-content: flex-end; }
+.sort-arrow { font-size: calc(9px * var(--ui-scale)); width: 8px; flex-shrink: 0; }
+.col-head.active .sort-arrow::after { content: attr(data-dir); }
+.col-resize {
+  position: absolute; right: -5px; top: -6px; bottom: -6px; width: 10px;
+  cursor: col-resize; touch-action: none; z-index: 1;
+}
+#col-head-date .col-resize { left: -5px; right: auto; }
+.col-resize:hover, .col-resize.dragging { background: var(--accent-soft); }
+
+/* ---------- list layout variants (Table / Small / Compact / Comfort / Wide) ----------
+   Table (the .msg-row rules above) is the default single-line desktop table.
+   The other four share a 2-row "card" grid, applied via #msg-list-pane's
+   data-layout attribute — kept in sync with the chosen setting by
+   app.js#applyListLayout(), which also substitutes "compact" for "table" on
+   a narrow viewport (a 3-column table can't fit a phone), so nothing here
+   needs its own @media query.
+   Compact/Comfort/Wide: account badge pinned to the far left (spanning
+   both rows), star moved to the bottom-right corner. The mark-read icon
+   that used to live here is gone — that action moved to the select-mode
+   toolbar (#select-toolbar in index.html) since it now operates on
+   whatever's selected rather than one row at a time. */
+#msg-list-pane[data-layout="small"] .msg-list-header,
+#msg-list-pane[data-layout="compact"] .msg-list-header,
+#msg-list-pane[data-layout="comfort"] .msg-list-header,
+#msg-list-pane[data-layout="wide"] .msg-list-header { display: none; }
+#msg-list-pane[data-layout="compact"] .msg-row,
+#msg-list-pane[data-layout="comfort"] .msg-row,
+#msg-list-pane[data-layout="wide"] .msg-row {
+  display: grid; grid-template-columns: 28px 1fr auto auto auto;
+  /* Subject gets the whole row now — date used to share row 1 with it
+     (forcing a long subject to truncate early just to leave room for a
+     handful of digits) and now sits on row 2 next to the sender instead,
+     which is usually much shorter and has room to spare. */
+  grid-template-areas: "badge subject subject subject subject" "badge from date attach star";
+  column-gap: 6px; row-gap: 2px; align-items: start;
+}
+/* .cb (selection circle) and .acct-chip (account badge) share the same
+   slot — only one is ever visible at a time (see the select-mode rules
+   below and the global .cb visibility rule above), so no overlap. */
+#msg-list-pane[data-layout="compact"] .msg-row .cb,
+#msg-list-pane[data-layout="comfort"] .msg-row .cb,
+#msg-list-pane[data-layout="wide"] .msg-row .cb,
+#msg-list-pane[data-layout="compact"] .msg-row .acct-chip,
+#msg-list-pane[data-layout="comfort"] .msg-row .acct-chip,
+#msg-list-pane[data-layout="wide"] .msg-row .acct-chip { grid-area: badge; align-self: center; justify-self: start; }
+#msg-list-pane[data-layout="compact"] .msg-row .m-star,
+#msg-list-pane[data-layout="comfort"] .msg-row .m-star,
+#msg-list-pane[data-layout="wide"] .msg-row .m-star { grid-area: star; width: 22px; height: 22px; font-size: calc(15px * var(--ui-scale)); align-self: end; justify-self: end; }
+#msg-list-pane[data-layout="compact"] .msg-row .m-subject,
+#msg-list-pane[data-layout="comfort"] .msg-row .m-subject,
+#msg-list-pane[data-layout="wide"] .msg-row .m-subject {
+  grid-area: subject; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#msg-list-pane[data-layout="compact"] .msg-row .m-from,
+#msg-list-pane[data-layout="comfort"] .msg-row .m-from,
+#msg-list-pane[data-layout="wide"] .msg-row .m-from {
+  grid-area: from; flex: none; width: auto; color: var(--text-dim); font-weight: 400;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+#msg-list-pane[data-layout="compact"] .msg-row .m-date,
+#msg-list-pane[data-layout="comfort"] .msg-row .m-date,
+#msg-list-pane[data-layout="wide"] .msg-row .m-date { grid-area: date; flex: none; width: auto; text-align: right; }
+#msg-list-pane[data-layout="compact"] .msg-row .m-attach,
+#msg-list-pane[data-layout="comfort"] .msg-row .m-attach,
+#msg-list-pane[data-layout="wide"] .msg-row .m-attach { grid-area: attach; justify-self: end; align-self: end; }
+/* select mode: badge slot shows the selection circle instead of the
+   account badge (the circle's own visibility already flips the other way
+   via the global #msg-list-pane:not(.select-mode) .cb rule above). */
+#msg-list-pane[data-layout="compact"].select-mode .msg-row .acct-chip,
+#msg-list-pane[data-layout="comfort"].select-mode .msg-row .acct-chip,
+#msg-list-pane[data-layout="wide"].select-mode .msg-row .acct-chip { display: none; }
+
+/* Small: subject/sender/time only — no account badge, star, or selection
+   circle. Selecting a row in select mode works by tapping anywhere on it
+   (see app.js's row click handler) since there's no dedicated control here. */
+#msg-list-pane[data-layout="small"] .msg-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  /* Same reasoning as the compact/comfort/wide layouts above: subject gets
+     the full row instead of sharing it with the date. */
+  grid-template-areas: "subject subject subject" "from date attach";
+  column-gap: 6px; row-gap: 2px; align-items: start;
+}
+#msg-list-pane[data-layout="small"] .msg-row .cb,
+#msg-list-pane[data-layout="small"] .msg-row .m-star,
+#msg-list-pane[data-layout="small"] .msg-row .acct-chip { display: none; }
+#msg-list-pane[data-layout="small"] .msg-row .m-subject {
+  grid-area: subject; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#msg-list-pane[data-layout="small"] .msg-row .m-from {
+  grid-area: from; flex: none; width: auto; color: var(--text-dim); font-weight: 400;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+#msg-list-pane[data-layout="small"] .msg-row .m-date { grid-area: date; flex: none; width: auto; text-align: right; }
+#msg-list-pane[data-layout="small"] .msg-row .m-attach { grid-area: attach; justify-self: end; align-self: end; }
+
+/* Row "height"/padding progression: Small (tightest) < Compact < Comfort < Wide.
+   All four are noticeably tighter left/right than the old fixed mobile-only
+   row padding this replaces. */
+#msg-list-pane[data-layout="small"] .msg-row { padding: 6px 6px 6px 4px; font-size: calc(12.5px * var(--ui-scale)); }
+#msg-list-pane[data-layout="small"] .msg-row .m-subject { font-size: calc(13px * var(--ui-scale)); }
+#msg-list-pane[data-layout="small"] .msg-row .m-from,
+#msg-list-pane[data-layout="small"] .msg-row .m-date { font-size: calc(11px * var(--ui-scale)); }
+
+#msg-list-pane[data-layout="compact"] .msg-row { padding: 7px 6px 7px 4px; }
+#msg-list-pane[data-layout="compact"] .msg-row .m-subject { font-size: calc(13.5px * var(--ui-scale)); }
+#msg-list-pane[data-layout="compact"] .msg-row .m-from,
+#msg-list-pane[data-layout="compact"] .msg-row .m-date { font-size: calc(11.5px * var(--ui-scale)); }
+
+#msg-list-pane[data-layout="comfort"] .msg-row { padding: 11px 10px 11px 6px; }
+#msg-list-pane[data-layout="comfort"] .msg-row .m-subject { font-size: calc(14.5px * var(--ui-scale)); }
+#msg-list-pane[data-layout="comfort"] .msg-row .m-from,
+#msg-list-pane[data-layout="comfort"] .msg-row .m-date { font-size: calc(12px * var(--ui-scale)); }
+
+#msg-list-pane[data-layout="wide"] .msg-row { padding: 15px 12px 15px 8px; }
+#msg-list-pane[data-layout="wide"] .msg-row .m-subject { font-size: calc(15px * var(--ui-scale)); }
+#msg-list-pane[data-layout="wide"] .msg-row .m-from,
+#msg-list-pane[data-layout="wide"] .msg-row .m-date { font-size: calc(12.5px * var(--ui-scale)); }
+
+/* ---------- find in message (Ctrl+F — js/messageFind.js) ---------- */
+/* position:fixed rather than absolute inside the reading pane: that pane is
+   itself the scroll container, so an absolutely positioned child would scroll
+   away with the message. messageFind.js keeps --find-top/--find-right pinned
+   to the pane's current rect (window resize + a ResizeObserver on the pane),
+   which also keeps the popout window — where the whole page scrolls — on the
+   same code path. */
+.find-bar {
+  position: fixed;
+  top: var(--find-top, 12px);
+  right: var(--find-right, 14px);
+  /* Below the mobile sidebar backdrop (39), Compose (50) and every modal:
+     the bar floats over the MESSAGE, and anything the user deliberately
+     opened on top of the message should cover it in turn. */
+  z-index: 38;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  /* Deliberately see-through: the bar floats over the text it is searching,
+     and a hit one line above the current one should stay half-readable
+     underneath it rather than being walled off. The blur keeps the controls
+     legible over busy HTML mail; browsers without it just get the alpha. */
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
+}
+.find-bar:focus-within { background: color-mix(in srgb, var(--surface) 94%, transparent); }
+.find-input {
+  border: 0; outline: none; background: transparent; color: var(--text);
+  font: inherit; font-size: calc(13.5px * var(--ui-scale));
+  width: calc(190px * var(--ui-scale)); min-width: 90px; padding: 2px 4px;
+}
+.find-count {
+  font-size: calc(12px * var(--ui-scale)); color: var(--text-dim);
+  min-width: 34px; text-align: right; white-space: nowrap;
+}
+.find-count-none { color: var(--danger); }
+.find-nav, .find-close {
+  border: 0; background: transparent; color: var(--text-dim); cursor: pointer;
+  font-size: calc(14px * var(--ui-scale)); line-height: 1;
+  padding: 4px 6px; border-radius: 50%;
+}
+.find-nav:hover:not(:disabled), .find-close:hover { background: var(--hover); color: var(--text); }
+.find-nav:disabled { opacity: .35; cursor: default; }
+.find-close { margin-left: 2px; }
+
+/* ---------- conversation stack (app.js#openThread) ---------- */
+/* One .mv-card per message. A single open message is one card and looks
+   exactly as it always did — the separators only ever appear between cards,
+   so nothing about the single-message pane changes. */
+/* A rule between two real messages only — a run of collapsed lines shouldn't
+   read as a stack of boxes. */
+.mv-card + .mv-card:not(.mv-stub) { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 4px; }
+/* Collapsed messages: one line each, the whole line clickable. */
+.mv-stub {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 20px; padding: 10px 16px;
+  border-radius: var(--radius);
+  cursor: pointer; color: var(--text-dim);
+  font-size: calc(13.5px * var(--ui-scale));
+}
+.mv-card:not(.mv-stub) + .mv-stub { margin-top: 10px; }
+.mv-stub + .mv-stub { margin-top: 2px; }
+.mv-stub:hover { background: var(--surface-2); }
+.mv-stub-from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-stub.unread .mv-stub-from { color: var(--text); font-weight: 600; }
+.mv-stub-marks { flex: 0 0 auto; font-size: calc(12px * var(--ui-scale)); }
+.mv-stub-date { flex: 0 0 auto; font-size: calc(12px * var(--ui-scale)); }
+.mv-stub-loading { cursor: default; opacity: .7; }
+.mv-stub-loading:hover { background: transparent; }
+
+/* The line under a search's results (app.js#searchScopeRow) explaining what was
+   actually searched, and offering the whole-account sweep. Not a message row —
+   no hover, no selection, and it never takes the row grid's layout. */
+.search-scope-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  padding: 10px 16px; border-top: 1px solid var(--border);
+  color: var(--text-dim); font-size: calc(12.5px * var(--ui-scale));
+}
+.search-scope-row .link-btn { font-size: inherit; }
+
+/* ---------- reading pane ---------- */
+.reading-pane {
+  flex: 1; min-width: 0; background: var(--surface); border-radius: var(--radius);
+  overflow: auto; position: relative;
+  /* The nav bar / home indicator, for the one scroll region this pane is —
+     without it the last lines of a message sit under the buttons in landscape. */
+  padding-bottom: var(--sab);
+  /* One scroll region for the whole pane — header card included — not a
+     pinned header + separately-scrolling body. A message whose own HTML
+     sets a fixed height + overflow:auto on its body (some templates do
+     this) could otherwise still open a second, inner scrollbar of its own;
+     that's handled instead by messageFrame.js forcing overflow:visible on
+     the message's own html/body, not by splitting the scroll region here. */
+}
+.content.pane-bottom .reading-pane { min-height: 40%; }
+.empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dim); }
+/* The reading pane while a message is being fetched (or after it failed):
+   one line of text, centred in the pane exactly like .empty-state above,
+   rather than tucked into the top-left corner. Only ever set while the view
+   holds that single placeholder paragraph — app.js#openMessage drops the
+   class before renderMessage() fills the pane for real, so a message's own
+   layout is never flexed. */
+.message-view.mv-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; padding: var(--gap, 12px); }
+.empty-glyph { font-size: calc(56px * var(--ui-scale)); opacity: .4; }
+
+/* Deliberately compact everywhere (not just mobile) — an AquaMail-style
+   summary (subject, sender, date, divider, recipient) rather than the
+   avatar + full address + wrapping action-button block this used to be.
+   The list you came from already told you who it's from; this shouldn't
+   compete with the actual message for screen space, especially on a phone
+   where the old version ran to a third of the viewport before you'd even
+   reached the body. */
+.mv-header-card { margin: 14px 20px 0; padding: 12px 16px; background: var(--surface-2); border-radius: var(--radius); }
+.mv-body { padding: 12px 26px 20px; }
+.mv-header-top { display: flex; align-items: flex-start; gap: 8px; }
+.mv-subject { flex: 1; min-width: 0; font-size: calc(16px * var(--ui-scale)); font-weight: 600; margin: 0; }
+.mv-header-icons { display: flex; gap: 2px; flex: 0 0 auto; margin: -6px -6px 0 0; }
+.mv-star-btn.on { color: #f4b400; }
+.mv-from-line { margin-top: 3px; font-size: calc(13px * var(--ui-scale)); user-select: text; }
+.mv-from-addr { color: var(--text-dim); font-weight: 400; }
+/* A person in a message header (From, To, Cc) — right-click or long-press for
+   "Copy address" and "New message" (app.js#bindAddressMenu).
+   user-select:none, and no iOS callout, are what let a long press be OUR
+   gesture rather than the browser's text-selection handles racing it for the
+   same 550ms; the menu's Copy is what selecting the text by hand used to be
+   for. Negative margin against the padding so adding a hover target does not
+   move the line by 3px. */
+.mv-addr {
+  border-radius: 4px; padding: 0 3px; margin: 0 -3px; cursor: default;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.mv-addr:hover { background: var(--hover); color: var(--text); }
+.mv-addr-email { color: var(--text-dim); font-weight: 400; }
+.mv-date { color: var(--text-dim); font-size: calc(12px * var(--ui-scale)); margin-top: 1px; }
+.mv-to-line {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+  color: var(--text-dim); font-size: calc(12px * var(--ui-scale));
+}
+/* Collapsed header (the ▾ button; remembered in settings.messageHeaderCollapsed).
+   Four lines of header — subject, sender+address, long date, To/Cc — become
+   two: the subject, and one dim "who · when" line. The banners deliberately
+   stay visible: "N images blocked" is an action, not detail. */
+.mv-head-brief { display: none; margin-top: 2px; color: var(--text-dim); font-size: calc(12.5px * var(--ui-scale)); }
+.mv-header-card.mv-head-collapsed { padding: 8px 16px; cursor: pointer; }
+.mv-header-card.mv-head-collapsed .mv-head-brief { display: block; }
+.mv-header-card.mv-head-collapsed .mv-from-line,
+.mv-header-card.mv-head-collapsed .mv-date,
+.mv-header-card.mv-head-collapsed .mv-to-line,
+.mv-header-card.mv-head-collapsed .mv-answered { display: none; }
+.mv-header-card.mv-head-collapsed .mv-subject { font-size: calc(14.5px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The toggle is chrome, not content — visible on hover/focus, always visible on
+   a touch screen where there is no hover to reveal it (see the media query). */
+.mv-head-toggle { color: var(--text-dim); opacity: .45; }
+.mv-card:hover .mv-head-toggle, .mv-head-toggle:focus-visible { opacity: 1; }
+.mv-banner {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; margin: 10px 0 0; font-size: calc(13px * var(--ui-scale)); display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+/* The newsletter banner is the one that appears on EVERY message of a kind,
+   directly above the first line of it — so it is a size down from the others,
+   and by default (settings.unsubscribeBannerCompact) folded to just the icon
+   and the button. Clicking the icon unfolds the explanation for that message. */
+.mv-unsub-banner { font-size: calc(11.5px * var(--ui-scale)); padding: 4px 8px; gap: 6px; margin-top: 8px; }
+.mv-unsub-banner .link-btn { font-size: inherit; padding: 2px 6px; }
+.mv-unsub-expand {
+  background: none; border: 0; padding: 0; cursor: pointer; line-height: 1;
+  font-size: inherit; color: inherit; opacity: .8;
+}
+.mv-unsub-expand:hover { opacity: 1; }
+/* inline-flex so the folded banner is only as wide as what is left in it —
+   a full-width strip is most of what made it loud in the first place. */
+.mv-unsub-banner.mv-unsub-min { display: inline-flex; }
+.mv-unsub-banner.mv-unsub-min .mv-unsub-what { display: none; }
+/* Already unsubscribed from this sender — the banner is a record now, not an
+   offer, so it says so even when folded (its icon becomes ✅) and the border
+   picks up the accent instead of sitting at the same weight as a fresh one. */
+.mv-unsub-banner.mv-unsub-done { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+/* A meeting invitation, between the header and the body. Not a .mv-banner:
+   the when/where IS the message here — the body under it is usually the same
+   thing again plus a joining link — so it reads as content, not as a notice. */
+.mv-invite {
+  margin: 10px 26px 0; padding: 12px 14px;
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: var(--surface-2);
+  font-size: calc(13px * var(--ui-scale));
+}
+.mv-invite-cancelled { border-left-color: var(--danger); opacity: .8; }
+.mv-inv-kind { font-weight: 600; margin-bottom: 8px; }
+.mv-invite-cancelled .mv-inv-kind { text-decoration: line-through; text-decoration-color: var(--danger); }
+/* Label column sized to its content, so "When"/"Where" line up without a
+   fixed width that a longer translation would overflow. */
+.mv-inv-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.mv-inv-grid dt { color: var(--text-dim); white-space: nowrap; }
+.mv-inv-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mv-inv-repeat { color: var(--text-dim); font-size: calc(11.5px * var(--ui-scale)); }
+/* A thirty-person invitation must not push the message off the screen. */
+.mv-inv-people { display: block; max-height: 4.5em; overflow-y: auto; }
+.mv-inv-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.mv-inv-btn { min-width: 84px; }
+.mv-inv-btn[data-action="accept"] { border-color: var(--accent); color: var(--accent); }
+.mv-inv-btn[data-action="decline"] { border-color: var(--danger); color: var(--danger); }
+.mv-inv-btn:disabled { opacity: .5; cursor: default; }
+@media (max-width: 900px) { .mv-invite { margin-left: 16px; margin-right: 16px; } }
+
+.mv-body img.blocked-image { border: 1px dashed var(--border); padding: 8px; color: var(--text-dim); box-sizing: border-box; }
+.mv-body pre { white-space: pre-wrap; font-family: inherit; }
+.mv-attachments { border-top: 1px solid var(--border); margin: 12px 26px 0; padding: 12px 0 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+.attach-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  text-decoration: none; color: var(--text); font-size: calc(13px * var(--ui-scale));
+}
+.attach-chip:hover { background: var(--hover); }
+/* Attachments on a queued message: the bytes live in the queue file, not behind
+   a URL, so this is a label rather than a download link. */
+.attach-chip.attach-chip-static { cursor: default; color: var(--text-dim); }
+.attach-chip.attach-chip-static:hover { background: transparent; }
+.mv-priority-high { color: var(--danger); font-weight: 600; }
+
+/* ---------- compose ---------- */
+.compose-window {
+  position: fixed; right: 24px; bottom: 0; width: 560px; max-width: calc(100vw - 32px);
+  background: var(--surface); border-radius: 10px 10px 0 0; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  display: flex; flex-direction: column; z-index: 50; max-height: 82vh;
+  overflow-x: hidden; /* belt-and-suspenders against any row's content forcing this wider than its own max-width */
+}
+.compose-window.minimized .compose-body,
+.compose-window.minimized .compose-footer { display: none; }
+/* Desktop "enlarge" — bigger, not a full-space takeover (see the mobile
+   override below for the phone-screen equivalent, which is full page size).
+   :not(.minimized) so a minimized (title-bar-only) window doesn't visually
+   widen just because Large was toggled underneath it. */
+.compose-window.large:not(.minimized) {
+  width: 900px; max-width: calc(100vw - 48px); max-height: 92vh;
+}
+.compose-titlebar {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface-2); padding: 8px 12px; border-radius: 10px 10px 0 0; font-weight: 600; cursor: pointer;
+}
+.draft-status { font-size: calc(11px * var(--ui-scale)); color: var(--text-dim); font-weight: 400; }
+.compose-body { padding: 4px 14px; overflow-y: auto; display: flex; flex-direction: column; }
+.compose-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 4px 0; }
+.compose-row label { width: 52px; flex: 0 0 auto; color: var(--text-dim); font-size: calc(13px * var(--ui-scale)); }
+/* min-width:0 — a plain <input>/<select> has its own non-zero intrinsic
+   minimum width regardless of flex:1, which was contributing to the row
+   (and the whole compose window) overflowing on narrow screens. */
+.compose-row input, .compose-row select { flex: 1; min-width: 0; border: none; background: transparent; }
+.compose-row input:focus { outline: none; }
+.editor-toolbar { display: flex; align-items: center; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.editor-toolbar button { padding: 4px 8px; border-radius: 4px; min-width: 30px; }
+.editor-toolbar button:hover { background: var(--hover); }
+.editor-toolbar select { font-size: calc(12px * var(--ui-scale)); padding: 3px 4px; }
+.compose-editor { min-height: 200px; padding: 10px 2px; outline: none; overflow-y: auto; }
+/* Spell checking (public/js/proofread.js). ::highlight() styles live Range
+   objects, so nothing is inserted into the editor and nothing reaches the sent
+   mail — see that file's header. Only a handful of properties are permitted on
+   a highlight pseudo-element; text-decoration is one of them, background-image
+   is not. skip-ink off so the wave stays continuous under descenders (g, j, p),
+   which is where a broken wave reads as a rendering glitch rather than a mark. */
+::highlight(hmelj-spell) {
+  text-decoration: var(--danger, #d93025) wavy underline;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+/* The suggestion menu reuses .ctx-menu wholesale (see openMenu in
+   proofread.js); these are the only two things it adds. */
+.pf-menu .pf-suggest { font-weight: 600; }
+.pf-menu .pf-menu-note { padding: 8px 12px; color: var(--text-dim); font-size: calc(13px * var(--ui-scale)); }
+.pf-menu .pf-menu-sep { height: 1px; margin: 4px 0; background: var(--border); }
+/* Toolbar language chip. Dimmed while it's an auto-detected guess, full
+   strength once the user has pinned one — the difference is the whole point. */
+.pf-lang {
+  font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: .04em;
+  padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--text);
+}
+.pf-lang:hover { background: var(--hover); }
+.pf-lang-auto { color: var(--text-dim); border-style: dashed; }
+.compose-editor-plain { min-height: 200px; border: none; resize: vertical; background: transparent; font-family: ui-monospace, monospace; }
+.attach-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; }
+/* flex-wrap — Send + Attach + Priority + Receipt + Save draft + Discard
+   all sharing one unwrapped row is what pushed Save/Discard off the visible
+   edge on a narrow window, reachable only via a horizontal scrollbar (the
+   reported bug) — wrapping onto a second line keeps every button reachable
+   by scrolling the window's own content vertically instead, same as
+   everywhere else in the app already handles a crowded toolbar row. */
+.compose-footer { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.send-btn {
+  background: var(--accent); color: #fff; font-weight: 600;
+  padding: 9px 26px; border-radius: 20px;
+}
+[data-theme="dark"] .send-btn { color: #10141a; }
+.send-btn:hover { filter: brightness(1.1); }
+.send-btn:disabled { opacity: .5; cursor: default; }
+.send-btn.danger { background: var(--danger); color: #fff; }
+/* Split "Send | ▾" — one pill, two buttons, with a hairline between them so the
+   caret reads as a second control rather than as decoration on the first. */
+.send-split { display: inline-flex; align-items: stretch; flex: 0 0 auto; }
+/* Tighter than a lone Send button: the caret adds width the footer doesn't have
+   spare, so the pill gives most of it back rather than pushing 🗑 onto a second
+   line. Together with the trims below this reclaims more than the caret costs. */
+.send-split .send-btn { border-radius: 20px 0 0 20px; padding-left: 18px; padding-right: 18px; }
+.send-split .send-later {
+  border-radius: 0 20px 20px 0; padding: 9px 9px;
+  border-left: 1px solid rgba(255, 255, 255, .35);
+  font-size: calc(11px * var(--ui-scale)); line-height: 1;
+}
+
+/* The footer keeps flex-wrap for genuinely narrow (mobile) windows — wrapping is
+   right there. These just buy back enough room that a 560px desktop compose
+   window doesn't need to. */
+.compose-footer { gap: 6px; }
+.compose-footer #c-priority {
+  font-size: calc(12px * var(--ui-scale)); padding: 5px 4px;
+  min-width: 0; flex: 0 1 auto; /* min-width:0 is what actually lets a select shrink */
+}
+/* Shrinkable as a last resort, after the spacer has collapsed and the select has
+   given what it can — so a large --ui-scale trims this label rather than pushing
+   the row wider than the window. */
+.compose-footer .mini-toggle { white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.compose-footer .icon-btn { flex: 0 0 auto; }
+/* Desktop: the window is a fixed 560px, so "does it fit?" has one answer and it
+   is knowable — pin it to a single row instead of leaving it to chance. The
+   shrinkable priority select above is what absorbs the slack. Below 900px the
+   compose window goes full-page and wrapping is the right behaviour, so the
+   base rule's flex-wrap still applies there. */
+@media (min-width: 901px) {
+  .compose-footer { flex-wrap: nowrap; }
+}
+[data-theme="dark"] .send-split .send-later { border-left-color: rgba(0, 0, 0, .3); }
+
+/* A queued message's due time, in the Scheduled list. */
+.msg-row .m-when {
+  font-family: inherit; color: var(--accent); font-size: calc(11.5px * var(--ui-scale));
+  flex: 0 0 auto; white-space: nowrap;
+}
+.msg-row .m-when.late { color: var(--danger); }
+
+/* ---------- modal ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.modal {
+  background: var(--surface); border-radius: 12px; width: 920px; max-width: 94vw;
+  /* Fixed, not max-height — a max-height lets the dialog grow/shrink to fit
+   * whichever tab's content is showing, which is what made switching tabs
+   * visibly jump. Fixed height + the nav/body columns' own overflow-y:auto
+   * (below) means only the content inside scrolls, the dialog itself never
+   * resizes. */
+  height: min(760px, 82vh);
+  display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,.4);
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px 6px; }
+.modal-header h2 { margin: 0; font-size: calc(18px * var(--ui-scale)); }
+.modal-header-actions { display: flex; align-items: center; gap: 10px; }
+/* Mobile-only Save (see #settings-modal .modal-header-actions in the mobile
+   media query below) — desktop keeps Save in .modal-footer as it always has. */
+.mobile-save-status, .mobile-save-btn { display: none; }
+
+/* Two-column layout: an icon nav list on the left, scrollable content on the
+ * right — each panel scrolls independently so a tall tab (e.g. many mail
+ * accounts) never pushes the nav or the dialog chrome around. */
+.modal-nav-body { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--border); }
+.modal-tabs {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px;
+  border-right: 1px solid var(--border); flex: 0 0 190px; overflow-y: auto;
+}
+.modal-tabs button { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-radius: 8px; color: var(--text-dim); text-align: left; }
+.modal-tabs button:hover { background: var(--hover); }
+.modal-tabs button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 600; }
+.modal-tabs .tab-icon { font-size: calc(15px * var(--ui-scale)); line-height: 1; flex: 0 0 auto; }
+.modal-content-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.modal-body { padding: 16px 22px; overflow-y: auto; flex: 1; }
+.modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--border); }
+#settings-status { color: var(--text-dim); font-size: calc(13px * var(--ui-scale)); }
+
+/* ---------- mailbox analytics (see js/analytics.js) ----------
+   Reuses the Settings modal shell (.modal / .modal-tabs / .modal-body), so
+   only what's specific to data tables and the scan/delete bars lives here. */
+.an-tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+.an-tile {
+  display: flex; flex-direction: column; gap: 2px; min-width: 140px;
+  padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+.an-tile-v { font-size: calc(20px * var(--ui-scale)); font-weight: 600; }
+.an-tile-k { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.an-h { font-size: calc(14px * var(--ui-scale)); font-weight: 600; margin: 20px 0 8px; }
+.an-note {
+  border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--text);
+  padding: 9px 12px; border-radius: 0 8px 8px 0; margin-bottom: 14px;
+  font-size: calc(12.5px * var(--ui-scale)); line-height: 1.45;
+}
+.an-note code { font-size: calc(11.5px * var(--ui-scale)); word-break: break-all; }
+.an-empty { padding: 18px 0; color: var(--text-dim); line-height: 1.5; max-width: 640px; }
+.an-empty strong { color: var(--text); }
+/* Last-resort scroll only: the column rules below are meant to make every
+   table fit its container outright, since an overlay scrollbar (macOS, most
+   phones) gives no hint that there's anything to the right at all. Where it
+   does have to scroll, the bar is forced visible rather than left as an
+   overlay. */
+.an-table-wrap {
+  overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.an-table-wrap::-webkit-scrollbar { height: 9px; }
+.an-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+.an-table { width: 100%; border-collapse: collapse; font-size: calc(12.5px * var(--ui-scale)); }
+.an-table th, .an-table td { text-align: left; padding: 6px 10px; white-space: nowrap; }
+.an-table th { position: sticky; top: 0; background: var(--surface-2); font-weight: 600; z-index: 1; }
+.an-table tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+.an-table td.num, .an-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.an-table td[data-label]::before { display: none; } /* mobile-only, see the media query */
+/* Sortable headers. Only the active column shows an arrow — an arrow on every
+   header reads as decoration and stops signalling anything. */
+.an-table th[data-sort] { cursor: pointer; user-select: none; }
+.an-table th[data-sort]:hover { color: var(--accent); }
+.an-table th.an-sort.active { color: var(--accent); }
+.an-arrow { margin-left: 4px; font-size: calc(9px * var(--ui-scale)); vertical-align: middle; }
+/* The phone-only sort control (see analytics.js#sortBar): on desktop the
+   headers do this job, so it stays out of the way entirely. */
+/* Pager (see analytics.js#pager) — above and below long tables, so paging a
+   120k-message account never needs a scroll back to the top. */
+.an-pager { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.an-pager button { flex: 0 0 auto; }
+.an-resultbar .an-pager { margin: 0; }
+.an-sortbar { display: none; align-items: center; gap: 8px; margin: 0 0 8px; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.an-sortbar select { flex: 1 1 auto; min-width: 0; }
+.an-sortbar .an-sort-dir { flex: 0 0 auto; min-width: 34px; }
+/* The text columns share whatever is left after the fixed-width numbers, and
+   ellipsize inside it. `max-width: 0` with a percentage width is what makes a
+   TABLE cell actually honour text-overflow instead of growing to fit its
+   content — without it the sender column alone pushed Date and Folder off the
+   right edge (the reported bug). Full text stays available via title=.  */
+.an-table .an-c-subj, .an-table .an-c-sender, .an-table .an-c-name, .an-table .an-c-where {
+  max-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.an-table .an-c-subj { width: 42%; }
+.an-table .an-c-sender { width: 26%; }
+.an-table .an-c-name { width: 34%; }
+.an-table .an-c-where { width: 18%; }
+/* A senders table has no subject, so its one text column gets the room. */
+.an-table:not(.an-table-msgs) .an-c-sender { width: 45%; }
+.an-table .an-c-check { width: 28px; padding-right: 0; }
+.an-table .an-c-size, .an-table .an-c-date { width: 1%; }
+.an-badge {
+  font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: .04em;
+  background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0 4px; margin-left: 6px;
+}
+.an-bar-cell { width: 30%; min-width: 80px; }
+.an-bar { display: block; height: 8px; border-radius: 4px; background: var(--accent); }
+.an-search { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.an-search input { flex: 1; min-width: 220px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+.an-resultbar, .an-deletebar, .an-scanbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: calc(12.5px * var(--ui-scale));
+}
+.an-resultbar { margin: 14px 0 8px; }
+.an-deletebar { margin-top: 12px; }
+/* The above-table copy of the delete control (see analytics.js#deleteBarHtml):
+   deliberately smaller than the one at the bottom — it's there for reach, not
+   as the primary call to action, and it sits next to the selection count so
+   what it would delete is never ambiguous. */
+.an-deletebar-top { margin: 0 0 8px; }
+.send-btn.an-del-compact {
+  padding: 4px 10px; font-size: calc(12px * var(--ui-scale)); border-radius: 6px;
+}
+.an-sel-text { color: var(--text-dim); }
+/* The two selection toggles sit after the delete button in the top bar; push
+   them away from it so "Select all (120,001)" can't be mistaken for part of the
+   button it stands next to. */
+.an-deletebar .mini-toggle { margin-left: 6px; }
+.an-deletebar-top { flex-wrap: wrap; row-gap: 6px; }
+/* Pinned above the body rather than inside it: a scan's progress must stay
+   visible while the user reads a long table, and it's per-account state, not
+   part of any one tab's content. */
+.an-scanbar { padding: 8px 22px; border-bottom: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); }
+#an-account { max-width: 200px; }
+
+.set-grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px 18px; align-items: center; max-width: 640px; }
+.set-grid .full { grid-column: 1 / -1; }
+.set-hint { grid-column: 2; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); margin-top: -8px; }
+/* Grid tracks default to content-based (min-width:auto) sizing — a select
+   with a long option (e.g. General settings' "Delete behavior") could force
+   its track, and the whole modal, wider than the viewport without this. */
+.set-grid > * { min-width: 0; }
+.set-grid select, .set-grid textarea,
+.set-grid input:not([type="checkbox"]):not([type="radio"]) {
+  width: 100%; box-sizing: border-box; min-width: 0;
+}
+.set-divider { grid-column: 1 / -1; border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.set-section { font-weight: 600; margin: 18px 0 8px; grid-column: 1 / -1; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+
+.card-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---- Settings → Log (see renderLog in settings.js, server/userLog.js) ----
+   A list of rows rather than a real <table>: the same markup has to read well
+   on a phone, and a table with four columns either scrolls sideways or crushes
+   the message column to nothing. Each row is one button (the whole thing is the
+   tap target) that expands to show the full error underneath. */
+.log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.log-toolbar .spacer { flex: 1; }
+.log-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.log-row + .log-row { border-top: 1px solid var(--border); }
+.log-row.open { background: var(--hover); }
+.log-head {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; color: var(--text); background: transparent;
+}
+.log-head:hover { background: var(--hover); }
+.log-level { flex: 0 0 auto; line-height: 1.4; }
+/* min-width:0 is what lets the ellipsis below actually happen — a flex child
+   defaults to min-width:auto and refuses to shrink below its content. */
+.log-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.log-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-row.open .log-msg { white-space: normal; }
+.log-sub { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.log-when { flex: 0 0 auto; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); white-space: nowrap; }
+.log-count { background: var(--danger); color: #fff; border-radius: 10px; padding: 0 6px; font-size: calc(11px * var(--ui-scale)); }
+.log-detail { padding: 0 12px 12px 40px; }
+.log-detail pre {
+  margin: 0 0 8px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; font-size: calc(12px * var(--ui-scale)); white-space: pre-wrap; word-break: break-word;
+}
+.log-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.log-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; color: var(--text-dim); }
+@media (max-width: 600px) {
+  /* The relative time moves under the message rather than competing with it for
+     the same line on a narrow screen. */
+  .log-head { flex-wrap: wrap; }
+  .log-when { width: 100%; padding-left: 26px; }
+  .log-detail { padding-left: 12px; }
+}
+.id-group { margin-bottom: 18px; }
+.id-group-header { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; font-size: calc(14px * var(--ui-scale)); }
+.id-group .card.id-alias { margin-left: 26px; border-left: 2px solid var(--accent-soft); }
+.card {
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+/* Scoped to the info row only (not the whole card): CSS opacity dims a whole
+   subtree in a way a descendant can't opt back out of by setting its own
+   opacity:1 — that was making every button in a disabled account's row
+   (Identities/Folders/Share/Enable/Remove) look equally disabled together,
+   including the "Enable" button that's supposed to look actionable. */
+.card.ac-disabled .row:first-child { opacity: .55; }
+.card .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Flex items default to min-width:auto (content-based, won't shrink below
+   their own text's intrinsic width) — a long account label/email/server
+   name or a long IMAP error message could force the row (and the whole
+   modal) wider than the viewport instead of wrapping, even with flex-wrap
+   on the row itself. */
+.card .row > * { min-width: 0; overflow-wrap: anywhere; }
+.card .row label { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+.card input, .card select, .card textarea { font-size: calc(13px * var(--ui-scale)); }
+/* Text-like fields only (mirrors .wiz-grid's own identical rule below) — a
+   bare `.card input` also matches the Default identity radio and other
+   checkboxes, and width:100%+box-sizing meant for a text box would stretch
+   one into a big misshapen block instead of a normal small control. Without
+   this, unconstrained fields relying purely on flex-wrap to avoid collisions
+   is what let Name/E-mail/Reply-To (Identities tab) and other card fields
+   overlap on narrow viewports. */
+.card input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not(.sched-day-from):not(.sched-day-to),
+.card select, .card textarea {
+  width: 100%; box-sizing: border-box; min-width: 0;
+}
+.card input[type="checkbox"], .card input[type="radio"] { width: auto; flex: 0 0 auto; margin: 0; }
+.card .grow { flex: 1; min-width: 120px; }
+/* Scheduler tab's per-day time-range inputs — native <input type="time">
+   renders at browser-intrinsic width (~120-150px, more with a 12-hour/AM-PM
+   locale), and two of them plus the day checkbox label don't fit one row on
+   a phone without an explicit narrower width. */
+.sched-day-from, .sched-day-to { width: 90px; flex: 0 0 auto; }
+.rule-row, .action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Consecutive rules/actions are plain block divs with no margin, so they sat
+   flush against each other — and `input:focus` draws a 2px outline 1px OUTSIDE
+   the box, which then lands on the row below. A column gap here separates the
+   rows themselves (the 8px above is only the gap WITHIN one row, including
+   where it wraps on a phone), and leaves room before the "+ rule" button. */
+.f-rules, .f-actions { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 8px; }
+/* One rule reads as one line — "Subject | contains | <text> | ✕" — instead of
+   three. The .card rule above puts width:100% on every select and text input
+   (right for the stacked fields of an account card, wrong inside a flex row):
+   at full width each control claims its own line, so a filter with three
+   rules rendered as nine lines with no visual grouping of which value belongs
+   to which test. Intrinsic widths here, and the value box takes the slack.
+   max-width keeps a long folder path in an action row from crowding it out.
+   Scoped to #settings-body, not .rule-row alone: the width:100% it has to
+   beat is `.card input:not(…):not(…):not(…):not(…):not(…)`, and every :not()
+   counts toward specificity, so that selector scores (0,6,1) — a plain
+   `.rule-row > input` loses to it no matter where it sits in the file. */
+#settings-body .rule-row > select, #settings-body .action-row > select { width: auto; flex: 0 1 auto; max-width: 42%; }
+#settings-body .rule-row > input, #settings-body .action-row > input { width: auto; flex: 1 1 140px; min-width: 0; }
+#settings-body .rule-row > button, #settings-body .action-row > button { flex: 0 0 auto; }
+/* Portrait phone: four controls on one line would each be a few characters
+   wide, so the selects go back to a line each. The value box keeps the ✕ with
+   it rather than leaving it stranded on a line of its own. */
+@media (max-width: 900px) {
+  #settings-body .rule-row > select, #settings-body .action-row > select { flex: 1 1 100%; max-width: none; }
+  #settings-body .rule-row > input, #settings-body .action-row > input { flex: 1 1 60%; }
+}
+/* Filters tab, list level (settings.js's filterRow) — the whole row opens the
+   filter, so it has to look like it does. The Remove button inside it stops
+   the click itself; this is only about the affordance. */
+.f-row { cursor: pointer; }
+.f-row:hover { background: var(--hover); }
+.f-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Drag handle. touch-action:none is what makes a finger drag the row instead
+   of scrolling the list — but only over the handle itself, so scrolling the
+   list anywhere else still works. */
+.f-drag {
+  flex: 0 0 auto; cursor: grab; touch-action: none; user-select: none;
+  color: var(--text-dim); padding: 2px 4px; line-height: 1; letter-spacing: -2px;
+}
+.f-drag:hover { color: var(--text); }
+.f-row.dragging { opacity: .92; box-shadow: 0 6px 18px rgba(0,0,0,.35); position: relative; z-index: 2; cursor: grabbing; }
+.f-row.dragging .f-drag { cursor: grabbing; }
+/* The Filters tab renders straight into .modal-body, not into a .card — and
+   the flex that lays a `.row` out is scoped to `.card .row`, so these two bars
+   need their own. Save sits bottom-right under the whole list (and everything
+   said about it), where a form's Save belongs; the editor's bar puts Back on
+   the left and Save on the right, above the filter being edited. */
+.f-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px; }
+.f-editor-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* .set-hint carries margin-top:-8px, which is right under a form field in the
+   settings grid and wrong here: it pulled the hint up into the "+ Add filter"
+   button above it, so the button's hover background overlapped the text. */
+.f-hint { display: block; margin: 12px 0 0; }
+
+/* ---------- attachment viewer ---------- */
+.attach-viewer-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 300;
+  display: flex; flex-direction: column;
+}
+.attach-viewer-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+  padding: 8px 14px; color: #fff;
+}
+.attach-viewer-bar .icon-btn { color: #fff; }
+.attach-viewer-bar .icon-btn:hover { background: rgba(255,255,255,.15); color: #fff; }
+.attach-viewer-name { font-size: calc(14px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
+.attach-viewer-body {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; position: relative;
+}
+.attach-viewer-img {
+  max-width: 92vw; max-height: 86vh; touch-action: none; cursor: grab;
+  transition: transform .05s linear; user-select: none;
+}
+.attach-viewer-img:active { cursor: grabbing; }
+.attach-viewer-video { max-width: 92vw; max-height: 86vh; }
+.attach-viewer-pdf { width: 92vw; height: 86vh; border: 0; background: #fff; border-radius: 4px; }
+.attach-viewer-fallback { color: #fff; text-align: center; }
+.attach-viewer-fallback-icon { font-size: calc(48px * var(--ui-scale)); margin-bottom: 10px; }
+
+/* While the bytes are on their way. The viewer used to sit black and empty for
+   however long the server needed to pull the whole message off the mail server
+   and cut one part out of it — which reads as "broken", not as "working". */
+.attach-viewer-status {
+  color: #fff; text-align: center; max-width: min(420px, 80vw);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+/* Sitting on top of a <video> that is still buffering its first frame, rather
+   than next to it — the only case where the panel shares the body. */
+.attach-viewer-status-over {
+  position: absolute; inset: 0; max-width: none;
+  justify-content: center; pointer-events: none;
+}
+.attach-viewer-status-name {
+  margin: 0; font-size: calc(14px * var(--ui-scale));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.attach-viewer-status-line {
+  margin: 0; font-size: calc(12px * var(--ui-scale)); color: rgba(255,255,255,.7);
+  font-variant-numeric: tabular-nums;   /* so a counting size doesn't jitter */
+}
+/* The backdrop is black in both themes, so these can't take --text/--border
+   from the theme the way .btn-sm normally does — in light mode that is dark
+   text on black. */
+.attach-viewer-status-actions { display: flex; gap: 8px; margin-top: 6px; }
+.attach-viewer-status-actions .btn-sm { color: #fff; border-color: rgba(255,255,255,.4); }
+.attach-viewer-status-actions .btn-sm:hover { background: rgba(255,255,255,.15); }
+.attach-viewer-spinner {
+  width: calc(34px * var(--ui-scale)); height: calc(34px * var(--ui-scale));
+  border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%;
+  animation: av-spin .8s linear infinite;
+}
+.attach-viewer-progress {
+  width: min(320px, 70vw); height: 4px; border-radius: 2px;
+  background: rgba(255,255,255,.2); overflow: hidden;
+}
+.attach-viewer-progress-fill {
+  width: 0; height: 100%; background: #fff; border-radius: 2px;
+  transition: width .12s linear;
+}
+/* No Content-Length to count towards — sweep instead of pretending to a
+   percentage we don't have. */
+.attach-viewer-progress-fill.attach-viewer-progress-idle {
+  width: 35%; transition: none; animation: av-sweep 1.1s ease-in-out infinite;
+}
+@keyframes av-spin { to { transform: rotate(360deg); } }
+@keyframes av-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(286%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .attach-viewer-spinner { animation-duration: 2.4s; }
+  .attach-viewer-progress-fill.attach-viewer-progress-idle { animation: none; width: 100%; opacity: .45; }
+}
+
+/* Invisible — just a click-catcher (see openCtxMenu in app.js) — unlike
+   .sheet-backdrop/.modal-backdrop, which dim the background behind an actual
+   full-screen sheet/dialog. */
+.ctx-menu-backdrop { position: fixed; inset: 0; z-index: 249; background: transparent; }
+.ctx-menu {
+  position: fixed; z-index: 250; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 4px; min-width: 160px;
+  /* The reading pane's ⋯ menu has a dozen entries, and a phone held in
+     landscape is ~360px tall — it ran off the bottom of the screen with its
+     last items simply unreachable. openCtxMenu also sets max-height inline
+     from the space actually left below/above the tap; this is the floor under
+     that, and what makes the menu scroll rather than overflow.
+     100lvh (the LARGE viewport) as the second declaration: an iOS standalone
+     PWA reports 100vh as the screen minus the status bar, the same reason #app
+     above is written twice. */
+  max-height: calc(100vh - var(--sat) - var(--sab) - 16px);
+  max-height: calc(100lvh - var(--sat) - var(--sab) - 16px);
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.ctx-menu button {
+  display: block; width: 100%; text-align: left; padding: 8px 12px; border-radius: 5px; color: var(--text);
+}
+.ctx-menu button:hover { background: var(--hover); }
+.ctx-menu button.danger { color: var(--danger); }
+/* A non-action row: it explains why the action that would sit here isn't offered
+   (openCtxMenu's `disabled` item). Reads as text, not as a greyed-out button that
+   might come back to life — no hover, no pointer. */
+.ctx-menu button.ctx-note { color: var(--text-dim); cursor: default; }
+.ctx-menu button.ctx-note:hover { background: none; }
+
+/* Compose's To/Cc/Bcc contact suggestions — a hand-built dropdown (see
+   updateContactSuggestions in compose.js), not a native <input list>
+   datalist popup: that positioned itself against the pre-keyboard layout on
+   Android WebView, rendering off-screen below the on-screen keyboard once
+   there were suggestions to show. left/top/width are all set inline by
+   positionContactSuggest, computed from the input's own real (correctly
+   keyboard-adjusted) getBoundingClientRect(). */
+.contact-suggest {
+  position: fixed; z-index: 250; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 4px;
+  max-height: 220px; overflow-y: auto;
+}
+.contact-suggest button {
+  display: block; width: 100%; text-align: left; padding: 8px 12px; border-radius: 5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.contact-suggest button:hover { background: var(--hover); }
+/* Keyboard highlight (arrow keys) — what Enter/Tab would commit. Stronger
+   than :hover so it stays readable when the pointer happens to rest on a
+   different row than the one the keyboard is on. */
+.contact-suggest button.active { background: var(--accent-soft); color: var(--accent); }
+/* A row armed by a first Delete press (see compose.js#paintContactSuggestRows).
+   It replaces the contact's own label rather than sitting next to it: the row
+   is asking a question now, and a half-label/half-prompt row reads as neither. */
+.contact-suggest button.arm-delete,
+.contact-suggest button.arm-delete.active { background: var(--danger); color: #fff; }
+.contact-suggest button .cs-hint { opacity: .8; font-size: calc(11.5px * var(--ui-scale)); }
+/* One of your own addresses (identity or account), offered in the recipient
+   autocomplete but never stored as a contact — see compose.js#ownAddresses. */
+.contact-suggest button .cs-own {
+  font-size: calc(10.5px * var(--ui-scale)); color: var(--accent);
+  border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 4px;
+}
+.contact-suggest button.active .cs-own { border-color: currentColor; color: inherit; }
+
+/* Swipe-to-act row background (see bindSwipe in app.js) — a standalone
+   element positioned over the swiped row's live rect, not a child of it, so
+   the row can slide via transform without this moving along with it. */
+.swipe-action-bg {
+  position: fixed; z-index: 1; display: flex; align-items: center; justify-content: center;
+  font-size: calc(20px * var(--ui-scale)); background: var(--surface-2); color: var(--text-dim);
+  box-sizing: border-box; padding: 0 22px; /* keeps the icon off the very edge once it's edge-aligned (see bindSwipe) */
+}
+.swipe-action-bg.act-read { background: var(--accent); color: #fff; }
+.swipe-action-bg.act-delete { background: var(--danger); color: #fff; }
+/* Past the commit line (30% of the row) the action will fire on release; before it, the row
+   just springs back. Saying so in the colour and the icon size is what makes
+   a half-committed swipe readable without having to guess where the line is. */
+.swipe-action-bg { opacity: .55; transition: opacity .12s ease, font-size .12s ease; }
+.swipe-action-bg.armed { opacity: 1; font-size: calc(27px * var(--ui-scale)); }
+
+.toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+  background: #323232; color: #fff; padding: 10px 20px; border-radius: 8px; z-index: 200;
+  box-shadow: var(--shadow);
+  max-width: min(90vw, 420px); text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+}
+/* Even lines instead of a long first line and a two-word orphan — a wrapped
+   toast is read at a glance or not at all. Ignored where unsupported. */
+.toast-msg { text-wrap: balance; }
+/* The named action ("UNDO") a toast can carry — its own affordance, so the
+   message beside it stays plain text. */
+.toast-action { color: #7cb0ff; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+/* Only set when the toast carries an action (toast(msg, ms, onTap)) — an
+   ordinary status toast stays non-interactive. Underlining the whole message
+   is the affordance ONLY when there's no action chip to carry it. */
+.toast.tappable { cursor: pointer; }
+.toast.tappable:not(.has-action) { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- user menu (bottom sheet) ----------
+ * Same show/hide technique as the mobile sidebar overlay: always in the DOM,
+ * toggled via a class (not [hidden]) so transform/opacity can transition
+ * instead of popping. Anchored bottom-left near the sidebar on desktop
+ * (it's "attached to" the user row that opened it, not a full-width mobile
+ * sheet); becomes a real full-width bottom sheet under the mobile breakpoint. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 150; background: rgba(0,0,0,0);
+  display: flex; align-items: flex-end; pointer-events: none;
+  transition: background .18s ease;
+  /* The sheet is anchored to this box's left edge, and on mobile has no margin
+     of its own — so the side insets belong here, or a landscape phone puts the
+     menu under its camera cutout. The dim itself still covers the whole screen
+     (background is on this element, padding does not clip it). */
+  padding-left: var(--sal); padding-right: var(--sar);
+}
+.sheet-backdrop.open { background: rgba(0,0,0,.4); pointer-events: auto; }
+.bottom-sheet {
+  width: 100%; max-width: 280px; margin: 0 0 8px 8px;
+  background: var(--surface); border-radius: 14px; box-shadow: var(--shadow);
+  padding: 6px 0; transform: translateY(calc(100% + 16px)); transition: transform .18s ease;
+  /* Nine rows plus a header, against a landscape phone's ~360px of height:
+     the last items (Settings, Log out) were off the bottom with no way to
+     reach them, since this sheet is anchored to the bottom and grows upward.
+     Scrolls instead. Same 100lvh reasoning as .ctx-menu above. */
+  max-height: calc(100vh - var(--sat) - 16px);
+  max-height: calc(100lvh - var(--sat) - 16px);
+  overflow-y: auto; overscroll-behavior: contain;
+  /* It sits ON the bottom edge, so it carries the nav-bar inset itself rather
+     than getting it from a scroll container further out. */
+  padding-bottom: calc(6px + var(--sab));
+}
+.sheet-backdrop.open .bottom-sheet { transform: translateY(0); }
+.bottom-sheet-header {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px;
+  border-bottom: 1px solid var(--border); margin-bottom: 6px;
+}
+#user-menu-username { font-size: calc(13.5px * var(--ui-scale)); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; font-size: calc(14px * var(--ui-scale)); text-align: left; }
+.sheet-item:hover { background: var(--hover); }
+.sheet-item.danger { color: var(--danger); }
+.sheet-divider { height: 1px; background: var(--border); margin: 6px 0; }
+
+/* ---------- responsive ---------- */
+.sidebar-backdrop { display: none; }
+.mv-back-btn { display: none; }
+
+@media (max-width: 900px) {
+  /* ---- sidebar as an overlay, closed by default (app.js sets this) ---- */
+  /* #sidebar (not .sidebar) so this reliably beats the desktop resizable-
+     column rule further down (.sidebar { width: var(--folder-col) }) — same
+     specificity would otherwise let source order pick the wrong one on a
+     phone whose --folder-col was left wide from a desktop resize. */
+  /* top:0/height:100% — used to offset below the old top bar (56px), which
+     no longer exists now that search/refresh moved into the message list
+     pane and the sidebar is the only thing left above the fold. */
+  #sidebar {
+    position: fixed; top: 0; left: 0; z-index: 40;
+    background: var(--bg); height: 100%; box-shadow: var(--shadow);
+    width: min(280px, 84vw); transition: transform .18s ease;
+    /* Fixed to the screen's own left edge, so it sits OUTSIDE .main's side
+       padding and has to carry the left inset itself — that is the edge a
+       landscape phone puts its camera cutout on. The base rule's 12px left
+       padding, plus whatever the cutout needs. */
+    padding-left: calc(12px + var(--sal));
+  }
+  /* Override the desktop display:none toggle — slide via transform instead,
+     so the open/close has an actual animation instead of popping. */
+  #sidebar.collapsed { display: flex; transform: translateX(-100%); }
+  .sidebar-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 39;
+    background: rgba(0,0,0,.4);
+  }
+  .col-resizer { display: none; }        /* drag-resize is a desktop affordance */
+  .col-resize { display: none; }
+  .wiz-grid { grid-template-columns: 1fr; }
+  /* User menu on mobile: same width as the sidebar itself (#sidebar's own
+     `width: min(280px, 84vw)` above) — it opens FROM the sidebar's own
+     footer, so a sheet wider than the menu that triggered it looked
+     mismatched/wrong. Still bottom-anchored (unlike desktop's bottom-left-
+     near-the-trigger placement), just not stretched to the full screen. */
+  .bottom-sheet { width: min(280px, 84vw); max-width: none; margin: 0; border-radius: 16px 16px 0 0; }
+
+  /* ---- list vs. full-screen message: only one pane at a time ---- */
+  .content { padding: 0; gap: 0; }
+  #content.mobile-show-message .msg-list-pane { display: none; }
+  #content:not(.mobile-show-message) .reading-pane { display: none; }
+  /* Beats .content.pane-off/.pane-window .reading-pane { display: none }
+     (both unconditional, desktop-oriented rules) — on mobile a message is
+     always shown full-screen when open, regardless of that desktop setting. */
+  #content.mobile-show-message .reading-pane { display: block; }
+  /* #content (not .content) so this reliably beats .content.pane-right
+     .msg-list-pane { flex: 0 0 var(--list-col) } further down — that rule's
+     3 classes still lose to an ID regardless of source order, which matters
+     here since the default readingPane setting is "right". */
+  #content .msg-list-pane, #content .reading-pane { border-radius: 0; max-width: none; min-width: 0; flex: 1 1 auto; }
+  .mv-back-btn {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    /* Same story as .list-search-bar's inset below: with a message open the
+       reading pane IS the screen, so this sticky row is what sits under the
+       status bar — and Back is the one control there is. */
+    padding: 12px 14px; padding-top: calc(12px + var(--sat)); font-size: calc(14px * var(--ui-scale)); font-weight: 600; color: var(--text);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .mv-header-card { margin: 12px 16px 0; padding: 12px 14px; }
+  .mv-stub { margin-left: 16px; margin-right: 16px; padding: 10px 14px; }
+  /* No hover on a touch screen — the collapse toggle can't be hover-revealed. */
+  .mv-head-toggle { opacity: 1; }
+  .mv-body { padding: 12px 16px 24px; }
+  .mv-attachments { margin-left: 16px; margin-right: 16px; }
+  /* The reading pane *is* the whole screen on mobile (see
+     #content.mobile-show-message above) — never let it pick up its own
+     horizontal scrollbar (from a long unbroken header line, say). The
+     message body itself still handles its own overflow content internally
+     (scroll/pinch-zoom inside the frame — see messageFrame.js), so this
+     costs nothing there. */
+  .reading-pane { overflow-x: hidden; }
+
+  /* The find bar spans the pane on a phone instead of floating in the corner:
+     at this width the desktop pill would leave the input barely wide enough
+     for a word, and there is no wasted margin to float in anyway. Fixed to the
+     screen rather than to a pane, so it carries the side insets itself — in
+     landscape one of those edges is the camera cutout and the other the
+     navigation bar. */
+  .find-bar { left: calc(8px + var(--sal)); right: calc(8px + var(--sar)); border-radius: var(--radius); }
+  .find-input { flex: 1; width: auto; }
+
+  /* Row layout itself (table forced to compact, or whichever card variant
+     is chosen) is now handled uniformly by the data-layout rules above —
+     the old hardcoded 3-line grid used to live here unconditionally.
+     Selection UI visibility is handled globally too (see .cb rules above)
+     — select mode works the same tap-to-select way on mobile as desktop. */
+
+  /* ---- Settings: full-screen panel. Unlike the message list <-> reading
+     pane pattern above, tabs and content are NOT swapped one-at-a-time —
+     tabs stay visible (as a horizontal scroll strip) alongside content the
+     whole time, closer to desktop's own always-both-visible layout, just
+     stacked vertically instead of side by side. Save shares the title row
+     (see .mobile-save-status/.mobile-save-btn) instead of the footer at the
+     very bottom (often off-screen below whatever settings content there
+     was). */
+  /* Sized against the backdrop's padded content box (100%), NOT the viewport
+     (100vw/100vh, which is what this used to say). The backdrop is
+     position:fixed;inset:0, so with viewport-fit=cover it spans the entire
+     screen including the notch/status bar and the home-indicator strip;
+     padding it by the safe-area insets and letting the panel fill what's left
+     is what keeps the header off the status bar and the tab strip / Save row
+     off the home indicator. On iOS standalone specifically, 100vh is also
+     just plain wrong here (it reports the screen minus the status bar — see
+     the #app/100lvh note above), which is why this stops using it entirely
+     rather than swapping in lvh. No-op wherever the insets are 0: Android
+     PWA, desktop, and the native APK (which pads its own WebView instead —
+     see .list-search-bar's note). */
+  #settings-modal, #analytics-modal { padding: var(--sat) var(--sar) var(--sab) var(--sal); }
+  #settings-modal .modal, #analytics-modal .modal { width: 100%; max-width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
+  #settings-modal .mobile-save-status, #settings-modal .mobile-save-btn { display: inline-flex; }
+  #settings-modal .mobile-save-status { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); }
+  #settings-modal .modal-footer { display: none; } /* replaced by the header row's Save above */
+  #settings-modal .modal-nav-body, #analytics-modal .modal-nav-body { flex-direction: column; }
+  #settings-modal .modal-tabs, #analytics-modal .modal-tabs {
+    flex-direction: row; flex: 0 0 auto; width: 100%; gap: 4px;
+    overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+    border-right: none; border-bottom: 1px solid var(--border);
+  }
+  #settings-modal .modal-tabs button, #analytics-modal .modal-tabs button {
+    flex: 0 0 auto; white-space: nowrap;
+    padding: 10px 13px; font-size: calc(14px * var(--ui-scale));
+  }
+  #settings-modal .modal-content-col, #analytics-modal .modal-content-col { min-height: 0; }
+  #analytics-modal .an-scanbar { padding-left: 14px; padding-right: 14px; }
+  /* Header on a phone: title and Close share row one (Close must never be the
+     thing that gets squeezed out — it was ending up clipped), while the
+     account picker and Scan wrap to row two where they have real room. */
+  #analytics-modal .modal-header { flex-wrap: wrap; justify-content: flex-start; gap: 8px; padding: 10px 12px 8px; }
+  #analytics-modal .modal-header h2 {
+    flex: 1 1 auto; min-width: 0; font-size: calc(15px * var(--ui-scale));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #analytics-modal #btn-an-close { order: 2; flex: 0 0 auto; width: 34px; height: 34px; }
+  #analytics-modal .modal-header-actions { order: 3; flex: 1 1 100%; gap: 8px; }
+  #analytics-modal #an-account { flex: 1 1 auto; min-width: 0; max-width: none; }
+  #analytics-modal #btn-an-scan { flex: 0 0 auto; }
+
+  /* Tables become stacked rows. Six columns cannot be read on a portrait
+     phone at any font size, and a horizontal scroll inside a vertical scroll
+     is worse than either — so each row turns into a small card: the thing you
+     identify the message by first, then the sender, then the numbers as one
+     dim meta line. Numeric cells carry their own label (data-label, set in
+     analytics.js) because the header row is gone. */
+  #analytics-modal .an-sortbar { display: flex; }
+  #analytics-modal .an-table-wrap { overflow-x: visible; }
+  #analytics-modal .an-table, #analytics-modal .an-table tbody,
+  #analytics-modal .an-table tr, #analytics-modal .an-table td { display: block; width: auto; }
+  #analytics-modal .an-table thead { display: none; }
+  #analytics-modal .an-table tr {
+    display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px;
+    padding: 9px 11px;
+  }
+  #analytics-modal .an-table tr:not(:last-child) { border-bottom: 1px solid var(--border); }
+  #analytics-modal .an-table tr:not(:last-child) td { border-bottom: none; }
+  #analytics-modal .an-table td { padding: 0; max-width: none; width: auto; text-align: left; }
+  #analytics-modal .an-table td:empty { display: none; }
+  #analytics-modal .an-table td[data-label]::before {
+    display: inline; content: attr(data-label) ' '; color: var(--text-dim);
+    font-size: calc(11px * var(--ui-scale));
+  }
+  /* Row 1: checkbox + the identifying text. Row 2: sender. Row 3: meta. */
+  #analytics-modal .an-table .an-c-check { order: 1; flex: 0 0 auto; align-self: center; }
+  #analytics-modal .an-table .an-c-subj, #analytics-modal .an-table .an-c-name {
+    order: 2; flex: 1 1 0; min-width: 0; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #analytics-modal .an-table .an-c-sender {
+    order: 3; flex: 1 1 100%; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #analytics-modal .an-table .an-c-size, #analytics-modal .an-table .an-c-date,
+  #analytics-modal .an-table .an-c-where, #analytics-modal .an-table td.num {
+    order: 4; flex: 0 0 auto; color: var(--text-dim); font-size: calc(11.5px * var(--ui-scale)); text-align: left;
+  }
+  #analytics-modal .an-table .an-c-act { order: 5; flex: 0 0 auto; margin-left: auto; }
+  #analytics-modal .an-table .an-bar-cell { order: 6; flex: 1 1 100%; width: auto; }
+  /* Separators between the meta items, so "1.2 MB 12.5.2026 INBOX" reads as
+     three values rather than one run-on string. Not sibling selectors: these
+     cells are not DOM-adjacent (subject and sender sit between them and only
+     `order` moves them), so the dot goes on the cells themselves — the labelled
+     ones already carry their own prefix via td[data-label]. */
+  #analytics-modal .an-table .an-c-date::before,
+  #analytics-modal .an-table .an-c-where::before {
+    content: '·'; margin-right: 6px; opacity: .55;
+  }
+  /* A message present under several Gmail labels can make this the longest
+     thing on the row — let it shrink and ellipsize like the rest. */
+  #analytics-modal .an-table .an-c-where {
+    min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #settings-modal .set-grid { grid-template-columns: 1fr; max-width: none; }
+  #settings-modal .set-grid .set-hint { grid-column: 1; }
+
+  /* Header area (search row + action row above the list) was eating too
+     much vertical space on phones — smaller touch targets, tighter
+     padding, and no wrapping to a second line (scrolls horizontally
+     instead) so it stays a single compact strip. */
+  /* padding-top repeated after the shorthand ON PURPOSE: the shorthand
+     resets every side, and this rule is later in the file than the base
+     .list-search-bar { padding-top: calc(8px + var(--sat)) } — same
+     specificity, so source order decides and the inset was being thrown
+     away on exactly the devices that have one. That left the ☰ button
+     underneath the iOS status bar in an installed PWA, where it isn't just
+     hidden but untappable (the touch goes to the status bar, not the page). */
+  .list-search-bar { padding: 6px 8px; padding-top: calc(6px + var(--sat)); gap: 6px; }
+  .list-search-bar .icon-btn { width: 32px; height: 32px; }
+  .search input { padding: 7px 0; }
+  /* flex-wrap (not overflow-x:auto — that would clip the Layout popover,
+     which is position:absolute inside this row) */
+  .list-toolbar, .select-toolbar { padding: 4px 8px; flex-wrap: wrap; row-gap: 2px; }
+  .list-toolbar .icon-btn, .select-toolbar .icon-btn { width: 30px; height: 30px; font-size: calc(14px * var(--ui-scale)); }
+  .select-toolbar select#sel-move-target { max-width: 92px; font-size: calc(12px * var(--ui-scale)); }
+  .pager { font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
+
+  /* View-headers dialog: the desktop two-column table (th forced to its
+     content width via width:1%, td taking the rest) leaves too little room
+     for the value column on a phone — long unbroken header values wrap one
+     character per line instead. Stack each row into a label line + value
+     line instead of fighting a table layout that doesn't fit. */
+  .headers-table, .headers-table tbody, .headers-table tr, .headers-table th, .headers-table td {
+    display: block; width: auto;
+  }
+  .headers-table tr { padding: 6px 10px; }
+  .headers-table tr:not(:last-child) { border-bottom: 1px solid var(--border); }
+  .headers-table th, .headers-table td { border-bottom: none; padding: 0; }
+  .headers-table th { padding-top: 2px; }
+  .headers-table td { padding-bottom: 4px; }
+
+  /* Compose "enlarge" on mobile means full page size — a small floating
+     Gmail-style window is far less useful on a phone screen to begin with,
+     so unlike desktop's "bigger but not full-space", there's no point
+     stopping short of the whole viewport here. :not(.minimized) matches the
+     base (unscoped-by-media-query, so also technically in effect here)
+     desktop rule's own specificity exactly — without it, that rule's
+     :not(.minimized) would outrank this override on pure specificity
+     regardless of which one comes later in the file. */
+  .compose-window.large:not(.minimized) {
+    right: 0; bottom: 0; top: 0; left: 0;
+    width: 100%; max-width: 100%; height: 100%; max-height: 100%;
+    border-radius: 0;
+    /* Same safe-area problem the Settings panel had (see #settings-modal
+       above): edge-to-edge on an iOS standalone PWA otherwise puts the
+       titlebar under the status bar and the Send row under the home
+       indicator. Only the side insets go on the window itself (landscape on
+       a notched phone) — the top and bottom are carried by the titlebar and
+       footer below, so each of those keeps its own background running all
+       the way to the screen edge instead of leaving a strip of a slightly
+       different shade above/below it. All four are 0 on Android/desktop. */
+    padding-left: var(--sal); padding-right: var(--sar);
+  }
+  /* The floating (not enlarged) composer on a phone sits on the bottom-right
+     corner of the SCREEN, so it has the same landscape problem as everything
+     else fixed there: its Send row ended up behind the navigation bar. Same
+     two insets the enlarged one gets from its own rules below. */
+  .compose-window:not(.large) { right: calc(24px + var(--sar)); }
+  .compose-window:not(.large) .compose-footer { padding-bottom: calc(10px + var(--sab)); }
+
+  /* Rounded top corners only ever made sense for the floating window; at full
+     page size they'd be two visible notches in the top corners of the screen. */
+  .compose-window.large:not(.minimized) .compose-titlebar {
+    border-radius: 0;
+    padding-top: calc(8px + var(--sat)); /* the base 8px, plus the status bar it now sits under */
+  }
+  .compose-window.large:not(.minimized) .compose-footer {
+    padding-bottom: calc(10px + var(--sab)); /* likewise for the home-indicator strip */
+  }
+
+  /* Floating Compose button — visible only over the message list itself.
+     Safe-area aware (bottom nav gesture bar) via the same --sab variable
+     the rest of the app already uses for this. */
+  .fab-compose {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; right: calc(20px + var(--sar, 0px)); bottom: calc(20px + var(--sab, 0px)); z-index: 40;
+    width: 56px; height: 56px; border-radius: 50%; border: none;
+    /* Translucent background (not the plain solid accent color) — lets
+       whatever's underneath (the last message row or two) stay at least
+       partly visible instead of the button fully blocking it. The "+"
+       glyph itself stays fully opaque (its own `color`, not part of this
+       mix) so it's always clearly legible regardless. */
+    background: color-mix(in srgb, var(--accent) 62%, transparent);
+    color: #fff; font-size: 28px; line-height: 1; font-weight: 400;
+    box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  }
+  .fab-compose:active { filter: brightness(1.1); }
+  /* #app is the common ancestor "hub" for all of these — :has() reaches
+     across the DOM regardless of nesting, unlike a sibling combinator,
+     which #content (nested inside .main) and .fab-compose (a sibling of
+     .main, not of #content) can't use directly. Every condition here is
+     already-existing state (nothing new tracked just for this button):
+     showing a message instead of the list, Settings open, Compose itself
+     already open (it occupies this same corner), or the sidebar drawer
+     pulled out (its own Compose button is already visible then). */
+  #app:has(#content.mobile-show-message) .fab-compose,
+  #app:has(#settings-modal:not([hidden])) .fab-compose,
+  #app:has(#analytics-modal:not([hidden])) .fab-compose,
+  #app:has(#compose-window:not([hidden])) .fab-compose,
+  #app:has(#sidebar-backdrop:not([hidden])) .fab-compose {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ---------- resizable columns ---------- */
+:root { --folder-col: 232px; --list-col: 420px; }
+.sidebar { width: var(--folder-col); }
+.content.pane-right .msg-list-pane { flex: 0 0 var(--list-col); max-width: none; }
+.col-resizer {
+  flex: 0 0 6px; cursor: col-resize; border-radius: 3px; align-self: stretch;
+  background: transparent; transition: background .15s; touch-action: none;
+}
+.col-resizer:hover, .col-resizer:active { background: var(--accent-soft); }
+.content.pane-bottom #resizer-list, .content.pane-off #resizer-list, .content.pane-window #resizer-list { display: none; }
+
+/* ---------- accounts (sidebar) ---------- */
+.account-list { list-style: none; margin: 4px 0 0; padding: 0 0 6px; border-bottom: 1px solid var(--border); }
+.account-list .account-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px 7px 14px;
+  border-radius: 0 20px 20px 0; cursor: pointer; user-select: none; font-size: calc(13.5px * var(--ui-scale));
+}
+.account-list .account-row:hover { background: var(--hover); }
+.account-list .account-row.active { background: var(--accent-soft); font-weight: 600; }
+.acct-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.acct-dot.all { background: none; width: auto; height: auto; font-size: calc(11px * var(--ui-scale)); color: var(--accent); }
+.acct-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* "Notifications are off here right now" (see app.js#updateSilenceMarkers) —
+   on an account row, on a folder row, or both. The faded/smaller variant means
+   the account itself still notifies but one of its folders doesn't, so the two
+   states stay distinguishable at a glance without a second glyph. */
+/* "…and other people can see this account" — the counterpart to the 🔗 that
+   marks an account shared TO you. Same restrained treatment as .mute-mark: a
+   marker beside the label, not a badge competing with the unread count. */
+.acct-shared { flex: 0 0 auto; font-size: .8em; opacity: .75; line-height: 1; }
+
+.mute-mark { flex: 0 0 auto; font-size: .85em; opacity: .8; line-height: 1; }
+.mute-mark.partial { font-size: .7em; opacity: .45; }
+
+/* Reorder mode: the up/down arrows replacing the unread badge while the ↕
+   button next to Compose is active. Sized for a thumb, not a mouse pointer —
+   these are used on the phone at least as often as on the desktop. */
+.account-list.reordering .account-row { cursor: default; }
+.account-list.reordering .account-row:hover { background: none; }
+.account-list.reordering .account-row.active:hover { background: var(--accent-soft); }
+.acct-move-wrap { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
+.acct-move {
+  width: 30px; height: 32px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: calc(11px * var(--ui-scale)); line-height: 1;
+}
+.acct-move:hover { background: var(--hover); }
+
+/* account badge in the message list — small color-coded circle with 1-2
+   letter initials (full label still available via the title tooltip) rather
+   than a full-text pill, to give the row more room for subject/sender. Shown
+   in every view, not just the unified one: in a single-account view it's the
+   account being viewed, and it doubles as the one-tap read/unread toggle
+   (see app.js#rowAccount). */
+.acct-chip {
+  flex: 0 0 20px; width: 20px; height: 20px; box-sizing: border-box; overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: calc(9.5px * var(--ui-scale)); font-weight: 700; line-height: 1; border-radius: 50%;
+  background: color-mix(in srgb, var(--chip) 20%, transparent);
+  color: var(--chip); border: 1px solid color-mix(in srgb, var(--chip) 45%, transparent);
+  cursor: pointer; /* one click toggles read/unread — see buildRow() */
+}
+.acct-chip:hover { background: color-mix(in srgb, var(--chip) 38%, transparent); }
+
+/* ---------- dialogs ---------- */
+.dialog-backdrop { z-index: 300; }
+/* height: auto overrides .modal's fixed `height: min(760px, 82vh)` (sized
+   for the tabbed Settings panel) — without it, every confirm/alert/prompt
+   dialog rendered at that same near-full-window height regardless of how
+   short its actual content was. max-height still caps genuinely long ones. */
+.dialog { max-width: 440px; width: min(440px, 92vw); height: auto; padding: 22px 24px; max-height: 90vh; overflow: auto; }
+.dialog:has(.dialog-wide) { max-width: 620px; width: min(620px, 94vw); }
+.dialog-title { font-size: calc(17px * var(--ui-scale)); font-weight: 500; margin-bottom: 12px; }
+.dialog-label { display: block; font-size: calc(13px * var(--ui-scale)); color: var(--text-dim); margin-bottom: 6px; }
+.dialog-input, .dialog textarea, .dialog select, .dialog input {
+  width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: calc(14px * var(--ui-scale));
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+}
+.dialog-input:focus, .dialog input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+.dialog-message { font-size: calc(14.5px * var(--ui-scale)); line-height: 1.5; }
+/* Wraps because a three-way choice (Cancel / Delete draft / Save draft — see
+   Dialog.choose) doesn't fit one row inside a phone-width dialog, least of all
+   with longer translated labels; two-button dialogs are unaffected. */
+.dialog-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 14px; margin-top: 20px; align-items: center; }
+.dialog .set-hint { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); margin-top: 6px; }
+
+/* ---------- view headers dialog ---------- */
+.headers-table-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.headers-table { width: 100%; border-collapse: collapse; font-size: calc(12.5px * var(--ui-scale)); }
+.headers-table tr:not(:last-child) th, .headers-table tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+.headers-table th, .headers-table td { text-align: left; padding: 7px 10px; vertical-align: top; }
+.headers-table th { color: var(--text-dim); font-weight: 600; white-space: nowrap; width: 1%; background: var(--surface-2); }
+.headers-table td { word-break: break-word; font-family: ui-monospace, monospace; }
+
+/* ---------- theme picker (each swatch preview is a tiny live-themed
+   element — see showThemePicker in app.js — not a hardcoded color chip, so
+   it can't drift from the real palette) ---------- */
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.theme-swatch {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 8px; border-radius: 12px; border: 2px solid transparent;
+}
+.theme-swatch:hover { background: var(--hover); }
+.theme-swatch.active { border-color: var(--accent); }
+.theme-swatch-preview {
+  width: 100%; aspect-ratio: 16 / 10; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); position: relative; overflow: hidden;
+}
+.theme-swatch-preview::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 34%; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.theme-swatch-preview .tsp-accent {
+  position: absolute; left: 10px; bottom: 10px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--accent);
+}
+.theme-swatch-label { font-size: calc(12.5px * var(--ui-scale)); color: var(--text); }
+.theme-custom-pickers { display: flex; gap: 18px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-custom-pickers label { display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--ui-scale)); color: var(--text); }
+.theme-custom-pickers input[type="color"] { width: 40px; height: 28px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+
+/* Account/preset wizard fields — NOT scoped to .dialog: the account wizard
+ * moved inline into the Settings > Accounts tab and stopped living inside a
+ * .dialog element, which silently dropped all of this (labels collapsed
+ * onto the same line as their input, no grid, no spacing — "no CSS" is
+ * exactly what that looks like). The preset editor (still a real Dialog)
+ * uses the same classes and keeps working unchanged either way. */
+.wiz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; margin-top: 6px; }
+.wiz-grid .full { grid-column: 1 / -1; }
+/* Grid tracks default to content-based (min-width:auto) sizing, and a plain
+   <input>/<select> has its own non-zero intrinsic minimum width regardless
+   of width:100% (a longstanding form-control default in every browser) —
+   without this, that minimum could force a grid track (and the whole modal)
+   wider than the viewport on mobile. .w-imap-fields/.w-ews-fields/
+   .w-oauth-fields/.w-imap-only use display:contents (see below) to let the
+   Type selector show/hide a whole field group at once — their OWN children
+   become the real grid items once promoted, not the display:contents wrapper
+   itself, so this needs to target both levels explicitly. */
+.wiz-grid > *, .w-imap-fields > *, .w-ews-fields > *, .w-oauth-fields > *, .w-imap-only > * { min-width: 0; }
+/* :not(.mini-toggle) so this doesn't clobber the TLS/self-signed checkbox
+ * labels, which are <label> too but need their own inline-flex layout. */
+.wiz-grid label:not(.mini-toggle) { font-size: calc(12.5px * var(--ui-scale)); font-weight: 600; color: var(--text-dim); display: block; margin-bottom: 6px; letter-spacing: .1px; }
+.wiz-grid .mini-toggle { display: flex; align-items: center; margin-bottom: 8px; }
+.wiz-grid .mini-toggle:last-child { margin-bottom: 0; }
+/* A checkbox-only cell (no label above it) otherwise sits flush with the top
+ * of its grid row, level with the LABEL text in the cell next to it — not
+ * with that cell's input box, which sits lower (below its own label). Grid
+ * items stretch to the row's full height by default, so centering this
+ * div's own content vertically within that stretched height lines it up
+ * with the input line instead. */
+.wiz-grid .wiz-check-group { display: flex; flex-direction: column; justify-content: center; }
+/* Text-like fields only — a bare `.wiz-grid input` also matches the TLS/
+ * self-signed/same-server checkboxes, and width:100%+padding+border-radius
+ * meant for a text box stretches a checkbox into a big misshapen block
+ * instead of leaving it as a normal small checkbox. Also excludes
+ * .host-input/.port-input: those need their own widths (flexible vs. a
+ * fixed 68px, see .host-port below) — this selector's specificity would
+ * otherwise beat .host-port .port-input's width:68px and make the port
+ * field balloon to fill the whole row, squeezing the host field out. */
+.wiz-grid input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not(.host-input):not(.port-input),
+.wiz-grid select, .wiz-grid textarea {
+  width: 100%; box-sizing: border-box; border-radius: 9px; padding: 8px 11px;
+}
+.wiz-grid input[type="checkbox"], .wiz-grid input[type="radio"] { width: auto; flex: 0 0 auto; margin: 0; }
+.wiz-section { grid-column: 1 / -1; font-weight: 600; font-size: calc(13px * var(--ui-scale)); margin-top: 10px; padding-bottom: 6px; color: var(--text); border-bottom: 1px solid var(--border); }
+/* Account-type field groups (.w-imap-fields / .w-ews-fields / .w-oauth-fields
+ * / .w-imap-only)
+ * wrap several of .wiz-grid's own direct children (field rows, section
+ * headers) so the wizard's Type selector can show/hide one whole group at
+ * once — display:contents makes the wrapper itself invisible to the grid,
+ * promoting its children back to being direct grid items (so .full's
+ * grid-column:1/-1 etc. still apply through the wrapper exactly as if it
+ * weren't there). The [hidden] override needs its own rule specifically
+ * because it has to beat the plain class selector above on specificity —
+ * otherwise the two rules tie and source order alone decides, which isn't
+ * reliable against the browser's own UA stylesheet [hidden] rule. */
+.w-imap-fields, .w-ews-fields, .w-oauth-fields, .w-imap-only { display: contents; }
+.w-imap-fields[hidden], .w-ews-fields[hidden], .w-oauth-fields[hidden], .w-imap-only[hidden] { display: none; }
+/* The sign-in block's explanatory paragraphs are prose, not fields — half-width
+ * grid tracks would set them as two narrow columns side by side. (display:
+ * contents on the wrapper doesn't affect selector matching, only layout, so
+ * these are matched here and laid out as direct grid items.) */
+.w-oauth-fields > p.set-hint { grid-column: 1 / -1; margin: 0; }
+.wiz-status { grid-column: 1 / -1; font-size: calc(13px * var(--ui-scale)); min-height: 18px; }
+.wiz-status.ok { color: var(--ok, #0f9d58); }
+.wiz-status.err { color: var(--danger); }
+
+/* Host + port shown as one rounded control instead of two separate boxes —
+ * the port is just a detail of the server address, not its own field. */
+.host-port {
+  display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface); overflow: hidden;
+}
+.host-port:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.host-port input {
+  border: none !important; border-radius: 0 !important; background: transparent;
+  padding: 8px 11px; box-sizing: border-box;
+}
+.host-port input:focus { outline: none; }
+.host-port .host-input { flex: 1; min-width: 0; width: auto; }
+.host-port .port-input {
+  width: 68px; flex: 0 0 auto; text-align: center; border-left: 1px solid var(--border) !important;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.host-port .port-input::-webkit-inner-spin-button, .host-port .port-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.color-picker { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.color-swatch {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer; flex: 0 0 auto;
+  border: 2px solid transparent; box-sizing: border-box;
+}
+.color-swatch:hover { transform: scale(1.1); }
+.color-swatch.selected { border-color: var(--text); }
+.color-picker input[type="color"] { width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%; cursor: pointer; background: none; }
+
+.sig-editor { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.sig-editor .sig-toolbar { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.sig-rich { min-height: 70px; max-height: 220px; overflow-y: auto; padding: 8px 10px; outline: none; }
+.sig-rich img { max-width: 100%; }
+.sig-src { width: 100%; min-height: 90px; border: none; resize: vertical; background: transparent; font-family: ui-monospace, monospace; font-size: calc(12px * var(--ui-scale)); padding: 8px 10px; box-sizing: border-box; }

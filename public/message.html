@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- See index.html's viewport meta comment — same reasoning here. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Hmelj — message</title>
+<script>
+// Same reasoning as index.html's inline head script: apply this device's
+// theme before first paint instead of waiting on the async API.settings()
+// round-trip below, which otherwise flashes the default theme first.
+(function () {
+  try {
+    // 'hmail-device-settings' is the pre-rename key: read as a fallback so
+    // the first load after the rename still paints the right theme rather
+    // than flashing the default (app.js migrates it to the new name on boot).
+    var d = JSON.parse(localStorage.getItem('hmelj-device-settings')
+      || localStorage.getItem('hmail-device-settings') || '{}');
+    document.documentElement.dataset.theme = (d.theme && d.theme !== 'system')
+      ? d.theme
+      : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  } catch (e) { /* ignore — the script below applies a fallback regardless */ }
+})();
+</script>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<!-- Single dynamic tag — see index.html's comment on the same pattern. -->
+<meta name="theme-color" content="#0b57d0" id="theme-color-meta">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hmelj">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<!-- Same server-unreachable bar as the main window (js/connection.js styles it
+     from app.css). This popout is just as dependent on the backend — it fetches
+     the message body on open and marks it read afterwards — so it gets the same
+     explanation rather than a bare "Error:" line. -->
+<div class="offline-bar" id="offline-banner" hidden>
+  <span class="offline-bar-icon">📶</span>
+  <span class="offline-bar-text">No connection to the Hmelj server — mail can’t be loaded or sent until it’s back.</span>
+  <button type="button" class="btn-sm" id="offline-banner-retry">Retry</button>
+</div>
+<div class="message-view" id="view" style="max-width:900px;margin:0 auto;background:var(--surface);min-height:100vh">Loading…</div>
+<script src="/js/i18n.js"></script>
+<script src="/js/connection.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/messageFrame.js"></script>
+<script src="/js/messageFind.js"></script>
+<script src="/js/attachmentViewer.js"></script>
+<script>
+(async () => {
+  Connection.start();
+  // Only auto-retry a load that never succeeded. Reloading a message the user is
+  // already reading, just because the network blinked, would be worse than the
+  // banner quietly disappearing on its own.
+  let loaded = false;
+  Connection.onChange((up) => { if (up && !loaded) location.reload(); });
+  const offlineView = () => {
+    document.title = 'Hmelj';
+    document.getElementById('view').innerHTML =
+      '<p style="color:var(--text-dim)">' + I18n.t('Waiting for the connection to the Hmelj server…') + '</p>';
+  };
+
+  let settings;
+  try {
+    settings = await API.settings();
+  } catch (e) {
+    if (String(e.message).includes('Not authenticated')) return; // api.js already redirected
+    // The banner (and the reload above) already explain and handle this one —
+    // no stack trace, no red error text.
+    if (e.offline) { offlineView(); return; }
+    throw e;
+  }
+  await I18n.init(settings.language);
+  // <title> lives in <head>, outside the subtree the DOM-walking translator
+  // watches (see i18n.js) — set it explicitly instead of leaving the
+  // English fallback from the static <title> tag in place.
+  document.title = 'Hmelj — ' + I18n.t('Loading…');
+  // theme is per-device (localStorage on the main app window, see
+  // DEVICE_SETTINGS_KEYS in app.js), not a synced server setting — this
+  // popout has to read the same key directly since it doesn't load app.js.
+  // Falls back to whatever's on the server only for a device that somehow
+  // reaches this popup without ever having booted the main app first (the
+  // popup is only ever opened from within it, so that shouldn't happen in
+  // practice, but it's a harmless fallback either way).
+  let deviceSettings = {};
+  // 'hmail-device-settings' is the pre-rename key — see the boot snippet above.
+  try { deviceSettings = JSON.parse(localStorage.getItem('hmelj-device-settings')
+    || localStorage.getItem('hmail-device-settings') || '{}'); } catch { /* ignore */ }
+  const theme = deviceSettings.theme ?? settings.theme;
+  // Not just light/dark — any of the app's named themes (sepia, contrast,
+  // midnight, …) can land here too; only "system" needs resolving.
+  document.documentElement.dataset.theme = (theme && theme !== 'system')
+    ? theme
+    : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  const themeMeta = document.getElementById('theme-color-meta');
+  if (bg && themeMeta) themeMeta.content = bg;
+
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+  const escAttr = (s) => esc(s).replace(/"/g, '&quot;');
+  // hash: <folder>/<uid>/<accountId> (parts individually URI-encoded — uid is an
+  // opaque per-account-type message identifier, not necessarily numeric, e.g. an
+  // Exchange account's uid is a base64-ish ItemId, not an IMAP integer UID)
+  const parts = location.hash.slice(1).split('/');
+  const folder = decodeURIComponent(parts[0] || 'INBOX');
+  const uid = decodeURIComponent(parts[1] || '');
+  API.account = parts[2] ? decodeURIComponent(parts[2]) : null;
+  const view = document.getElementById('view');
+  try {
+    const msg = await API.message(folder, uid, false);
+    loaded = true; // from here on, a reconnect just drops the banner — no reload
+    document.title = msg.subject + ' — Hmelj';
+    const from = msg.from?.[0] || {};
+    view.innerHTML = `
+      <h1 class="mv-subject">${esc(msg.subject)}</h1>
+      <div class="mv-meta">
+        <div class="mv-who">
+          <div class="mv-from">${esc(from.name || from.address || '')}</div>
+          <div class="mv-addr">${esc(from.address || '')} · ${esc(new Date(msg.date).toLocaleString())}</div>
+          <div class="mv-to">to ${esc(msg.to.map((t) => t.address).join(', '))}</div>
+        </div>
+      </div>
+      <div class="mv-body" id="mv-body-slot"></div>
+      ${msg.attachments.length ? '<div class="mv-attachments">' + msg.attachments.map((a) =>
+        `<a class="attach-chip" href="${escAttr(API.attachmentUrl(folder, uid, a.index))}" data-filename="${escAttr(a.filename)}" data-content-type="${escAttr(a.contentType || '')}">📎 ${esc(a.filename)}</a>`).join('') + '</div>' : ''}`;
+    const cs = getComputedStyle(document.documentElement);
+    const v = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+    // This popout doesn't load app.js, so it has no migrateFontValue() for a
+    // stale specific-name value (e.g. a pre-migration "Arial") — falls back
+    // to system-ui in that one case instead of a genuinely broken value;
+    // gets corrected for good the next time messageFont is actually saved
+    // from the main window's own Settings, same as everywhere else.
+    const customFonts = await API.fonts().catch(() => []);
+    const knownFont = settings.messageFont === 'system-ui' || settings.messageFont === 'serif'
+      || settings.messageFont === 'sans-serif' || settings.messageFont === 'monospace' || settings.messageFont === 'cursive'
+      || customFonts.some((f) => f.family === settings.messageFont);
+    document.getElementById('mv-body-slot').appendChild(MessageFrame.create({
+      html: msg.html, text: msg.text, fontFamily: knownFont ? settings.messageFont : 'system-ui', fontSize: settings.messageFontSize,
+      bg: v('--surface', '#ffffff'), fg: v('--text', '#1f1f1f'), link: v('--accent', '#0b57d0'), dim: v('--text-dim', '#888888'),
+      fonts: customFonts,
+    }));
+    view.querySelectorAll('.attach-chip').forEach((a) => a.addEventListener('click', (e) => {
+      e.preventDefault();
+      AttachmentViewer.open({ url: a.href, filename: a.dataset.filename, contentType: a.dataset.contentType });
+    }));
+    if (settings.autoMarkRead !== 'never' && settings.autoMarkRead !== 'manual') {
+      const delay = settings.autoMarkRead === 'immediate' ? 0 : settings.autoMarkReadDelay * 1000;
+      setTimeout(() => API.flags(folder, [uid], ['\\\\Seen'], []).catch(() => {}), delay);
+    }
+  } catch (e) {
+    if (e.offline) { offlineView(); return; }
+    document.title = 'Hmelj';
+    view.innerHTML = '<p style="color:var(--danger)">' + esc(I18n.t('Error: ')) + esc(e.message) + '</p>';
+  }
+})();
+</script>
+</body>
+</html>

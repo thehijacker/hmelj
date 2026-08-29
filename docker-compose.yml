@@ -1,0 +1,27 @@
+# 🌿 Hmelj webmail — docker compose example
+#
+#   1. cp .env.example .env    and edit it (at minimum, read through it once)
+#   2. docker compose up -d
+#   3. open http://localhost:3000 and create the first account — it becomes the admin
+#
+services:
+  hmelj:
+    image: ghcr.io/thehijacker/hmelj:latest
+    # To build from a checkout instead of pulling the published image, comment
+    # out `image:` above and uncomment this:
+    # build: .
+    container_name: hmelj
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      # Mail accounts, settings, filters, the encryption key (secret.key) and the
+      # message cache all live in here. Back it up.
+      - hmelj-data:/data
+    # Users sign in with their own mailbox credentials, which are verified against
+    # the mail server. Put Hmelj behind a reverse proxy with TLS — passwords travel
+    # over this connection, and installing it as a PWA requires HTTPS.
+
+volumes:
+  hmelj-data:

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Hmelj — Privacy Policy</title>
+<meta name="description" content="Privacy policy for the Hmelj self-hosted webmail client and its Android app."/>
+<link href="css/docs.css" rel="stylesheet"/>
+<style>
+  /* Standalone page — not part of the docs.js single-page app, so no #layout/#nav here.
+     Reuses docs.css purely for the shared colour tokens, reset, and h1/h2/p/ul typography. */
+  body { display: flex; justify-content: center; }
+  main {
+    width: 100%;
+    max-width: 760px;
+    padding: 56px 24px 96px;
+  }
+  .updated { color: var(--text-muted); font-size: .95rem; margin-bottom: 32px; }
+  .back-link { display: inline-block; margin-bottom: 24px; font-size: .95rem; }
+  .tldr {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 32px;
+  }
+  .tldr p:last-child { margin-bottom: 0; }
+  section { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back-link" href="index.html">← Back to Hmelj docs</a>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: 29 August 2026 · Applies to the Hmelj web app and the Hmelj Android app</p>
+
+  <div class="tldr">
+    <p><strong>Short version:</strong> Hmelj is self-hosted software. The app is a client —
+    it only ever talks to the server address <em>you</em> enter when you set it up, and that
+    server only ever talks to the mail providers <em>you</em> configure. The Hmelj project
+    operates no server, receives no data, and builds no analytics, ads or trackers into
+    anything it ships.</p>
+  </div>
+
+  <section>
+    <h2>Who this policy covers</h2>
+    <p>
+      Hmelj is free, open-source software (AGPL-3.0) that you, or someone you trust, run on
+      your own server — a home NAS, a small VPS, a machine in an office. The app you installed
+      is a client for that server. It has no independent connection to the Hmelj project, and
+      the people who develop Hmelj never receive, see, or store any of your data.
+    </p>
+    <p>
+      This policy describes what the software does. It cannot describe what the person running
+      your particular server does with it; see <em>Your server's own responsibilities</em> below.
+    </p>
+  </section>
+
+  <section>
+    <h2>What data Hmelj handles, and where it goes</h2>
+    <ul>
+      <li><strong>Your Hmelj username and password</strong> — chosen by you, stored on your own
+        server with the password hashed using scrypt. It is never sent to any mail provider.</li>
+      <li><strong>Mailbox credentials</strong> — the passwords, app passwords or OAuth refresh
+        tokens for the mail accounts you attach. Stored on your own server, encrypted at rest
+        with AES-256-GCM, and sent only to the mail servers they belong to.</li>
+      <li><strong>Your mail</strong> — message headers and, for recently read messages, bodies
+        are cached on your own server so lists and reopening are fast. Attachments are held
+        briefly in that server's memory and are never written to its disk by the cache.</li>
+      <li><strong>Your settings, identities, signatures, contacts and filters</strong> — stored
+        on your own server, per user.</li>
+      <li><strong>The server address, and your session</strong> — in the Android app, the server
+        URL you type and the session cookie it receives are stored locally on your device.</li>
+    </ul>
+    <p>
+      None of the above is sent anywhere except the server address you configured, and the mail
+      providers you told that server about. There is no Hmelj-operated backend of any kind.
+    </p>
+  </section>
+
+  <section>
+    <h2>Notifications</h2>
+    <p>
+      If you turn on new-mail notifications, your server sends them through the push service
+      your device already uses — Mozilla's service for Firefox, Google's Firebase Cloud
+      Messaging for Chrome and for the Android app, Apple's relay for Safari. That is how push
+      works on every platform; there is no way to deliver a notification to a closed app without
+      passing through the platform's own service.
+    </p>
+    <p>
+      A notification carries the sender, the subject, and identifiers your server uses to open
+      the right message. Those services therefore transport that content, subject to their own
+      privacy policies. If that is not acceptable for a particular mailbox, leave notifications
+      off for it — Hmelj works fully without them, and the notification schedule can also be set
+      to <em>Never</em> per account or per folder.
+    </p>
+    <p>
+      Notifications are also held only briefly: by default a push service may hold one for an
+      unreachable device for 15 minutes, after which it is dropped rather than delivered late.
+    </p>
+  </section>
+
+  <section>
+    <h2>Optional integrations you control</h2>
+    <p>
+      Hmelj contacts nothing by default beyond the mail servers you configure. These are opt-in:
+    </p>
+    <ul>
+      <li><strong>Your mail providers</strong> — IMAP/SMTP servers, Microsoft Graph, or an
+        Exchange server, whichever accounts you add.</li>
+      <li><strong>Google or Microsoft sign-in</strong> — only if you choose an account type that
+        uses it. Authentication happens between your browser and that provider; your server
+        receives only the resulting token.</li>
+      <li><strong>Remote images in messages</strong> — loading them tells the sender you opened
+        the message. Hmelj's default is to load them only from domains you have trusted, and the
+        policy can be set to never load them at all.</li>
+      <li><strong>Unsubscribe requests</strong> — sent only when you press the button, and the
+        confirmation always names where the request will go.</li>
+      <li><strong>Read receipts</strong> — never confirmed automatically.</li>
+    </ul>
+    <p>
+      In every case the connection goes from your device, or from your own server, directly to
+      the service you specified. The Hmelj project is not an intermediary and does not see any of
+      that traffic.
+    </p>
+  </section>
+
+  <section>
+    <h2>What Hmelj does <em>not</em> do</h2>
+    <ul>
+      <li>No analytics or crash-reporting SDKs are built into the app or the server.</li>
+      <li>No advertising, no ad identifiers, no ad networks.</li>
+      <li>No data is sold or shared with third parties by the Hmelj project, because the Hmelj
+        project never receives any data to begin with.</li>
+      <li>Nothing phones home. There is no update check, no licence check and no usage ping.</li>
+      <li>Message content is never sent to any translation, spam-scoring or AI service.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Android permissions</h2>
+    <p>The Android app requests four permissions, and nothing else:</p>
+    <ul>
+      <li><code>INTERNET</code> — to talk to the server you configure.</li>
+      <li><code>ACCESS_NETWORK_STATE</code> — to notice when connectivity comes back.</li>
+      <li><code>POST_NOTIFICATIONS</code> — only if you turn notifications on; Android 13 and
+        later ask you for it directly.</li>
+      <li><code>REQUEST_IGNORE_BATTERY_OPTIMIZATIONS</code> — to <em>offer</em> you the system
+        prompt that exempts Hmelj from Doze, so notifications are not killed in the background.
+        The app cannot grant this to itself.</li>
+    </ul>
+    <p>
+      It does not request access to your contacts, location, camera, microphone, or files beyond
+      what you explicitly pick with the system file picker when attaching something to a message.
+    </p>
+  </section>
+
+  <section>
+    <h2>Children's privacy</h2>
+    <p>
+      Hmelj does not knowingly collect personal information from anyone, including children,
+      because it does not collect personal information at all — everything described above is
+      stored on the server you or your household controls, not on any Hmelj-operated system.
+    </p>
+  </section>
+
+  <section>
+    <h2>Your server's own responsibilities</h2>
+    <p>
+      Because you, or your administrator, run the actual server, you are the one in control of
+      that data. Backups, retention, who has an account, and whether the server is exposed to the
+      internet are all decisions made where the server runs. This policy covers the software's own
+      behaviour; it is not a substitute for securing a server you expose publicly. Hmelj should be
+      run behind TLS, since mailbox passwords travel over that connection.
+    </p>
+    <p>
+      Note also that an administrator of a Hmelj instance has filesystem access to its data
+      directory, exactly as they would with any self-hosted mail client. Trust your server's
+      operator accordingly.
+    </p>
+  </section>
+
+  <section>
+    <h2>Changes to this policy</h2>
+    <p>
+      If this policy changes, the updated version will be posted at this same URL with a new
+      "last updated" date above.
+    </p>
+  </section>
+
+  <section>
+    <h2>Contact</h2>
+    <p>
+      Questions about this policy or how Hmelj handles data can be raised as an issue on the
+      project's repository:
+      <a href="https://github.com/thehijacker/hmelj/issues" rel="noopener" target="_blank">github.com/thehijacker/hmelj/issues</a>.
+    </p>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider declared in AndroidManifest.xml is allowed to share.
+     Deliberately just the one directory MainActivity#attachmentsDir() writes
+     downloaded mail attachments into — a broader path (or <root-path>) would
+     expose the app's databases, cookies and preferences to any app handed one
+     of these URIs. -->
+<paths>
+    <cache-path name="attachments" path="attachments/" />
+</paths>

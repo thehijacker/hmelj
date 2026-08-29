@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flat fill only — no rounded corners of our own. The adaptive-icon system
+     (see mipmap-anydpi-v26/ic_launcher.xml) applies whatever mask shape the
+     launcher wants on top of this; a background layer baking in its own
+     rounding fights that. Same blue as the PWA icon's background
+     (public/icons/icon.svg, fill="#0b57d0"). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0b57d0" />
+</shape>

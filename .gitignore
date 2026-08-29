@@ -1,0 +1,21 @@
+node_modules/
+.env
+*.tar.gz
+
+# Runtime state: users' accounts/settings, encryption key, message cache, the
+# Firebase service-account key — none of this belongs in version control.
+data/
+
+# Scratch and local-only material: sample .eml files, a real contacts export,
+# one-off restore scripts, Claude Code session state.
+temp/
+restore/
+.claude/
+
+# Android: the Firebase client config identifies ONE Firebase project, and a
+# fork building this repo would be sending its device tokens to that project.
+# CI writes it from the GOOGLE_SERVICES_JSON secret instead; a fork adds its own
+# (see app/google-services.json.example.txt). Without the file the app still
+# builds and runs — BuildConfig.PUSH_ENABLED is just false and Android push is
+# off. Web Push for real browsers/PWAs is unaffected either way.
+Android/app/google-services.json

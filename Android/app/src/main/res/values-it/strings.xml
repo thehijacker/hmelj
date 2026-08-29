@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="server_select_subtitle">La tua biblioteca digitale</string>
+    <string name="server_select_label">URL del server</string>
+    <string name="dialog_hint">https://tuo-server.com</string>
+    <string name="dialog_ok">Connetti</string>
+    <string name="dialog_cancel">Annulla</string>
+    <string name="error_invalid_url">Inserisci un URL valido che inizi con http:// o https://</string>
+    <string name="back_press_hint">Premi due volte indietro per modificare l\'URL del server.</string>
+    <string name="file_chooser_unavailable">Nessuna app disponibile per scegliere i file</string>
+    <string name="attachment_downloading">Download in corso…</string>
+    <string name="attachment_open_with">Apri con</string>
+    <string name="attachment_failed">Impossibile scaricare l\'allegato</string>
+    <string name="attachment_saved">Salvato in Download</string>
+    <string name="attachment_no_app">Nessuna app può aprire questo file</string>
+    <string name="no_browser_for_signin">Nessun browser disponibile per accedere</string>
+    <string name="notification_action_mark_read">Segna come letto</string>
+    <string name="notification_action_delete">Elimina</string>
+    <string name="notification_action_read_failed">Impossibile segnare il messaggio come letto — è rimasto invariato</string>
+    <string name="notification_action_delete_failed">Impossibile eliminare il messaggio — è rimasto invariato</string>
+</resources>

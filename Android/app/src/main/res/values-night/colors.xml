@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark-mode colours for the native chrome. Deliberately left as inherited from
+     the WebView shell this app was built from — changing them changes how the
+     server-URL screen looks, and nothing else. -->
+<resources>
+    <color name="color_bg">#1a1a2e</color>
+    <color name="color_surface">#16213e</color>
+    <color name="color_accent">#e94560</color>
+    <color name="color_text">#e0e0e0</color>
+    <color name="color_text_muted">#9a9ab0</color>
+    <color name="color_border">#2a2a4a</color>
+</resources>

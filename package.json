@@ -1,0 +1,68 @@
+{
+  "name": "hmelj",
+  "version": "1.0.0",
+  "description": "Self-hosted, Gmail-style webmail client for IMAP/SMTP, Microsoft 365 and Exchange",
+  "keywords": [
+    "webmail",
+    "imap",
+    "smtp",
+    "email",
+    "mail-client",
+    "self-hosted",
+    "microsoft-graph",
+    "ews",
+    "exchange",
+    "pwa",
+    "nodejs"
+  ],
+  "homepage": "https://github.com/thehijacker/hmelj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thehijacker/hmelj.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thehijacker/hmelj/issues"
+  },
+  "author": "Andrej Kralj",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "start": "node --openssl-legacy-provider server/index.js",
+    "mock": "node test/mock-mail-server.js",
+    "vapid-keys": "node -e \"import('web-push').then(({default:wp})=>console.log(wp.generateVAPIDKeys()))\"",
+    "icons": "node -e \"import('sharp').then(async({default:s})=>{const svg='public/icons/icon.svg';await s(svg,{density:300}).resize(192,192).png().toFile('public/icons/icon-192.png');await s(svg,{density:300}).resize(512,512).png().toFile('public/icons/icon-512.png');await s(svg,{density:300}).resize(180,180).png().toFile('public/icons/apple-touch-icon.png');const a=await s(svg,{density:300}).resize(400,400).png().toBuffer();await s({create:{width:512,height:512,channels:4,background:'#0b57d0'}}).composite([{input:a,gravity:'centre'}]).png().toFile('public/icons/icon-maskable-512.png');console.log('icons regenerated')})\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "dictionary-en": "^4.0.0",
+    "dictionary-sl": "^3.0.0",
+    "dom-serializer": "^2.0.0",
+    "domutils": "^3.2.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.10.1",
+    "firebase-admin": "^14.2.0",
+    "httpntlm": "^1.4.1",
+    "htmlparser2": "^10.1.0",
+    "imapflow": "^1.6.5",
+    "mailparser": "^3.9.14",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
+    "nspell": "^2.1.5",
+    "sanitize-html": "^2.17.6",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "hoodiecrow-imap": "^2.1.0",
+    "sharp": "^0.35.3",
+    "smtp-server": "^3.19.2"
+  },
+  "overrides": {
+    "agentkeepalive": "^4.5.0"
+  }
+}

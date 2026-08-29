@@ -1,0 +1,175 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// Real push notifications (Firebase Cloud Messaging) are opt-in per checkout: only wired
+// up if app/google-services.json exists. That file is git-ignored — it identifies one
+// specific Firebase project — so a fresh clone has no push until you add your own (see
+// app/google-services.json.example.txt and docs/ → "Android push (Firebase)"). Without it
+// the project builds and runs exactly as before; only FCM-delivered push is missing.
+// Web Push for browsers and installed PWAs is a separate mechanism and is unaffected.
+def firebaseConfigFile = file("google-services.json")
+def hasFirebaseConfig = firebaseConfigFile.exists()
+if (hasFirebaseConfig) {
+    apply plugin: 'com.google.gms.google-services'
+}
+
+// Which application ids google-services.json actually has a client for. The
+// google-services plugin FAILS THE BUILD for an application id it doesn't
+// recognise, which had two consequences worth naming:
+//
+//  1. Debug builds were impossible. `applicationIdSuffix ".debug"` below made
+//     the id com.hmelj.app.debug, which has no client unless you register one —
+//     so the only variant that could be built was release, and push could not be
+//     tested on-device with logs at all. The suffix is now dropped automatically
+//     when there's no matching client, so a debug build just works. (Register a
+//     com.hmelj.app.debug client in the Firebase console to get the suffix, and
+//     side-by-side debug/release installs, back.)
+//  2. BuildConfig.PUSH_ENABLED was derived from the FILE EXISTING, not from a
+//     client matching this application id — so a build with someone else's
+//     google-services.json reported push as supported, and the page would ask
+//     for a token that could never arrive.
+def firebasePackages = []
+if (hasFirebaseConfig) {
+    try {
+        def json = new groovy.json.JsonSlurper().parse(firebaseConfigFile)
+        firebasePackages = json.client.collect { it.client_info.android_client_info.package_name }
+    } catch (Exception e) {
+        logger.warn("Could not parse google-services.json (${e.message}) — treating push as unconfigured")
+    }
+}
+
+// Local release signing. keystore.properties is git-ignored and is how you build a
+// release build in Android Studio that is signed with the SAME key CI uses — which is
+// what lets a locally built APK install as an update over a downloaded one. See
+// Android/README.md.
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
+android {
+    namespace 'com.hmelj.app'
+    compileSdk 35
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    defaultConfig {
+        applicationId "com.hmelj.app"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+
+        resValue "string", "app_name", "Hmelj"
+        resValue "string", "brand_name", "Hmelj"
+
+        // Pad content for the status bar / camera cutout natively in the WebView itself.
+        // The web UI does handle --sat/--sab/--sal/--sar itself, but in this shell the
+        // page sees zero insets (the shell shrinks its own WebView), so the padding has
+        // to happen here — see MainActivity.setupNativeSafeAreaPadding.
+        buildConfigField "boolean", "NATIVE_SAFE_AREA_INSETS", "true"
+        // Hide the status bar on every page (swipe from the edge to reveal it),
+        // not just on one specific route.
+        buildConfigField "String",  "IMMERSIVE_MODE", "\"always\""
+        // Bottom nav bar always visible — hiding it made everyday use awkward in
+        // practice. IMMERSIVE_MODE above therefore only affects the status bar.
+        buildConfigField "boolean", "HIDE_NAV_BAR", "false"
+        // True only when google-services.json actually carries a client for THIS
+        // application id — not merely when the file exists. See firebasePackages above.
+        buildConfigField "boolean", "PUSH_ENABLED", "${firebasePackages.contains('com.hmelj.app')}"
+    }
+
+    signingConfigs {
+        release {
+            if (System.getenv("KEYSTORE_FILE")) {
+                // CI: Google Play upload keystore passed via env (base64-decoded path).
+                // Used for the AAB only — see .github/workflows/release-android.yml.
+                storeFile     file(System.getenv("KEYSTORE_FILE"))
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias      System.getenv("KEY_ALIAS")
+                keyPassword   System.getenv("KEY_PASSWORD")
+            } else if (System.getenv("DEV_KEYSTORE_FILE")) {
+                // CI: the sideload/GitHub-Release keystore, from the DEV_KEYSTORE_* secrets.
+                storeFile     file(System.getenv("DEV_KEYSTORE_FILE"))
+                storePassword System.getenv("DEV_KEYSTORE_PASSWORD")
+                keyAlias      System.getenv("DEV_KEY_ALIAS")
+                keyPassword   System.getenv("DEV_KEY_PASSWORD")
+            } else if (keystorePropsFile.exists()) {
+                // Local build: keystore.properties (storeFile path is relative to Android/).
+                storeFile     rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias      keystoreProps['keyAlias']
+                keyPassword   keystoreProps['keyPassword']
+            }
+            // No branch matched: the release build is left UNSIGNED and cannot be
+            // installed. That is deliberate — silently falling back to the debug key
+            // would produce an APK that installs once and can never be updated.
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Only suffix the id when Firebase knows about the suffixed package —
+            // otherwise the google-services plugin fails the build and no debug APK
+            // can be produced at all (see firebasePackages above).
+            if (!hasFirebaseConfig || firebasePackages.any { it.endsWith(".debug") }) {
+                applicationIdSuffix ".debug"
+            }
+            versionNameSuffix "-debug"
+        }
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+android.applicationVariants.all { variant ->
+    variant.outputs.all { output ->
+        outputFileName = "${variant.applicationId}-${variant.versionName}.apk"
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.activity:activity-ktx:1.9.0'
+    // WebViewCompat.addDocumentStartJavaScript — lets us inject the Notification-API shim
+    // (see MainActivity) before the page's own scripts run, instead of racing them.
+    implementation 'androidx.webkit:webkit:1.12.1'
+
+    // Chrome Custom Tabs — how OAuth sign-in gets in front of a REAL browser.
+    // Not optional: Google rejects OAuth started in an embedded WebView with
+    // 403 disallowed_useragent, and this app doesn't enable multiple-window
+    // support, so the page's own window.open() does nothing here. See
+    // JsBridge.openExternal in MainActivity.kt, which falls back to a plain
+    // ACTION_VIEW browser launch if no Custom Tabs provider is installed.
+    implementation 'androidx.browser:browser:1.8.0'
+
+    // Real push (FCM). Always on the classpath so HmeljFirebaseMessagingService.kt
+    // compiles regardless of whether Firebase is configured for this checkout — it
+    // just never actually initializes (and BuildConfig.PUSH_ENABLED stays false)
+    // without app/google-services.json.
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-messaging-ktx'
+
+    // Uploads a rotated FCM token to the server from native code, retrying across
+    // process death and reboots (see PushTokenWorker). Needed because token rotation
+    // usually happens while the app is closed, when there's no WebView to do it — the
+    // single biggest cause of push silently dying on a device.
+    implementation 'androidx.work:work-runtime-ktx:2.9.1'
+}
