@@ -33,7 +33,10 @@ jobs:
           node-version: '24'
           cache: npm
 
-      - run: npm ci
+      # --ignore-scripts to match the Dockerfile exactly — see the long comment
+      # there. Testing a differently-installed tree than the one that ships is
+      # how the v1.0.1 build broke: it passed here and failed in the image.
+      - run: npm ci --ignore-scripts
       - run: npm test
 
   build:

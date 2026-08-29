@@ -3,24 +3,33 @@
 # Multi-arch: this image is published for linux/amd64 and linux/arm64
 # (.github/workflows/docker.yml builds both under QEMU).
 
-# better-sqlite3 (the message cache) is the only native module, and from 13.x it
-# ships prebuilt N-API binaries for Node 24 covering linux/musl on both x64 and
-# arm64 — the two platforms this image is published for. So nothing compiles and
-# there is deliberately NO python3/make/g++ here.
+# better-sqlite3 (the message cache) is the only native module, and 13.x SHIPS its
+# compiled binaries inside the package — lib/linuxmusl-x64.js and
+# lib/linuxmusl-arm64.js load prebuilds/linuxmusl-{x64,arm64}.node, which is
+# exactly what this Alpine image needs on both published architectures. Nothing
+# has to be compiled, so there is deliberately no python3/make/g++ here.
 #
-# That is worth defending. On 11.x there was no Node 24 prebuild, npm fell back
-# to node-gyp, and the arm64 leg compiled SQLite from source under QEMU — around
-# twenty minutes of the build. Worse, the Codexa project hit an intermittent
-# native crash from exactly that combination (an assertion in better-sqlite3's
-# Statement destructor): a source build against an ABI the version predates is
-# not merely slow, it can be subtly wrong.
+# --ignore-scripts is what makes that reliable rather than lucky. better-sqlite3
+# ships a binding.gyp and declares no `install` script, and npm supplies an
+# implicit `node-gyp rebuild` for exactly that shape — so whether the build
+# compiles is decided by the npm version in the base image, not by anything in
+# this repo. npm 11.16 skipped it; 11.19 ran it, and the build broke the moment
+# node:24-alpine picked up the newer npm. Skipping install scripts pins the
+# behaviour, and costs nothing here: the only production packages that have any
+# are @firebase/util (a no-op unless FIREBASE_WEBAPP_CONFIG is set, which it
+# never is) and protobufjs (a version-scheme warning that returns early).
+# Verified: full `npm ci --ignore-scripts` install loads better-sqlite3 from its
+# prebuild, resolves firebase-admin/app and firebase-admin/messaging, and passes
+# all 21 test suites.
 #
-# If a future dependency does need to compile, this build will fail loudly
-# rather than silently — which is the right way round.
+# Worth keeping in mind if this is ever revisited: on 11.x there was no Node 24
+# prebuild at all, so the arm64 leg compiled SQLite under QEMU — about twenty
+# minutes per build — and the Codexa project traced an intermittent native crash
+# to that same source-build-against-a-newer-ABI combination.
 FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 FROM node:24-alpine
 

@@ -154,9 +154,23 @@ crash (an assertion in better-sqlite3's `Statement` destructor), i.e. a source b
 an ABI the version predates is not merely slow but can be subtly wrong — worth knowing,
 because a passing test suite does not rule that out. Upgrade verified: install drops from a
 minute-plus to 1.4s, `node-gyp` leaves the lockfile entirely, and the full suite passes on
-Node 24 with 13.0.3. `python3/make/g++` are consequently **gone** from the Dockerfile; the
-only remaining prod packages with install scripts (`@firebase/util`, `protobufjs`) run plain
-`node`. Hmelj uses only `db.prepare/exec/transaction/pragma`, none of which changed.
+Node 24 with 13.0.3. `python3/make/g++` are consequently **gone** from the Dockerfile.
+Hmelj uses only `db.prepare/exec/transaction/pragma`, none of which changed.
+
+**Correction, and why v1.0.1's image build failed.** Dropping the toolchain was right but
+insufficient. better-sqlite3 ships a `binding.gyp` and declares no `install` script, and npm
+supplies an **implicit `node-gyp rebuild`** for exactly that shape — so whether a build
+compiles is decided by the npm version in the base image, not by this repo. Locally (npm
+11.16) `npm ci --omit=dev` took 2.7s and never compiled; `node:24-alpine` had moved to npm
+11.19, which ran the implicit gyp, and with no compiler present the build died. Fixed by
+pinning the behaviour: `npm ci --omit=dev --ignore-scripts` in the Dockerfile and
+`npm ci --ignore-scripts` in the CI test job, so the tested tree and the shipped tree are
+installed identically — the v1.0.1 build passed CI and failed in the image precisely because
+they were not. Skipping install scripts is free here: the only production packages with any
+are `@firebase/util` (a no-op unless `FIREBASE_WEBAPP_CONFIG` is set) and `protobufjs` (a
+version-scheme warning that returns early). Verified on Node 24: install in 2.4s with no
+source build, better-sqlite3 loads from `prebuilds/`, `firebase-admin/app` and
+`firebase-admin/messaging` both resolve, 21/21 suites pass.
 
 ## Needs verification (on the real instance)
 
