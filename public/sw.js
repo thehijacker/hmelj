@@ -4,7 +4,7 @@
 //    Network-first keeps self-hosted tweaking painless (edit a file, refresh, see it).
 //  - /api/*: network only — mail data must always be fresh. When offline, list/read
 //    requests get a JSON error the UI shows as a normal error toast.
-const VERSION = 'hmelj-20260829002';
+const VERSION = 'hmelj-20260829004';
 const SHELL = [
   '/',
   '/index.html',
@@ -28,6 +28,9 @@ const SHELL = [
   '/js/app.js',
   '/manifest.webmanifest',
   '/icons/icon.svg',
+  // The transparent logo variant — the login card and the no-mailbox empty
+  // state both draw it, and both are reachable offline.
+  '/icons/icon-mark.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ];

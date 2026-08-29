@@ -694,12 +694,12 @@ function applyAccountGate() {
 function renderNoAccountState() {
   const ul = $('#msg-list');
   if (!ul) return;
-  ul.innerHTML = `<li class="empty-state">
-    <div class="empty-state-icon">🌿</div>
+  ul.innerHTML = `<li class="no-account-state">
+    <img class="no-account-mark" src="/icons/icon-mark.svg" alt="" width="88" height="88">
     <h2>${esc(I18n.t('No mail account yet'))}</h2>
     <p>${esc(I18n.t('Hmelj reads mailboxes you attach to it — your own IMAP server, Gmail, Outlook, an Exchange server. Add one and your mail appears here.'))}</p>
     <p><button class="send-btn" id="empty-add-account">${esc(I18n.t('Add mail account'))}</button></p>
-    <p class="empty-state-hint">${esc(I18n.t('Someone can also share one of their accounts with you — it shows up here on its own once they do.'))}</p>
+    <p class="no-account-hint">${esc(I18n.t('Someone can also share one of their accounts with you — it shows up here on its own once they do.'))}</p>
   </li>`;
   $('#empty-add-account', ul)?.addEventListener('click', () => addFirstAccount());
 }
@@ -983,6 +983,17 @@ async function switchAccount(id) {
 const acct = () => state.accounts.find((a) => a.id === state.currentAccount);
 
 async function loadFolders() {
+  // No mailbox: there are no folders to list, and asking produces
+  // "No mail account selected (missing ?account= parameter)" as a toast. The
+  // guard belongs here rather than at the call sites because there are many of
+  // them and they are easy to miss — Settings' Save, the 90-second refresh
+  // (which turned this into a toast every 90 seconds, not just the one the
+  // report mentioned), the reconnect handler, and every post-action refresh.
+  if (hasNoAccounts()) {
+    $('#folder-list').innerHTML = '';
+    state.folders = [];
+    return;
+  }
   const ul = $('#folder-list');
   const moveSel = $('#sel-move-target');
 

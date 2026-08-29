@@ -18,7 +18,8 @@
   .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
   .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
     padding: 40px 36px; width: min(400px, 92vw); box-shadow: 0 4px 24px rgba(0,0,0,.08); }
-  .login-card .logo { font-size: 44px; text-align: center; }
+  .login-card .logo { text-align: center; line-height: 0; }
+  .login-card .logo img { width: 64px; height: 64px; }
   .login-card h1 { font-size: 22px; font-weight: 500; text-align: center; margin: 8px 0 4px; color: var(--text); }
   .login-card .sub { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
   .login-card label { display: block; font-size: 13px; color: var(--text-muted); margin: 14px 0 4px; }
@@ -44,7 +45,7 @@
 <div class="login-wrap">
   <div class="login-card">
     <div class="lang-row"><select id="lang-select" title="Language"><option value="en">English</option><option value="sl">Slovenščina</option></select></div>
-    <div class="logo">🌿</div>
+    <div class="logo"><img src="/icons/icon-mark.svg" alt="Hmelj" width="64" height="64"></div>
     <h1 id="mode-title">Sign in to Hmelj</h1>
     <div class="sub" id="mode-sub"></div>
     <div class="offline-banner" id="offline-banner" hidden>📶 <span id="offline-banner-text">Offline — waiting for a connection</span></div>

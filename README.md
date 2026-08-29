@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🌿 Hmelj
+<img src="public/icons/icon-mark-256.png" alt="" width="96" height="96">
+
+# Hmelj
 
 **A self-hosted, Gmail-style webmail client for any IMAP/SMTP server — plus Microsoft 365, Outlook.com and Exchange.**
 
@@ -206,6 +208,20 @@ the next refresh.
 To try it without a real mail server, `npm run mock` starts a local IMAP (`:1143`) and SMTP
 (`:1025`) pair with sample messages; in the wizard use `127.0.0.1`, user `testuser`, password
 `testpass`, TLS off, "allow self-signed" on.
+
+**The icon is generated, not drawn.** `public/icons/icon.svg` (the app icon, on its blue
+tile), `public/icons/icon-mark.svg` (the same artwork transparent, used as a logo on the
+login card, in these docs and above) and the Android adaptive-icon foreground all come out of
+one script, so the phone and the web cannot drift apart:
+
+```bash
+python3 scripts/gen-icon.py \
+    public/icons/icon.svg \
+    Android/app/src/main/res/drawable/ic_launcher_foreground.xml \
+    public/icons/icon-mark.svg
+cp public/icons/icon-mark.svg docs/icon-mark.svg   # GitHub Pages serves /docs only
+npm i -D sharp && npm run icons                    # re-render the PNGs from icon.svg
+```
 
 **Node version** — 24 or newer, which is what the Docker image and CI use. Node 20 reached
 end of life in April 2026 and 18 before it; Node 24 is supported until April 2028. Running

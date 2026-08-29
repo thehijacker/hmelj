@@ -53,6 +53,11 @@ ok(/async function loadMessages\(\)\s*\{[\s\S]{0,400}?hasNoAccounts\(\)/.test(ap
    'loadMessages() returns early when there is no mailbox');
 ok(/if \(!state\.messages\.length\) \{\s*\n\s*if \(hasNoAccounts\(\)\)/.test(app),
    "renderList()'s empty branch defers to the empty state");
+// Reported: pressing Save in Settings with no account toasted "Cannot load
+// folders: No mail account selected". Settings' Save is only one of many
+// callers — the 90-second refresh is another, which made it recur on its own.
+ok(/async function loadFolders\(\)\s*\{[\s\S]{0,700}?hasNoAccounts\(\)/.test(app),
+   'loadFolders() returns early when there is no mailbox, covering every caller');
 
 console.log('the wizard stays reachable');
 // Scoped to that one statement: a 200-character window ran straight into the
@@ -64,7 +69,9 @@ ok(app.includes("id=\"empty-add-account\""), 'the empty state carries its own Ad
 
 console.log('styling and strings');
 ok(/body\.no-accounts/.test(css), 'app.css hides the mail chrome via body.no-accounts');
-ok(/\.empty-state\s*\{/.test(css), '.empty-state is styled');
+ok(/\.no-account-state\s*\{/.test(css), '.no-account-state is styled');
+ok(!/^\.empty-state \{[^}]*max-width/m.test(css),
+   'and does not reuse .empty-state, which belongs to the reading pane');
 for (const s of ['Add a mail account first', 'No mail account yet', 'Add mail account']) {
   ok(en.strings[s] !== undefined && sl.strings[s] !== undefined, `"${s}" is translatable`);
 }
