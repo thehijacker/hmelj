@@ -234,7 +234,8 @@ credentials), `imapClient.js` / `graphClient.js` / `ewsClient.js` (the three bac
 one interface in `mailClient.js`), `smtpClient.js`, `cache.js` (SQLite), `sync.js` (the
 poller), `idle.js` (live watchers), `filters.js`, `push.js`, `oauth.js`, and a handful of pure
 modules with their own tests. `public/` is the vanilla-JS front end. `Android/` is the WebView
-shell. `summary.md` and `HANDOFF.md` are the working engineering notes.
+shell. `summary.md` is the engineering notebook — architecture decisions, a file map,
+and the gotchas worth knowing before changing anything.
 
 ---
 

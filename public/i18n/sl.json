@@ -884,7 +884,9 @@
     "Add a mail account first": "Najprej dodajte poštni račun",
     "No mail account yet": "Ni še nobenega poštnega računa",
     "Hmelj reads mailboxes you attach to it — your own IMAP server, Gmail, Outlook, an Exchange server. Add one and your mail appears here.": "Hmelj bere poštne predale, ki jih pripnete — vaš lastni strežnik IMAP, Gmail, Outlook, strežnik Exchange. Dodajte enega in vaša pošta se prikaže tukaj.",
-    "Someone can also share one of their accounts with you — it shows up here on its own once they do.": "Nekdo lahko z vami tudi deli svoj račun — ko to stori, se prikaže tukaj sam od sebe."
+    "Someone can also share one of their accounts with you — it shows up here on its own once they do.": "Nekdo lahko z vami tudi deli svoj račun — ko to stori, se prikaže tukaj sam od sebe.",
+    "No mail accounts yet — an identity needs an account to send through.": "Ni še nobenega poštnega računa — identiteta potrebuje račun, prek katerega pošilja.",
+    "No mail accounts yet — a filter needs an account to run against.": "Ni še nobenega poštnega računa — filter potrebuje račun, na katerem se izvaja."
   },
   "prefixes": [
     [

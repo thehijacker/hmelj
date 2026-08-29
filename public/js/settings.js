@@ -1228,6 +1228,16 @@ const Settings = (() => {
    * (rendered indented) — e.g. server-side mail aliases the user wants to send
    * from. Identities whose account no longer exists fall into "Other". */
   function renderIdentities() {
+    // An identity is bound to a sending account — that is what decides which
+    // SMTP server a reply leaves through and whose Sent folder it lands in.
+    // With no accounts, "+ Add identity" pushed one with `accountId: undefined`
+    // (allAccounts()[0]?.id), which rendered under the "Other" catch-all group
+    // and could never send anything. Same guard the Folders and Scheduler tabs
+    // already use.
+    if (!state.accounts.length) {
+      body().innerHTML = `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('No mail accounts yet — an identity needs an account to send through.'))}</p>`;
+      return;
+    }
     const withIndex = identities.map((id, i) => ({ id, i }));
     const groups = allAccounts().map((a) => {
       const items = withIndex.filter((x) => x.id.accountId === a.id);
@@ -1447,6 +1457,13 @@ const Settings = (() => {
   }
 
   async function renderFiltersList() {
+    // Same defect as Identities above: a filter carries the account it runs
+    // against, and defaultFilterAccountId() is null with none, so "+ Add filter"
+    // produced a rule that could never run.
+    if (!state.accounts.length) {
+      body().innerHTML = `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('No mail accounts yet — a filter needs an account to run against.'))}</p>`;
+      return;
+    }
     const groups = filterGroups();
     body().innerHTML = `
       ${groups.map((g) => `

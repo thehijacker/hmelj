@@ -12,6 +12,12 @@ temp/
 restore/
 .claude/
 
+# The working handoff between development sessions: what to verify on the
+# maintainer's own instance, what not to start, what is still half-understood.
+# It is a work order, not documentation — summary.md is the file a contributor
+# actually wants (architecture decisions, file map, known gotchas).
+HANDOFF.md
+
 # Android: the Firebase client config identifies ONE Firebase project, and a
 # fork building this repo would be sending its device tokens to that project.
 # CI writes it from the GOOGLE_SERVICES_JSON secret instead; a fork adds its own

@@ -59,6 +59,17 @@ ok(/if \(!state\.messages\.length\) \{\s*\n\s*if \(hasNoAccounts\(\)\)/.test(app
 ok(/async function loadFolders\(\)\s*\{[\s\S]{0,700}?hasNoAccounts\(\)/.test(app),
    'loadFolders() returns early when there is no mailbox, covering every caller');
 
+console.log('Settings tabs that create account-bound records refuse too');
+// Reported: with no account, Settings > Identities still offered "+ Add identity",
+// which pushed one with accountId: undefined — orphaned into the "Other" group,
+// unable to send. Filters had the identical shape (accountId: null).
+const settings = fs.readFileSync(path.join(REPO, 'public/js/settings.js'), 'utf8');
+for (const [fn, what] of [['renderIdentities', 'Identities'], ['renderFiltersList', 'Filters']]) {
+  const at = settings.indexOf(`function ${fn}(`);
+  ok(at !== -1 && /!state\.accounts\.length/.test(settings.slice(at, at + 800)),
+     `${what} refuses to create anything without a mailbox`);
+}
+
 console.log('the wizard stays reachable');
 // Scoped to that one statement: a 200-character window ran straight into the
 // NEXT handler, which is guarded, and reported a false failure.

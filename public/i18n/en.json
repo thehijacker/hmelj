@@ -884,7 +884,9 @@
     "Add a mail account first": "Add a mail account first",
     "No mail account yet": "No mail account yet",
     "Hmelj reads mailboxes you attach to it — your own IMAP server, Gmail, Outlook, an Exchange server. Add one and your mail appears here.": "Hmelj reads mailboxes you attach to it — your own IMAP server, Gmail, Outlook, an Exchange server. Add one and your mail appears here.",
-    "Someone can also share one of their accounts with you — it shows up here on its own once they do.": "Someone can also share one of their accounts with you — it shows up here on its own once they do."
+    "Someone can also share one of their accounts with you — it shows up here on its own once they do.": "Someone can also share one of their accounts with you — it shows up here on its own once they do.",
+    "No mail accounts yet — an identity needs an account to send through.": "No mail accounts yet — an identity needs an account to send through.",
+    "No mail accounts yet — a filter needs an account to run against.": "No mail accounts yet — a filter needs an account to run against."
   },
   "prefixes": [
     [
