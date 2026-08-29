@@ -17,8 +17,45 @@ import { log } from './log.js';
 
 const clog = log.scope('cache');
 
-fs.mkdirSync(config.cacheDir, { recursive: true });
-const db = new Database(path.join(config.cacheDir, 'cache.sqlite'));
+/**
+ * Opening the cache is the first thing that touches DATA_DIR, so it is also the
+ * first thing that fails when that directory isn't writable — and the failure
+ * arrives as a bare `SQLITE_CANTOPEN` (or `EACCES`) stack trace naming a path
+ * inside the container, which tells a self-hoster nothing about what to change.
+ *
+ * The overwhelmingly common cause is a bind-mounted /data owned by root while
+ * the image runs as a non-root user (a NAMED volume is seeded from the image,
+ * ownership included, so it never hits this). Say that, with the fix.
+ */
+function cannotWrite(what, e) {
+  const uid = process.getuid?.() ?? 1000;
+  const gid = process.getgid?.() ?? 1000;
+  clog.error(`${what} (${e.code}: ${e.message})`);
+  clog.error(`This process runs as uid ${uid}:${gid} and cannot write to ${config.cacheDir}.`);
+  clog.error('If that path is a bind-mounted host directory, give it to that user on the host:');
+  clog.error(`    chown -R ${uid}:${gid} <the host directory you mounted there>`);
+  clog.error('A named Docker volume does not need this — Docker seeds it from the image.');
+  clog.error('Alternatively set CACHE_DIR to a writable path, or CACHE_ENABLED=false to run without the cache.');
+  process.exit(1);
+}
+
+function openCache() {
+  const file = path.join(config.cacheDir, 'cache.sqlite');
+  try {
+    fs.mkdirSync(config.cacheDir, { recursive: true });
+  } catch (e) {
+    if (e?.code !== 'EACCES' && e?.code !== 'EPERM' && e?.code !== 'EROFS') throw e;
+    cannotWrite(`Cannot create the data directory ${config.cacheDir}`, e);
+  }
+  try {
+    return new Database(file);
+  } catch (e) {
+    if (e?.code !== 'SQLITE_CANTOPEN') throw e;
+    cannotWrite(`Cannot open the message cache at ${file}`, e);
+  }
+}
+
+const db = openCache();
 db.pragma('journal_mode = WAL');
 // Shared with analytics.js, which keeps its own tables in this same file (one
 // SQLite connection per process, so it must not open a second handle to it).

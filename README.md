@@ -56,6 +56,10 @@ docker compose up -d
 
 Open **http://localhost:3000** and sign up. The first account is automatically an admin.
 
+> **Bind-mounting a host directory?** No preparation needed — the container takes ownership
+> of `/data` at startup and then drops to an unprivileged user before running any app code.
+> Set `PUID`/`PGID` if you want the files owned by a specific account instead of `1000:1000`.
+
 Read `.env` through before you settle on it — every setting has a working default, but a few
 are worth a decision. Then put Hmelj behind a reverse proxy with TLS: mailbox passwords travel
 over this connection, and installing it as a PWA requires HTTPS.
@@ -202,6 +206,11 @@ the next refresh.
 To try it without a real mail server, `npm run mock` starts a local IMAP (`:1143`) and SMTP
 (`:1025`) pair with sample messages; in the wizard use `127.0.0.1`, user `testuser`, password
 `testpass`, TLS off, "allow self-signed" on.
+
+**Node version** — 24 or newer, which is what the Docker image and CI use. Node 20 reached
+end of life in April 2026 and 18 before it; Node 24 is supported until April 2028. Running
+from source on Node 22 still works today (22 is supported until April 2027) — npm will just
+warn about the `engines` field.
 
 **Architecture** — `server/` is an Express app: `index.js` (routes and the HTML sanitiser),
 `session.js` (users, sessions, per-request context), `accounts.js` (mail accounts, encrypted

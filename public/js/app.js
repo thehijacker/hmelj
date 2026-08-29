@@ -630,6 +630,80 @@ async function setAccountEditMode(on) {
   }
 }
 
+/* ---------- no mailbox yet ---------- */
+
+/**
+ * True when this user has no mailbox at all — neither one of their own nor one
+ * shared with them. `/api/accounts` returns both (accounts.js#listAccounts), so
+ * this single check covers a grantee who owns nothing, which is a real case: an
+ * account can be shared with a Hmelj user who never adds one themselves.
+ *
+ * Everything mail-related is meaningless in that state, and used to prove it the
+ * hard way — Compose, draft autosave, search and the rest all reached the server
+ * and came back with "No mail account selected", one toast per attempt. The app
+ * offers the wizard on first run and stops initialising if you cancel it, but
+ * the UI stayed live afterwards, so a new user could wander straight into that
+ * wall. Now the mail surfaces are simply not offered until there is a mailbox.
+ */
+function hasNoAccounts() {
+  return !state.accounts?.length;
+}
+
+/**
+ * Gate for anything that needs a mailbox. Returns false (and says why, and
+ * offers the wizard) when there is none, so a caller reads as:
+ *   if (!requireAccount()) return;
+ */
+function requireAccount() {
+  if (!hasNoAccounts()) return true;
+  toast(I18n.t('Add a mail account first'), 4000);
+  addFirstAccount();
+  return false;
+}
+
+/** Opens the wizard and, if a mailbox actually gets added, brings the app the
+ *  rest of the way up — the same steps init() does after its own wizard. */
+async function addFirstAccount() {
+  const added = await Settings.accountWizard();
+  if (!added) return false;
+  state.accounts = await API.accounts();
+  state.identities = await API.identities();
+  Compose.setIdentities(state.identities);
+  const active = activeAccounts();
+  state.currentAccount = active.length > 1 ? 'all' : (active[0]?.id || 'all');
+  applyAccountGate();
+  renderAccounts();
+  await loadFolders();
+  await loadMessages();
+  return true;
+}
+
+/**
+ * Reflects the presence of a mailbox in the chrome. The class does the visual
+ * half (app.css hides compose, search, refresh and select-mode); the guards on
+ * the handlers do the other half, because hiding a control is not the same as
+ * disabling it — a keyboard shortcut or a stale click still reaches the code.
+ */
+function applyAccountGate() {
+  const none = hasNoAccounts();
+  document.body.classList.toggle('no-accounts', none);
+  if (none) renderNoAccountState();
+}
+
+/** The message list, when there is no mailbox to list. */
+function renderNoAccountState() {
+  const ul = $('#msg-list');
+  if (!ul) return;
+  ul.innerHTML = `<li class="empty-state">
+    <div class="empty-state-icon">🌿</div>
+    <h2>${esc(I18n.t('No mail account yet'))}</h2>
+    <p>${esc(I18n.t('Hmelj reads mailboxes you attach to it — your own IMAP server, Gmail, Outlook, an Exchange server. Add one and your mail appears here.'))}</p>
+    <p><button class="send-btn" id="empty-add-account">${esc(I18n.t('Add mail account'))}</button></p>
+    <p class="empty-state-hint">${esc(I18n.t('Someone can also share one of their accounts with you — it shows up here on its own once they do.'))}</p>
+  </li>`;
+  $('#empty-add-account', ul)?.addEventListener('click', () => addFirstAccount());
+}
+
 function renderAccounts() {
   const ul = $('#account-list');
   ul.innerHTML = '';
@@ -2231,6 +2305,9 @@ function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
 let loadMessagesSeq = 0;
 
 async function loadMessages() {
+  // No mailbox: there is nothing to list, and asking would only produce
+  // "No mail account selected" from the server. The empty state stays put.
+  if (hasNoAccounts()) { renderNoAccountState(); return; }
   const seq = ++loadMessagesSeq;
   const ul = $('#msg-list');
   // Don't clear+repaint "Loading…" immediately — instantly wiping the previous
@@ -3391,6 +3468,7 @@ function renderList() {
   $('#lh-chip').hidden = !state.messages.some((m) => rowAccount(m));
   updateSortHeader();
   if (!state.messages.length) {
+    if (hasNoAccounts()) { renderNoAccountState(); return; }
     ul.innerHTML = '<li style="padding:28px;text-align:center;color:var(--text-dim)">No messages here. Enjoy the silence. 🌿</li>';
     const emptyScopeRow = searchScopeRow();
     if (emptyScopeRow) ul.appendChild(emptyScopeRow); // "nothing found" is exactly when the wider search is worth offering
@@ -4901,7 +4979,7 @@ async function runBatch(uids, fn, delta) {
 }
 
 function bindToolbar() {
-  $('#btn-select-mode').addEventListener('click', () => setSelectMode(!state.selectMode));
+  $('#btn-select-mode').addEventListener('click', () => { if (requireAccount()) setSelectMode(!state.selectMode); });
   $('#sel-exit').addEventListener('click', () => setSelectMode(false));
   // Clicking the count itself toggles select-all/none — the injected row
   // has no dedicated "select all" control otherwise.
@@ -4980,6 +5058,7 @@ function bindToolbar() {
   document.addEventListener('click', (e) => { if (!e.target.closest('.layout-menu-wrap')) $('#layout-menu').classList.remove('open'); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#layout-menu').classList.remove('open'); });
   $('#btn-refresh').addEventListener('click', async () => {
+    if (!requireAccount()) return;
     // Already spinning — either this same handler still in flight, or a
     // background sync already doing the exact same work (see
     // backgroundSyncActive/pollSyncStatus) — triggering a second one on top
@@ -5043,9 +5122,9 @@ function bindToolbar() {
       btn.classList.remove('spinning');
     }
   };
-  $('#btn-search').addEventListener('click', doSearch);
+  $('#btn-search').addEventListener('click', () => { if (requireAccount()) doSearch(); });
   $('#search-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') doSearch();
+    if (e.key === 'Enter') { if (requireAccount()) doSearch(); }
     else if (e.key === 'Escape') rejectSearchSuggestion();
     else if (e.key === 'Tab' && acceptSearchSuggestion()) e.preventDefault(); // only swallow Tab's normal focus-move when there's actually a suggestion to accept
     // First Backspace while a suggestion is showing just dismisses it (back
@@ -5076,8 +5155,9 @@ function bindToolbar() {
   // closes the sheet afterward without having to touch each one individually.
   $('#user-menu-sheet').addEventListener('click', (e) => { if (e.target.closest('.sheet-item')) closeUserMenu(); });
   $('#btn-theme').addEventListener('click', showThemePicker);
-  $('#btn-analytics').addEventListener('click', () => Analytics.open());
+  $('#btn-analytics').addEventListener('click', () => { if (requireAccount()) Analytics.open(); });
   $('#btn-run-filters').addEventListener('click', async () => {
+    if (!requireAccount()) return;
     let matched = 0;
     if (state.currentAccount === 'all') {
       // run everyone's inbox through the filters
@@ -5090,14 +5170,14 @@ function bindToolbar() {
     toast(`Filters matched ${matched} message(s)`);
     loadMessages(); loadFolders();
   });
-  $('#btn-compose').addEventListener('click', () => Compose.open());
+  $('#btn-compose').addEventListener('click', () => { if (requireAccount()) Compose.open(); });
   // Toggles the account list into reorder mode and, on the way back out,
   // saves the new order to the server (see setAccountEditMode).
   $('#btn-accounts-edit').addEventListener('click', () => setAccountEditMode(!accountEditMode));
   // Mobile-only FAB — same action as the sidebar's own Compose button;
   // visibility (list view only) is handled entirely in CSS, see app.css's
   // mobile media query.
-  $('#btn-fab-compose').addEventListener('click', () => Compose.open());
+  $('#btn-fab-compose').addEventListener('click', () => { if (requireAccount()) Compose.open(); });
   // "Hmelj" brand row doubles as a manual reload — see the CSS comment on
   // .sidebar-brand for why this matters specifically for a backgrounded/
   // resumed WebView install. keydown covers this being a plain div with
@@ -5110,7 +5190,7 @@ function bindToolbar() {
   });
   $('#btn-settings').addEventListener('click', () => Settings.open());
   $('#btn-accounts-manage').addEventListener('click', () => Settings.open('accounts'));
-  $('#btn-folders-manage').addEventListener('click', () => Settings.open('folders'));
+  $('#btn-folders-manage').addEventListener('click', () => { if (requireAccount()) Settings.open('folders'); });
   $('#btn-contacts').addEventListener('click', () => Settings.open('contacts'));
 }
 
@@ -5297,13 +5377,21 @@ async function boot() {
   state.contacts = await API.contacts();
 
   state.accounts = await API.accounts();
+  applyAccountGate();
   if (!state.accounts.length) {
-    // First run for this user: open the add-account wizard.
+    // First run for this user: offer the wizard straight away.
     renderAccounts();
     const added = await Settings.accountWizard();
-    if (!added) { toast(I18n.t('Add a mail account to start reading mail'), 8000); return; }
+    if (!added) {
+      // Cancelled — which is allowed. applyAccountGate() has already put the app
+      // in its no-mailbox state: the list explains what is missing and offers the
+      // wizard again, and every mail action does the same. Stop here rather than
+      // loading mail there is none of.
+      return;
+    }
     state.accounts = await API.accounts();
     state.identities = await API.identities();
+    applyAccountGate();
   }
   // After state.accounts resolves either way (not before — see the
   // reported bug) — Compose.setIdentities groups the From dropdown by

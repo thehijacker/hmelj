@@ -408,7 +408,7 @@ Stalwart — and then Hmelj can read it.
 <p class="section-subtitle">One container, one volume, one port</p>
 
 <p>
-  Hmelj needs <strong>Node.js 20 or newer</strong> and nothing else — no database server,
+  Hmelj needs <strong>Node.js 24 or newer</strong> and nothing else — no database server,
   no Redis, no external services. The published image is built for
   <code>linux/amd64</code> and <code>linux/arm64</code>, so it runs on a normal server and
   on a Raspberry Pi 4/5, a Synology or an ARM VPS alike.
@@ -455,6 +455,23 @@ default, so the shortest useful file is a single line — but read
   Hmelj is now at <strong>http://localhost:3000</strong>. Go to
   <a data-section="first-run" href="#first-run">First Run</a>.
 </p>
+
+<div class="callout">
+<strong>Bind mount instead of a named volume? It is handled.</strong>
+The container starts as root only long enough to take ownership of
+<code>/data</code>, then drops to an unprivileged user before any application
+code runs — so a host directory owned by <code>root</code>, which is the usual
+case, works with no preparation. Set <code>PUID</code> and <code>PGID</code> if
+you want the files to belong to a specific account instead of the default
+<code>1000:1000</code>:
+<div class="code-block"><button class="copy-btn">Copy</button><pre>environment:
+  - PUID=1000
+  - PGID=1000
+volumes:
+  - /srv/hmelj/data:/data</pre></div>
+Starting the container with an explicit <code>--user</code> skips the whole
+adjustment — you have said what you want, and it could not chown anyway.
+</div>
 
 <div class="callout warning">
 <strong>Put it behind TLS before anyone else uses it.</strong>
@@ -2690,6 +2707,10 @@ git push origin v1.0.0</pre></div>
 <tr>
 <td>Everything is slow, and the container is on a NAS</td>
 <td>Synchronous cache writes on a network mount. Set <code>CACHE_DIR</code> to local disk.</td>
+</tr>
+<tr>
+<td><code>SqliteError: unable to open database file</code> / <code>SQLITE_CANTOPEN</code> at startup</td>
+<td>Hmelj cannot write to <code>DATA_DIR</code>. The container normally fixes this itself; you see it if you started it with an explicit <code>--user</code>, or if the mount is read-only. <code>chown -R 1000:1000</code> the host directory, or set <code>PUID</code>/<code>PGID</code>.</td>
 </tr>
 <tr>
 <td>Accounts appear to have vanished after a move or upgrade</td>

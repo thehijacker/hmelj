@@ -18,6 +18,12 @@ services:
     volumes:
       # Mail accounts, settings, filters, the encryption key (secret.key) and the
       # message cache all live in here. Back it up.
+      #
+      # A bind mount works too (- /srv/hmelj/data:/data): the container takes
+      # ownership of /data at startup and then drops to an unprivileged user, so
+      # a root-owned host directory needs no preparation. Add PUID/PGID to
+      # `environment:` above if you want the files owned by a specific account
+      # rather than the default 1000:1000.
       - hmelj-data:/data
     # Users sign in with their own mailbox credentials, which are verified against
     # the mail server. Put Hmelj behind a reverse proxy with TLS — passwords travel

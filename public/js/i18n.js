@@ -40,7 +40,14 @@ const I18n = (() => {
   function t(s) {
     if (lang === 'en' || s == null) return s;
     if (strings[s] !== undefined) return strings[s];
-    for (const [p, r] of prefixes) if (s.startsWith(p)) return r + s.slice(p.length);
+    // The remainder gets a translation pass of its own. Most suffixes are
+    // variable text (a hostname, a server's own words) and t() hands those back
+    // unchanged, exactly as before — but a FIXED message from our own server,
+    // e.g. "Could not send: " + "No mail account configured", is a known string
+    // and now translates instead of sitting there in English after a Slovenian
+    // prefix. Terminates: each step strips a non-empty prefix, so the string
+    // strictly shortens.
+    for (const [p, r] of prefixes) if (s.startsWith(p)) return r + t(s.slice(p.length));
     for (const [re, rep] of regexes) if (re.test(s)) return s.replace(re, rep);
     // emoji / symbol prefix (e.g. "✏️  Compose"): translate the word part
     const m = s.match(/^([^\p{L}\p{N}]+)(\p{L}.*)$/u);

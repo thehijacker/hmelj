@@ -123,6 +123,41 @@ the APK is built in Android Studio). `exchange.md` was left in place rather than
 is real EWS protocol documentation, and deleting it while keeping `summary.md` and this file
 would have been inconsistent.
 
+## Docker hardening, Node 24, i18n — 2026-08-29 (after the first public push)
+
+| Area | What changed |
+|---|---|
+| **Bind-mounted `/data`** | Reported: the container died with `SQLITE_CANTOPEN` against a bind mount. Cause: the image ran as `USER node` (uid 1000) while the host directory was root-owned; the Dockerfile's `chown /data` applies to the IMAGE's `/data`, which a bind mount replaces wholesale. A named volume never hits this because Docker seeds it from the image. Fixed properly: `docker-entrypoint.sh` starts as root **only** to `chown` `$DATA_DIR` (and only when it is actually wrong — no recursive chown on every start), then `su-exec`s down to `PUID:PGID`, default `1000:1000`. An explicit `--user` skips the whole thing. All four paths tested with a stubbed `su-exec`. |
+| **`server/cache.js`** | Also gives that failure a real message now — the actual uid, and the `chown` to run — instead of a raw better-sqlite3 stack trace naming a path inside the container. Covers `SQLITE_CANTOPEN` on open and `EACCES/EPERM/EROFS` on the mkdir. Verified against both shapes. |
+| **Node 24** | **Node 20 and 18 are end-of-life** (checked against nodejs/Release `schedule.json`: 20 ended 2026-04, 22 runs to 2027-04, 24 to 2028-04). Image is `node:24-alpine`, CI's test job is Node 24, `engines` is `>=24.0.0`. `better-sqlite3@11.10.0` has no prebuild for ABI 137 but compiles cleanly from source and works — verified by an isolated install, then by a full `npm ci` + `npm test` of the working tree on Node 24 (20/20). |
+| **i18n prefix rule** | Reported: `"Pošiljanje ni bilo mogoče: No mail account configured"` — half translated. `i18n.js`'s prefix rule returned `translatedPrefix + rawRemainder` by design, because most suffixes are variable (a hostname, an SMTP reply). Now the remainder gets its own `t()` pass, which is a no-op for anything unknown, so nothing that worked before changes. 21 user-facing server error strings added to `en.json`/`sl.json`. **The Slovenian is mine and wants a native read.** `test/i18n-prefix-test.mjs` drives the real `i18n.js` against the real dictionaries and asserts both halves: known messages translate, unknown suffixes still pass through. |
+
+**No-mailbox empty state (decided: empty state, not a blocked dialog).** `hasNoAccounts()`
+is `!state.accounts.length`, and `/api/accounts` returns owned **plus** shared-in
+(`accounts.js#listAccounts`), so a grantee who owns nothing is correctly treated as having a
+mailbox. `applyAccountGate()` sets `body.no-accounts` (app.css hides compose, search,
+refresh, select-mode, the column heads, the account and folder lists) and paints an empty
+state offering the wizard. Every mail action additionally calls `requireAccount()` —
+hiding a control is not disabling it, and Enter-in-the-search-box is a separate path from
+the search button. `loadMessages()` returns early and `renderList()`'s empty branch defers,
+so nothing repaints over it. **Settings → Mail accounts is deliberately NOT gated** — it is
+the way out. `test/no-account-gate-test.mjs` (24 assertions, source-level on purpose; the
+comment says why) pins all of it.
+
+**better-sqlite3 11 → 13, and the Docker build got much faster.** Read from the Codexa
+project at the user's request: 13.x ships prebuilt N-API binaries including
+`linuxmusl-x64` and `linuxmusl-arm64`, which is exactly what this Alpine image needs on both
+published architectures. On 11.x there was no Node 24 prebuild, so npm fell back to node-gyp
+and the **arm64 leg compiled SQLite under QEMU — about twenty minutes of every build**.
+Codexa's Dockerfile also records that the same combination produced an intermittent native
+crash (an assertion in better-sqlite3's `Statement` destructor), i.e. a source build against
+an ABI the version predates is not merely slow but can be subtly wrong — worth knowing,
+because a passing test suite does not rule that out. Upgrade verified: install drops from a
+minute-plus to 1.4s, `node-gyp` leaves the lockfile entirely, and the full suite passes on
+Node 24 with 13.0.3. `python3/make/g++` are consequently **gone** from the Dockerfile; the
+only remaining prod packages with install scripts (`@firebase/util`, `protobufjs`) run plain
+`node`. Hmelj uses only `db.prepare/exec/transaction/pragma`, none of which changed.
+
 ## Needs verification (on the real instance)
 
 1. **Scheduled send, failure path.** The only genuinely untested code. Schedule a message
@@ -230,7 +265,7 @@ would have been inconsistent.
 
 ## Tests
 
-`npm test` runs all 19 suites (`scripts/run-tests.mjs`, one process each). Individually:
+`npm test` runs all 21 suites (`scripts/run-tests.mjs`, one process each). Individually:
 
 ```
 node test/threading-key-test.mjs      43   thread keys, the grouped list query, and thread scope (single-folder AND unified)
