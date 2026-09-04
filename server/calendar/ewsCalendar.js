@@ -7,8 +7,10 @@
 // component over a rolling window — see graphCalendar.js's header for what that
 // costs and why it is the right trade.
 //
-// Read-only, and in this phase that is not a limitation of EWS but the scope of
-// the phase.
+// Writing is native rather than iCalendar-based (nativeWrite below): Exchange
+// has its own answer for "this occurrence / this and following / the series",
+// and handing it .ics to translate back would re-derive that and get the edges
+// wrong.
 //
 // Runs inside the mail account's ALS context, put there by the dispatcher.
 import * as ews from '../ewsClient.js';

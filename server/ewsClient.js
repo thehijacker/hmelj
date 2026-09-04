@@ -32,9 +32,7 @@
 //    in-memory, self-healing cache, not persisted — Move/Copy/Delete don't
 //    need a ChangeKey at all (no "which version" ambiguity for removing or
 //    relocating an object, only for editing its fields), so only setFlags
-//    pays for this. Sending/drafts (needs CreateItem) and folder
-//    create/delete/rename/incremental sync are still later phases — see the
-//    notImplemented() stubs at the bottom.
+//    pays for this.
 import httpntlm from 'httpntlm';
 import { XMLParser } from 'fast-xml-parser';
 import { currentUser } from './session.js';
@@ -157,6 +155,9 @@ const xmlParser = new XMLParser({
     'Folder', 'Message', 'Mailbox', 'ExtendedProperty',
     'FindFolderResponseMessage', 'GetFolderResponseMessage',
     'FindItemResponseMessage', 'GetItemResponseMessage',
+    'CreateFolderResponseMessage', 'DeleteFolderResponseMessage',
+    'UpdateFolderResponseMessage', 'MoveFolderResponseMessage',
+    'EmptyFolderResponseMessage',
   ].includes(name),
 });
 
@@ -323,7 +324,7 @@ const WELL_KNOWN_PATH = { inbox: 'INBOX', sentitems: 'Sent', drafts: 'Drafts', d
 const WELL_KNOWN_SPECIAL_USE = { inbox: '\\Inbox', sentitems: '\\Sent', drafts: '\\Drafts', deleteditems: '\\Trash', junkemail: '\\Junk' };
 
 const folderCache = new Map(); // `${userKey}:${accountId}` -> { byPath: Map<path,{id,changeKey}> }
-const changeKeyCache = new Map(); // `${userKey}:${accountId}:${folder}:${id}` -> changeKey (Phase 2 consumes this; populated starting now)
+const changeKeyCache = new Map(); // `${userKey}:${accountId}:${folder}:${id}` -> changeKey
 
 function cacheKey(acc) { return acctKey(acc); }
 
@@ -656,9 +657,8 @@ export async function listNewMessages(path, sinceUid) {
  * Fetches item:MimeContent — Exchange's base64-encoded raw RFC822 blob —
  * so the shared parsing in messageParse.js (built around a raw Buffer, same
  * as imapClient.js's own IMAP BODY[] fetch) can be reused as-is instead of
- * a second full MIME-parsing implementation. Verify this holds up against
- * real mail from this Exchange 2013 server (large attachments, non-plain
- * message classes) before later phases lean on it further — see the plan.
+ * a second full MIME-parsing implementation. The blob is whatever Exchange
+ * stored, so anything messageParse.js handles for IMAP it handles here too.
  */
 export async function getMessageSource(path, uid) {
   const acc = currentAccount();
@@ -1848,16 +1848,153 @@ export async function getEvents(subscriptionId, watermark) {
   return { changed, watermark: newWatermark, expired: false };
 }
 
-// ---------- not yet implemented (later phases — see the EWS plan) ----------
-// Named exports kept present from day one so mailClient.js's dispatch table
-// is complete rather than partially wired; calling one before its phase
-// lands fails loudly and specifically instead of "X is not a function".
+// ---------- folder management ----------
+//
+// All four take and return Hmelj's own path strings ("Projects/2026"), because
+// that is the only folder identity the rest of the app has. EWS works in opaque
+// FolderIds instead, so each one resolves the path first (resolveFolderId, which
+// re-lists if the path is not cached yet) and then invalidates the cache, since
+// the synthesised paths in it are now wrong for the whole affected subtree —
+// renaming "Projects" changes the path of every folder beneath it.
+//
+// A note on where the mailbox root is: a top-level folder's parent is the
+// DistinguishedFolderId `msgfolderroot`, which is also what listFolders()
+// traverses from, so "top level" means the same thing in both directions.
 
-function notImplemented(name) {
-  return async () => { throw new Error(`${name} is not yet supported for Exchange accounts`); };
+/** The <t:FolderId> element for a path, or msgfolderroot for the empty path. */
+async function folderIdXml(path, { withChangeKey = false } = {}) {
+  if (!path) return '<t:DistinguishedFolderId Id="msgfolderroot"/>';
+  const { id, changeKey } = await resolveFolderId(path);
+  const ck = withChangeKey && changeKey ? ` ChangeKey="${escXml(changeKey)}"` : '';
+  return `<t:FolderId Id="${escXml(id)}"${ck}/>`;
 }
 
-export const createFolder = notImplemented('createFolder');
-export const deleteFolder = notImplemented('deleteFolder');
-export const renameFolder = notImplemented('renameFolder');
-export const emptyFolder = notImplemented('emptyFolder');
+/** Drops the synthesised path map so the next resolveFolderId re-reads the
+ *  tree from the server. Cheaper than trying to patch the map in place, and
+ *  correct for the subtree cases where patching would not be. */
+function invalidateFolderCache() {
+  folderCache.delete(cacheKey(currentAccount()));
+}
+
+/** Splits "a/b/c" into the parent path and the leaf display name. */
+function splitPath(path) {
+  const parts = String(path).split('/');
+  const name = parts.pop();
+  return { parentPath: parts.join('/'), name };
+}
+
+export async function createFolder(path) {
+  const acc = currentAccount();
+  const { parentPath, name } = splitPath(path);
+  if (!name) throw new Error('A folder needs a name');
+  const body = `<m:CreateFolder>
+    <m:ParentFolderId>${await folderIdXml(parentPath)}</m:ParentFolderId>
+    <m:Folders>
+      <t:Folder>
+        <t:FolderClass>IPF.Note</t:FolderClass>
+        <t:DisplayName>${escXml(name)}</t:DisplayName>
+      </t:Folder>
+    </m:Folders>
+  </m:CreateFolder>`;
+  const xml = await soapRequest(acc.ews, 'CreateFolder', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.CreateFolderResponse?.ResponseMessages?.CreateFolderResponseMessage)[0];
+  checkResponseCode(msg, 'CreateFolder');
+  invalidateFolderCache();
+  const folder = asArray(msg?.Folders?.Folder)[0];
+  // `path` is what the caller asked for and what every other backend echoes
+  // back; the id is returned alongside because CreateFolder is the one place
+  // it is known without a second round-trip.
+  return { path, name, id: folder?.FolderId?.['@_Id'] || null };
+}
+
+export async function deleteFolder(path) {
+  const acc = currentAccount();
+  // MoveToDeletedItems rather than HardDelete: this is the same choice Outlook
+  // makes, and the same one Hmelj already makes for messages (Settings >
+  // General > Delete behavior defaults to Trash). A folder deleted by accident
+  // is then still recoverable from Deleted Items — where it does reappear in
+  // the folder tree, which is honest about what happened rather than looking
+  // like the delete failed.
+  const body = `<m:DeleteFolder DeleteType="MoveToDeletedItems">
+    <m:FolderIds>${await folderIdXml(path, { withChangeKey: true })}</m:FolderIds>
+  </m:DeleteFolder>`;
+  const xml = await soapRequest(acc.ews, 'DeleteFolder', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.DeleteFolderResponse?.ResponseMessages?.DeleteFolderResponseMessage)[0];
+  checkResponseCode(msg, 'DeleteFolder');
+  invalidateFolderCache();
+  return { ok: true };
+}
+
+export async function renameFolder(path, newPath) {
+  const acc = currentAccount();
+  const { parentPath: oldParent } = splitPath(path);
+  const { parentPath: newParent, name } = splitPath(newPath);
+  if (!name) throw new Error('A folder needs a name');
+
+  // The Hmelj UI expresses both "rename" and "move somewhere else" as one new
+  // path, but EWS splits them across two operations — the same split Graph has.
+  // Both have to run, or dragging a folder to a new parent would silently only
+  // change its name.
+  if (name !== splitPath(path).name) {
+    const body = `<m:UpdateFolder>
+      <m:FolderChanges>
+        <t:FolderChange>
+          ${await folderIdXml(path, { withChangeKey: true })}
+          <t:Updates>
+            <t:SetFolderField>
+              <t:FieldURI FieldURI="folder:DisplayName"/>
+              <t:Folder><t:DisplayName>${escXml(name)}</t:DisplayName></t:Folder>
+            </t:SetFolderField>
+          </t:Updates>
+        </t:FolderChange>
+      </m:FolderChanges>
+    </m:UpdateFolder>`;
+    const xml = await soapRequest(acc.ews, 'UpdateFolder', body);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.UpdateFolderResponse?.ResponseMessages?.UpdateFolderResponseMessage)[0];
+    checkResponseCode(msg, 'UpdateFolder');
+    // Before resolving anything else: the rename changed both this folder's
+    // ChangeKey and the cached path of every folder under it.
+    invalidateFolderCache();
+  }
+
+  if (newParent !== oldParent) {
+    // Resolved through the NEW path — the rename above already moved it there
+    // as far as path synthesis is concerned.
+    const movingPath = oldParent ? `${oldParent}/${name}` : name;
+    const body = `<m:MoveFolder>
+      <m:ToFolderId>${await folderIdXml(newParent)}</m:ToFolderId>
+      <m:FolderIds>${await folderIdXml(movingPath, { withChangeKey: true })}</m:FolderIds>
+    </m:MoveFolder>`;
+    const xml = await soapRequest(acc.ews, 'MoveFolder', body);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.MoveFolderResponse?.ResponseMessages?.MoveFolderResponseMessage)[0];
+    checkResponseCode(msg, 'MoveFolder');
+    invalidateFolderCache();
+  }
+  return { path: newPath, name };
+}
+
+export async function emptyFolder(path) {
+  const acc = currentAccount();
+  // Counted first: EWS's EmptyFolder reports no count of its own, and every
+  // other backend's emptyFolder returns one for the toast.
+  const { total } = await folderStatus(path);
+  if (!total) return { deleted: 0 };
+  // HardDelete, and subfolders left alone. "Empty this folder" on Trash has to
+  // actually reclaim the space or it has not emptied anything — moving its
+  // contents to Deleted Items when the folder IS Deleted Items is a no-op. The
+  // same reasoning is why imapClient.js expunges rather than flagging. Deleting
+  // subfolders is deliberately not part of "empty": they are folders, not
+  // contents, and losing them to a menu item named Empty would be a surprise.
+  const body = `<m:EmptyFolder DeleteType="HardDelete" DeleteSubFolders="false">
+    <m:FolderIds>${await folderIdXml(path)}</m:FolderIds>
+  </m:EmptyFolder>`;
+  const xml = await soapRequest(acc.ews, 'EmptyFolder', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.EmptyFolderResponse?.ResponseMessages?.EmptyFolderResponseMessage)[0];
+  checkResponseCode(msg, 'EmptyFolder');
+  return { deleted: total };
+}

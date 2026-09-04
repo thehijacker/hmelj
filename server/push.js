@@ -180,7 +180,7 @@ export function listSubscriptions(userKey) {
 }
 
 /** Cheap early-out for sync.js: skip building a notification payload entirely
- * (incl. the per-message getMessage() fetch for a preview — see Phase 2) for
+ * (including the per-message getMessage() fetch for the preview) for
  * a user who has never enabled push, or when neither delivery path is
  * configured at all. */
 export function hasSubscriptions(userKey) {

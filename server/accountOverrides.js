@@ -1,5 +1,5 @@
-// Hmelj — per-viewer personalization for a SHARED mail account (Phase 2 of
-// the shared-accounts plan). A grantee can hide additional folders from
+// Hmelj — per-viewer personalization for a SHARED mail account.
+// A grantee can hide additional folders from
 // their own sidebar without touching the owner's account record at all —
 // storage mirrors accounts.js's own explicit-userKey pattern (one small JSON
 // file per Hmelj user, this time keyed by accountId inside it) rather than

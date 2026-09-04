@@ -235,8 +235,8 @@ function notificationActions(uKey) {
 }
 
 async function notifyNewMail(uKey, account, folder, freshMessages) {
-  // A shared account's grantees (server/accountOverrides.js — see the plan
-  // doc's Phase 2) deserve their own new-mail push too, not just whoever
+  // A shared account's grantees (server/accountOverrides.js) deserve their
+  // own new-mail push too, not just whoever
   // owns the credentials — `account` here already carries sharedWith (see
   // listOwnedAccounts/stripSecrets, which only strips imap/smtp/ews, not
   // this). Resolved once per call, not per recipient below.

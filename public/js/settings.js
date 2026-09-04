@@ -459,9 +459,9 @@ const Settings = (() => {
     const signIn = a.graph || a.oauth;
     // A shared-in account (someone else's, shared to us)
     // never shows credentials/server-setting controls at all: no Edit, no
-    // Folders (special-folder mapping + hidden-folders are owner-only in
-    // this first pass — a per-viewer override for hidden folders is a
-    // planned follow-up), no Disable, and Remove becomes Leave (removes
+    // Folders (special-folder mapping is owner-only; a grantee's own hidden
+    // folders are personalization and live in server/accountOverrides.js
+    // instead), no Disable, and Remove becomes Leave (removes
     // just this viewer's own access, not the account itself — the owner
     // never sees this button, only ac-del).
     const isOwner = !a.shared;
@@ -1553,7 +1553,13 @@ const Settings = (() => {
   }
 
   function folderOptions(value, accountId) {
-    const folders = filterFolderCache[accountId] || [];
+    // `system` folders are Hmelj's own machinery (server/index.js) — today the
+    // Snoozed folder. A rule that filed mail into it would move the message
+    // with nothing recorded to bring it back, which is the one way to strand
+    // something in there permanently. An EXISTING target is still carried by
+    // the `missing` branch below, so a rule somebody already saved keeps
+    // showing what it does rather than silently retargeting itself.
+    const folders = (filterFolderCache[accountId] || []).filter((f) => !f.system);
     /* value="" on every option is load-bearing, not decoration. Without it an
        option's value IS its text — and i18n.js's observer translates text
        nodes, "INBOX" among them (it's a catalogue key: Prejeto / Inbox). So
@@ -2686,9 +2692,17 @@ const Settings = (() => {
       ${folderList.map((f) => `<div class="card"><div class="row">
         <span>${esc(f.path)}</span>
         ${f.unseen != null ? `<span class="set-hint" style="margin:0">${f.total} msgs, ${f.unseen} unread</span>` : ''}
+        ${/* A real folder on the server — which is the point, so a snoozed
+              message is gone from the Inbox in Outlook and on the phone too —
+              but Hmelj's, not a mailbox you keep. Named here so renaming or
+              deleting it is a deliberate act: the snooze queue remembers this
+              path, and messages waiting in it would have nowhere to come back
+              from. The sidebar shows the 🕰️ Snoozed view instead, which also
+              says when each message is due. */ ''}
+        ${f.system ? `<span class="set-hint" style="margin:0" title="${escAttr(I18n.t('Snoozed messages wait here until they are due. Open the Snoozed view in the sidebar to see them.'))}">🕰️ ${I18n.t('Used by Snooze')}</span>` : ''}
         <span class="spacer"></span>
-        <label class="mini-toggle" title="${!isOwner && f.hiddenByOwner ? escAttr(I18n.t("Hidden by this account's owner")) : ''}">
-          <input type="checkbox" class="fo-show" data-path="${escAttr(f.path)}" ${f.hidden ? '' : 'checked'} ${!isOwner && f.hiddenByOwner ? 'disabled' : ''}> ${I18n.t('Show in sidebar')}
+        <label class="mini-toggle" title="${f.system ? escAttr(I18n.t('Hmelj manages this folder')) : (!isOwner && f.hiddenByOwner ? escAttr(I18n.t("Hidden by this account's owner")) : '')}">
+          <input type="checkbox" class="fo-show" data-path="${escAttr(f.path)}" ${f.hidden || f.system ? '' : 'checked'} ${f.system || (!isOwner && f.hiddenByOwner) ? 'disabled' : ''}> ${I18n.t('Show in sidebar')}
         </label>
         ${isOwner ? `<button class="icon-btn small fo-rename" data-path="${escAttr(f.path)}" title="${I18n.t('Rename')}">✏️</button>
         <button class="icon-btn small fo-empty" data-path="${escAttr(f.path)}" title="${I18n.t('Empty')}">🧺</button>

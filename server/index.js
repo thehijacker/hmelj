@@ -2337,13 +2337,26 @@ app.get('/api/folders', wrap(async (req, res) => {
       ),
     }
     : null;
+  // Hmelj's own machinery rather than a mailbox the reader keeps: the Snoozed
+  // folder exists so a snoozed message really leaves the Inbox everywhere —
+  // on the phone, in Outlook, in the provider's own webmail — but inside Hmelj
+  // the 🕰️ Snoozed view is the better face of the same thing, because it also
+  // says WHEN each message comes back. Showing both is two entries for one
+  // idea, and the worse one is the folder.
+  //
+  // Deliberately NOT the `hidden` flag: that is the reader's own choice, saved
+  // in the account, and a folder they never chose to hide should not start
+  // appearing in their hidden list. This is a property of what the folder IS.
+  const systemFolders = new Set([acc.snoozeFolder].filter(Boolean));
   const decorate = (list) => list.map((f) => {
     const hidden = f.hidden || myHiddenSet.has(f.path);
+    const system = systemFolders.has(f.path);
     return {
       ...f,
       hiddenByOwner: f.hidden,
       hiddenByMe: myHiddenSet.has(f.path),
       hidden,
+      system,
       // Does this folder's unread feed the account/All-inboxes badge? Decided
       // here, by the same predicate GET /api/unread sums over, so the client
       // can do optimistic ±1 badge math without keeping its own copy of the
@@ -2379,9 +2392,41 @@ app.get('/api/unread', wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ ...unread.unreadForCurrentUser(), at: new Date().toISOString() });
 }));
+/**
+ * Re-reads the folder tree from the server and writes it over the cached one.
+ *
+ * GET /api/folders answers from `cache.getFolders()` for any account that has
+ * synced before, so a folder that only exists on the server is invisible until
+ * the next background poll refreshes that table — which is how a freshly
+ * created folder (including the Snoozed one, made on first use) could be real,
+ * hold mail, and still not appear in the sidebar.
+ *
+ * A full re-list rather than inserting one row: `listFolders()` is what decides
+ * a folder's parent, delimiter, special-use role and server counts, and
+ * `upsertFolders()` also PRUNES paths the server no longer reports — which is
+ * what makes this correct for a rename, where the old path has to disappear and
+ * every path beneath it changes. Same two calls GET /api/folders?live=1 makes.
+ *
+ * Only ever called from a deliberate, rare folder mutation, so the extra
+ * round-trip costs nothing that matters.
+ */
+async function refreshFolderCache() {
+  if (!config.cacheEnabled) return;
+  const uKey = currentUser().userKey;
+  const acctId = currentUserAccountId();
+  try {
+    cache.upsertFolders(uKey, acctId, await imap.listFolders());
+  } catch (e) {
+    // The mutation itself already succeeded; a stale sidebar until the next
+    // poll is worth far less than turning a completed create into an error.
+    log.debug(`Could not refresh the folder cache for account ${acctId}: ${e.message}`);
+  }
+}
+
 app.post('/api/folders', wrap(async (req, res) => {
   const result = await imap.createFolder(req.body.path);
-  events.broadcastForAccount(currentUser().userKey, currentUserAccountId()); // no cache mirror for folder creation today, but the folder list itself still needs other tabs to refetch it
+  await refreshFolderCache(); // or it stays invisible in the sidebar until the next poll
+  events.broadcastForAccount(currentUser().userKey, currentUserAccountId());
   res.json(result);
 }));
 app.delete('/api/folders/:path', wrap(async (req, res) => {
@@ -2394,8 +2439,15 @@ app.delete('/api/folders/:path', wrap(async (req, res) => {
   res.json(result);
 }));
 app.post('/api/folders/:path/rename', wrap(async (req, res) => {
-  const result = await imap.renameFolder(decodeURIComponent(req.params.path), req.body.newPath);
-  events.broadcastForAccount(currentUser().userKey, currentUserAccountId()); // no cache mirror for rename today — stale cache rows self-heal on the next background sync same as before, this just wakes other tabs to notice sooner
+  const path = decodeURIComponent(req.params.path);
+  const result = await imap.renameFolder(path, req.body.newPath);
+  // The messages cached under the OLD path are keyed by it, so the rename
+  // orphans them: refreshFolderCache() prunes the folder row, which would
+  // otherwise leave rows nothing can ever reach or clean up. Dropping them
+  // first means the renamed folder simply re-syncs, which it has to do anyway.
+  if (config.cacheEnabled) cache.removeFolder(currentUser().userKey, currentUserAccountId(), path);
+  await refreshFolderCache();
+  events.broadcastForAccount(currentUser().userKey, currentUserAccountId());
   res.json(result);
 }));
 app.post('/api/folders/:path/empty', wrap(async (req, res) => {
@@ -3680,6 +3732,10 @@ async function ensureSnoozeFolder(acc, uKey) {
     // ImapFlow reports the path the server actually used; EWS/Graph echo the
     // name back. Fall back to what we asked for if a backend says nothing.
     name = created?.path || created?.name || snooze.DEFAULT_SNOOZE_FOLDER;
+    // Same reason as POST /api/folders: without this the folder is real and
+    // holds the snoozed mail, but the sidebar cannot see it until the next
+    // background poll.
+    await refreshFolderCache();
     log.info(`Created snooze folder "${name}" for account ${acc.id}`);
   }
   accounts.updateAccountFields(acc.id, { snoozeFolder: name });

@@ -37,7 +37,12 @@ const Compose = (() => {
   const BODY_CLASS = 'compose-body';
   const QUOTE_CLASS = 'quoted-block';
   let identities = [];
-  let attachments = []; // {filename, contentType, contentBase64}
+  // {filename, contentType, contentBase64} — plus {cid, inline:true} for an
+  // image pasted or dropped into the body, which travels as a normal
+  // attachment referenced by <img src="cid:…">. server/smtpClient.js has
+  // always passed `cid` through (it was written for a filter's redirect); the
+  // composer simply never set it before.
+  let attachments = [];
   let draftUid = null;
   let replyMeta = null; // {inReplyTo, references, original} — `original` is {accountId, folder, uid, kind}, see markOriginal below
   // Recipients HMELJ put in the To/Cc fields, not the user — today only a
@@ -102,6 +107,23 @@ const Compose = (() => {
       return { text, html: null };
     }
     const ed = document.getElementById('c-editor');
+    // Worked on a CLONE: rewriting the live editor would move the caret and
+    // replace the images the user is looking at, and getBody() runs on every
+    // autosave, not just on send.
+    const out = ed.cloneNode(true);
+    for (const img of out.querySelectorAll('img[data-hmelj-cid]')) {
+      img.setAttribute('src', 'cid:' + img.getAttribute('data-hmelj-cid'));
+      img.removeAttribute('data-hmelj-cid');
+    }
+    // An inline image the user has since deleted from the body would otherwise
+    // still be sent — invisible, but counted against the message size and
+    // shown as an attachment by the receiving client.
+    const stillUsed = new Set([...ed.querySelectorAll('img[data-hmelj-cid]')].map((i) => i.getAttribute('data-hmelj-cid')));
+    const orphans = attachments.filter((a) => a.inline && !stillUsed.has(a.cid));
+    if (orphans.length) {
+      attachments = attachments.filter((a) => !a.inline || stillUsed.has(a.cid));
+      renderAttachments();
+    }
     // A URL typed into a contenteditable is just characters — the browser does
     // not link it, and neither did we, so "…v management programu:
     // http://host/x" went out as text the RECIPIENT could not click either.
@@ -110,7 +132,7 @@ const Compose = (() => {
     // does it that way. target="_blank" is dropped — it means nothing in mail.
     // Nothing to link (the usual case, since URLs in the signature and the
     // quoted block are already anchors) returns the same string untouched.
-    return { html: MessageFrame.linkifyBareUrlsInHtml(ed.innerHTML, { target: false }), text: ed.innerText };
+    return { html: MessageFrame.linkifyBareUrlsInHtml(out.innerHTML, { target: false }), text: ed.innerText };
   }
 
   /** The default font for new mail (Settings > Compose > Default font), as a CSS
@@ -487,6 +509,7 @@ const Compose = (() => {
     document.getElementById('c-priority').value = p.priority || 'normal';
     document.getElementById('c-receipt').checked = !!p.readReceipt;
     attachments = (p.attachments || []).map((a) => ({ ...a }));
+    restoreInlineImages();
     renderAttachments();
     replyMeta = (p.inReplyTo || p.references || p.original)
       ? { inReplyTo: p.inReplyTo, references: p.references, original: p.original }
@@ -511,19 +534,131 @@ const Compose = (() => {
     draftUid = msg.uid;
   }
 
+  /**
+   * The inverse of getBody()'s cid: swap, for a message coming back INTO the
+   * editor — a cancelled undo-send or a rescheduled one.
+   *
+   * What was stored is `<img src="cid:x">`, which is right for the wire and
+   * renders as a broken image in a contenteditable: nothing resolves a
+   * Content-ID against an attachment list except a mail client displaying the
+   * assembled message. The bytes are still in `attachments`, so they go back
+   * to being data: URLs for as long as the message is being edited.
+   */
+  function restoreInlineImages() {
+    const byCid = new Map(attachments.filter((a) => a.cid).map((a) => [a.cid, a]));
+    if (!byCid.size) return;
+    for (const img of document.getElementById('c-editor').querySelectorAll('img[src^="cid:"]')) {
+      const cid = img.getAttribute('src').slice(4);
+      const a = byCid.get(cid);
+      if (!a || !a.contentBase64) continue; // not ours to restore — leave it exactly as it is
+      img.src = `data:${a.contentType || 'application/octet-stream'};base64,${a.contentBase64}`;
+      img.setAttribute('data-hmelj-cid', cid);
+      a.inline = true;
+    }
+  }
+
   function addBlob(blob, filename, contentType) {
     const reader = new FileReader();
     reader.onload = () => {
       attachments.push({ filename, contentType: contentType || blob.type, contentBase64: reader.result.split(',')[1] });
       renderAttachments();
+      dirty = true;
     };
     reader.readAsDataURL(blob);
   }
 
+  /** A name for something the clipboard handed over without one — a screenshot
+   *  is usually just "image/png" and no filename at all. Dated rather than
+   *  numbered, so several in one message stay distinguishable after they land
+   *  in someone's downloads folder. */
+  function nameForBlob(blob, i) {
+    const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' })[blob.type]
+      || (blob.type.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
+    const d = new Date();
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+      + `-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+    return `image-${stamp}${i ? '-' + (i + 1) : ''}.${ext}`;
+  }
+
+  /**
+   * An image dropped or pasted into the rich-text body, shown where the caret
+   * is and sent as a real inline attachment.
+   *
+   * The <img> carries a data: URL while you are writing, because that is the
+   * only thing the editor can actually render, and `data-hmelj-cid` naming the
+   * Content-ID it will be sent under. getBody() swaps the two on the way out.
+   * A data: URL must NOT be what goes on the wire — Gmail, Outlook and most
+   * webmail strip them, so the recipient would see a broken image where you
+   * saw a picture.
+   */
+  function insertInlineImage(blob, filename) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const cid = `${crypto.randomUUID()}@hmelj`;
+      attachments.push({ filename, contentType: blob.type, contentBase64: String(reader.result).split(',')[1], cid, inline: true });
+      const img = document.createElement('img');
+      img.src = reader.result;
+      img.setAttribute('data-hmelj-cid', cid);
+      img.alt = filename;
+      // Big screenshots otherwise arrive at their full pixel width and force
+      // the reader to scroll sideways through them.
+      img.style.maxWidth = '100%';
+      insertNodeAtCaret(img);
+      renderAttachments();
+      dirty = true;
+    };
+    reader.readAsDataURL(blob);
+  }
+
+  /** Puts a node where the caret is, if the caret is in the editor — and at the
+   *  end of it otherwise (dropped onto the window without ever clicking in). */
+  function insertNodeAtCaret(node) {
+    const ed = document.getElementById('c-editor');
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    if (!range || !ed.contains(range.commonAncestorContainer)) {
+      ed.appendChild(node);
+    } else {
+      range.deleteContents();
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    ed.focus();
+  }
+
+  /**
+   * Files arriving from a paste or a drop.
+   *
+   * An image goes INTO the body when there is a body to put it in — that is
+   * what pasting a screenshot means in every other mail client. In plain-text
+   * mode there is no such thing as an inline image, so it becomes an ordinary
+   * attachment instead of being silently dropped.
+   */
+  function acceptFiles(files, { inline = false } = {}) {
+    const list = [...files].filter(Boolean);
+    if (!list.length) return false;
+    list.forEach((f, i) => {
+      const isImage = (f.type || '').startsWith('image/');
+      const name = f.name || nameForBlob(f, i);
+      if (inline && isImage && !isPlain()) insertInlineImage(f, name);
+      else addBlob(f, name, f.type);
+    });
+    return true;
+  }
+
   function renderAttachments() {
     const box = document.getElementById('c-attach-list');
-    box.innerHTML = attachments.map((a, i) =>
-      `<span class="attach-chip">📎 ${esc(a.filename)} <button data-i="${i}" title="Remove">✕</button></span>`).join('');
+    // Inline images are deliberately not chips: they are already visible in
+    // the message, and a chip whose ✕ leaves a broken <img> behind in the body
+    // would be a worse way to remove one than selecting it and pressing Delete
+    // — which getBody() already cleans up after. The index carried on the
+    // button is the index into `attachments`, not into the rendered list, so
+    // removing a file never removes the wrong one.
+    box.innerHTML = attachments.map((a, i) => (a.inline ? ''
+      : `<span class="attach-chip">📎 ${esc(a.filename)} <button data-i="${i}" title="Remove">✕</button></span>`)).join('');
     box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
       attachments.splice(+b.dataset.i, 1); renderAttachments();
     }));
@@ -1373,6 +1508,66 @@ const Compose = (() => {
       } finally {
         btn.disabled = false;
       }
+    });
+
+    /* ---------- paste and drag-and-drop ----------
+     * Neither existed: pasting a screenshot did nothing, and dropping a file
+     * onto the composer let the BROWSER handle it — which means navigating the
+     * page away to display that file, losing whatever was being written.
+     * Registered on the whole compose window rather than the editor, because
+     * dropping onto the subject line or the attachment strip obviously means
+     * the same thing. */
+    const win = document.getElementById('compose-window');
+    const editor = document.getElementById('c-editor');
+
+    // Paste is bound to the editor and the plain textarea: pasting into the To
+    // field must stay ordinary text.
+    for (const el of [editor, document.getElementById('c-editor-plain')]) {
+      el.addEventListener('paste', (e) => {
+        const dt = e.clipboardData;
+        if (!dt) return;
+        // Files first, but only when there is no text alongside them. Copying
+        // a cell from a spreadsheet, or an image from a web page, puts BOTH an
+        // image and the real content on the clipboard — and taking the image
+        // there would paste a picture of a table instead of the table.
+        const files = [...(dt.files || [])];
+        const hasText = [...(dt.types || [])].some((t) => t === 'text/plain' || t === 'text/html');
+        if (files.length && !hasText) {
+          e.preventDefault();
+          acceptFiles(files, { inline: true });
+        }
+      });
+    }
+
+    // dragover must be cancelled or the drop never fires — that is the whole
+    // reason dropping a file "did nothing" except navigate away.
+    let dragDepth = 0;
+    win.addEventListener('dragover', (e) => {
+      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    // enter/leave counted rather than toggled: moving over a child element
+    // fires leave on the parent, so a plain toggle flickers the highlight off
+    // while the pointer is still very much inside the window.
+    win.addEventListener('dragenter', (e) => {
+      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+      dragDepth++;
+      win.classList.add('drag-over');
+    });
+    win.addEventListener('dragleave', () => {
+      if (dragDepth > 0) dragDepth--;
+      if (!dragDepth) win.classList.remove('drag-over');
+    });
+    win.addEventListener('drop', (e) => {
+      const files = [...(e.dataTransfer?.files || [])];
+      dragDepth = 0;
+      win.classList.remove('drag-over');
+      if (!files.length) return; // dragged text or a link — let the browser do its normal thing
+      e.preventDefault();
+      // Inline only when dropped INTO the message body; onto the header or the
+      // attachment strip means "attach this".
+      acceptFiles(files, { inline: editor.contains(e.target) });
     });
 
     // mousedown+preventDefault, like the formatting buttons above: clicking a

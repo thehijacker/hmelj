@@ -110,7 +110,8 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Undo send** — a window you choose (10 seconds by default). The wait is on the server, so closing the tab right after Send still honours it
 - **Templates** — reusable snippets, inserted at the caret, above your signature
 - **Before it goes out** — "you said it was attached, and nothing is", and "you replied to one of nine". Both read English and Slovenian, including forms typed without šumniki, and both read only your own text — never the quoted original
-- **Draft autosave**, attachments, Cc/Bcc, priority, read-receipt request
+- **Attachments** by button, by drag-and-drop, or by pasting — a screenshot pasted into the body goes inline, sent as a real embedded part rather than a `data:` URL that most webmail would strip
+- **Draft autosave**, Cc/Bcc, priority, read-receipt request
 - **Spell checking** as you type — Slovenian and English, detected automatically
 - **Contact autocomplete**, learned from the mail you actually send
 

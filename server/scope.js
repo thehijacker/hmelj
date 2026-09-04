@@ -74,7 +74,7 @@ export function isSyncScope(folder, account) {
  * therefore to the "All inboxes" total, the tab title, the PWA app badge and
  * the Android launcher badge)?
  *
- * Differs from isSyncScope in exactly three ways, all of them "this is synced
+ * Differs from isSyncScope in exactly four ways, all of them "this is synced
  * but shouldn't show up as unread mail":
  *   - hidden folders (the user turned them off in the sidebar)
  *   - Sent (synced for the unified Sent view; never unread mail)
@@ -83,11 +83,17 @@ export function isSyncScope(folder, account) {
  *     be sitting there). Path-based rather than specialUse-based because
  *     specialUse isn't reliably reported for either by every server, e.g.
  *     some Gmail locales.
+ *   - Snoozed (server/snooze.js). It has to stay in SYNC scope — waking a
+ *     message means finding it there again — but it is not shown in the
+ *     sidebar, and an unread message inside it would put a number on the
+ *     account that the reader has no way to reach and clear. A snoozed
+ *     message comes back marked unread, in the Inbox, where it counts.
  */
 export function isUnreadScope(folder, account) {
   if (folder.hidden) return false;
   if (folder.path === account?.sentFolder) return false;
   if (folder.path === account?.draftsFolder) return false;
+  if (account?.snoozeFolder && folder.path === account.snoozeFolder) return false;
   if (EXCLUDED_SPECIAL_USE.has(folder.specialUse)) return false;
   if (!isLabelOverlapProne(account)) return true;
   return isInboxTree(folder);

@@ -980,6 +980,18 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 }
 .compose-window.minimized .compose-body,
 .compose-window.minimized .compose-footer { display: none; }
+
+/* Dragging files over the composer. An outline rather than a covering overlay:
+   an overlay would sit between the pointer and the editor, so "drop it where
+   the caret is" would have nowhere to aim — and it is the drop TARGET that
+   decides whether an image lands in the body or on the attachment strip. */
+.compose-window.drag-over { outline: 2px dashed var(--accent, #0b57d0); outline-offset: -4px; }
+.compose-window.drag-over .compose-editor { background: var(--hover); }
+
+/* A pasted screenshot is routinely wider than the composer. Bounded here as
+   well as by the inline style that travels with the message, so the editor
+   stays usable while writing. */
+.compose-editor img { max-width: 100%; height: auto; }
 /* Desktop "enlarge" — bigger, not a full-space takeover (see the mobile
    override below for the phone-screen equivalent, which is full page size).
    :not(.minimized) so a minimized (title-bar-only) window doesn't visually

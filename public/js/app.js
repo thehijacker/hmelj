@@ -1102,6 +1102,14 @@ async function loadFolders() {
   const showMutedBtn = $('#btn-show-muted');
   if (showMutedBtn) showMutedBtn.hidden = true;
   for (const f of state.folders) {
+    // `system` is Hmelj's own machinery, not a mailbox (server/index.js sets
+    // it — today just the Snoozed folder). Skipped BEFORE the move target is
+    // offered as well as before the row is drawn: filing a message into
+    // Snoozed by hand would move it with nothing recorded to bring it back,
+    // which is the one way to lose a message in there. The 🕰️ Snoozed row
+    // below is how snoozed mail is meant to be reached, and it shows when
+    // each message is due rather than just that it is gone.
+    if (f.system) continue;
     moveSel.insertAdjacentHTML('beforeend', `<option value="${escAttr(f.path)}">${esc(f.path)}</option>`);
     if (f.hidden) continue;
     const li = document.createElement('li');
@@ -5474,7 +5482,7 @@ async function showMoveDialog(msg, listEntry) {
   let folders;
   try { folders = await API.folders(msg.__account || undefined); }
   catch (e) { toast('Cannot load folders: ' + e.message); return; }
-  const options = folders.filter((f) => f.path !== msg.__folder && !f.hidden);
+  const options = folders.filter((f) => f.path !== msg.__folder && !f.hidden && !f.system);
   if (!options.length) { toast('No other folders to move to'); return; }
   const bodyHtml = `<label class="dialog-label">${I18n.t('Move to folder')}</label>
     <select class="dialog-input" id="mv-move-target">

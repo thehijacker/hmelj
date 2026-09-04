@@ -122,6 +122,7 @@
 <a data-section="compose" href="#compose">Composing</a>
 <ul class="nav-sub">
 <li><a data-scroll="compose-editor" data-section="compose" href="#compose-editor">The editor</a></li>
+<li><a data-scroll="compose-attach" data-section="compose" href="#compose-attach">Attachments and images</a></li>
 <li><a data-scroll="compose-drafts" data-section="compose" href="#compose-drafts">Drafts</a></li>
 <li><a data-scroll="compose-schedule" data-section="compose" href="#compose-schedule">Scheduled sending</a></li>
 <li><a data-scroll="compose-undo" data-section="compose" href="#compose-undo">Undo send</a></li>
@@ -1231,11 +1232,19 @@ for your Hmelj host.
 </div>
 
 <p>
-  Reading, sending, moving, deleting, flagging, search, contact import and meeting
-  responses all work. <em>Live</em> monitoring is a 15-second pull subscription: Exchange
+  Reading, sending, moving, deleting, flagging, search, contact import, calendars and
+  meeting responses all work, and so does managing folders — create, rename, move,
+  delete and empty. <em>Live</em> monitoring is a 15-second pull subscription: Exchange
   reports exactly what changed since the last watermark, which is more reliable than a
   timer on a busy mailbox.
 </p>
+<div class="callout">
+  <strong>Two folder actions behave the way Outlook behaves</strong>, which is not quite
+  how they behave on IMAP. <em>Deleting</em> a folder moves it to Deleted Items rather
+  than destroying it, so it is recoverable — and it does reappear in your folder tree
+  under Trash, which is honest about where it went. <em>Emptying</em> a folder is
+  permanent, and leaves any subfolders alone: they are folders, not contents.
+</div>
 
 <div class="callout warning">
 <strong>The server process must be started with <code>--openssl-legacy-provider</code></strong>
@@ -1433,7 +1442,7 @@ locked off rather than offered as a false choice.
   webmail.
 </p>
 <ul>
-<li>A <strong>🕰️ Snoozed</strong> row appears in the sidebar with a count, listing what is waiting and when each one is due.</li>
+<li>A <strong>🕰️ Snoozed</strong> row appears in the sidebar with a count, listing what is waiting and when each one is due. The <code>Snoozed</code> folder itself is <em>not</em> shown there — it would be a second, worse entry for the same thing, saying that a message is gone without saying when it comes back. It is still a real folder on the server, visible from Outlook and from your phone, and it is listed in Settings → Folders marked as Hmelj's.</li>
 <li>Click one, or use its menu, to <strong>bring it back now</strong> or <strong>change the time</strong>.</li>
 <li>If Hmelj is not running when a message comes due, it comes back as soon as Hmelj is. Nothing is missed, it is just late.</li>
 <li>Moved a snoozed message somewhere yourself in the meantime? That is treated as your decision — Hmelj drops the reminder rather than dragging the message back out of where you filed it.</li>
@@ -1758,6 +1767,30 @@ row per message.
   Where the quoted original goes on a reply — <strong>below</strong> your reply,
   <strong>above</strong> it, or <strong>not at all</strong> — is a setting. The signature
   goes above the quote either way.
+</p>
+
+<h2 id="compose-attach">Attachments and images</h2>
+<p>Three ways to put a file in a message, all of which do the same thing:</p>
+<ul>
+<li>the <strong>📎</strong> button</li>
+<li><strong>drag files onto the composer</strong> — anywhere on it</li>
+<li><strong>paste</strong> — <kbd>Ctrl+V</kbd> a screenshot straight from the clipboard</li>
+</ul>
+<p>
+  An image pasted or dropped <em>into the message body</em> appears where the cursor is,
+  as part of the text. Dropped onto the header or the attachment strip instead, it is
+  attached as a file. In plain-text mode there is no such thing as an inline image, so a
+  pasted one is always attached.
+</p>
+<div class="callout">
+  <strong>An inline image is sent as a real embedded part</strong>, not as a
+  <code>data:</code> URL. That distinction is invisible while you write and total for the
+  person reading: Gmail, Outlook and most webmail strip <code>data:</code> images, so the
+  message would look right on your screen and arrive with a blank box in it.
+</div>
+<p>
+  Pasting ordinary text is unaffected, including from a spreadsheet or a web page — those
+  put both an image and the real content on the clipboard, and Hmelj takes the content.
 </p>
 
 <h2 id="compose-drafts">Drafts</h2>
