@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20260904013';
+const VERSION = 'hmelj-20260904014';
 const SHELL = [
   '/',
   '/index.html',
@@ -70,6 +70,43 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/**
+ * "Nothing answered" wearing a perfectly good HTTP response.
+ *
+ * When the origin is down, a proxy in front of it answers for it: Cloudflare's
+ * 52x/530 ("Web Server Is Down", "Origin Is Unreachable", DNS 1016), nginx's
+ * 502/504. Those are not transport failures — `fetch` RESOLVES, with a real
+ * status and an HTML error page — so every offline check that keyed off a
+ * rejected fetch sailed straight past them. On a phone that meant the app
+ * showed Cloudflare's error page instead of the saved mail sitting right there
+ * in IndexedDB, and api.js read the response as proof the server was UP.
+ *
+ * Hmelj's own errors are always JSON (`res.status(...).json({error})`,
+ * without exception — including the meaningful 503 the spell checker returns
+ * when it has no dictionaries). So a 5xx that is not JSON did not come from
+ * Hmelj, whatever it says. That test needs no list of proxy status codes and
+ * cannot swallow a real answer from the app.
+ */
+function originUnreachable(res) {
+  if (res.status < 500) return false;
+  return !(res.headers.get('Content-Type') || '').includes('json');
+}
+
+/** What api.js reads as "the server could not be reached" — see its
+ *  _offlineAnswer, which then serves the request from the offline store. */
+function offlineStandIn() {
+  return new Response(JSON.stringify({ error: 'No connection to the Hmelj server' }), {
+    status: 503,
+    headers: {
+      'Content-Type': 'application/json',
+      // Marks this as "nothing answered", not "the server said 503".
+      // public/js/api.js keys the app's whole offline state off it — a
+      // real 503 from a live server must NOT be read as being offline.
+      'X-Hmelj-Offline': '1',
+    },
+  });
+}
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin || e.request.method !== 'GET') return;
@@ -77,41 +114,36 @@ self.addEventListener('fetch', (e) => {
   // Mail data: network only, structured offline error.
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(
-      fetch(e.request).catch(() =>
-        new Response(JSON.stringify({ error: 'No connection to the Hmelj server' }), {
-          status: 503,
-          headers: {
-            'Content-Type': 'application/json',
-            // Marks this as "nothing answered", not "the server said 503".
-            // public/js/api.js keys the app's whole offline state off it — a
-            // real 503 from a live server must NOT be read as being offline.
-            'X-Hmelj-Offline': '1',
-          },
-        }))
+      fetch(e.request)
+        .then((res) => (originUnreachable(res) ? offlineStandIn() : res))
+        .catch(offlineStandIn),
     );
     return;
   }
 
   // Shell & static: network-first with cache fallback.
-  e.respondWith(
-    fetch(e.request)
-      .then((res) => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(e.request, copy));
-        }
+  e.respondWith((async () => {
+    try {
+      const res = await fetch(e.request);
+      if (res.ok) {
+        const copy = res.clone();
+        caches.open(VERSION).then((c) => c.put(e.request, copy));
         return res;
-      })
-      .catch(async () => {
-        // ignoreSearch for everything, not just '/': the app shell now loads its
-        // scripts with a ?v= version stamp (see server/index.js), and the URLs
-        // pre-cached in SHELL carry no query. Without this, going offline would
-        // find no cached match for a versioned URL and the app would fail to
-        // load at all — from a cache that has the file.
-        const cached = await caches.match(e.request, { ignoreSearch: true });
-        return cached || (e.request.mode === 'navigate' ? caches.match('/index.html') : Response.error());
-      })
-  );
+      }
+      // A proxy's error page is not the application. Serving it would replace a
+      // working offline app with somebody else's "this site is down" screen —
+      // which is exactly what happened. Fall through to the cache instead.
+      if (!originUnreachable(res)) return res;
+    } catch { /* transport failure — the cache is the answer either way */ }
+    // ignoreSearch for everything, not just '/': the app shell now loads its
+    // scripts with a ?v= version stamp (see server/index.js), and the URLs
+    // pre-cached in SHELL carry no query. Without this, going offline would
+    // find no cached match for a versioned URL and the app would fail to
+    // load at all — from a cache that has the file.
+    const cached = await caches.match(e.request, { ignoreSearch: true });
+    return cached
+      || (e.request.mode === 'navigate' ? caches.match('/index.html') : Response.error());
+  })());
 });
 
 /** App-icon badge (dock/taskbar/home screen). Nothing in this app used the

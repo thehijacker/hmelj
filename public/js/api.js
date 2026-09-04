@@ -94,7 +94,16 @@ const API = {
     } finally {
       clearTimeout(bail);
     }
-    if (res.headers.get('X-Hmelj-Offline')) return API._offlineAnswer(method, url, background);
+    // The service worker's stand-in, OR a proxy answering for a server that
+    // isn't there. The second one is not a transport failure — Cloudflare's
+    // 52x/530 and nginx's 502/504 arrive as real responses with HTML bodies —
+    // so without this check the app read "the origin is unreachable" as proof
+    // the server was UP, called noteSuccess(), and never opened the offline
+    // store at all. This matters most where there is NO service worker to
+    // translate it first: the Android shell on a plain-http LAN address.
+    if (res.headers.get('X-Hmelj-Offline') || API._notFromHmelj(res)) {
+      return API._offlineAnswer(method, url, background);
+    }
     // The server answered, whatever it said — that alone proves the connection
     // is back, which is what ends an outage without waiting for the next probe.
     if (!background) window.Connection?.noteSuccess();
@@ -118,6 +127,21 @@ const API = {
     // waiting for, and offline.js swallows its own failures.
     if (method === 'GET') window.Offline?.remember?.(url, data);
     return data;
+  },
+
+  /**
+   * A 5xx that did not come from Hmelj.
+   *
+   * Every error this app produces is JSON — `res.status(...).json({error})`,
+   * without exception, including the meaningful 503 the spell checker returns
+   * when it has no dictionaries installed. A proxy standing in for a dead
+   * origin serves an HTML page instead. So the content type, not the status,
+   * is what tells them apart, and it needs no list of proxy status codes that
+   * would go stale the moment somebody put a different one in front.
+   */
+  _notFromHmelj(res) {
+    if (res.status < 500) return false;
+    return !(res.headers.get('Content-Type') || '').includes('json');
   },
 
   /** The resolved account for a call — the explicit argument if there is one,
