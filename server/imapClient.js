@@ -889,7 +889,14 @@ export async function getMessageSource(path, uid) {
   if (cached && Date.now() - cached.at < SOURCE_CACHE_TTL_MS) return cached;
   const result = await withMailbox(path, async (c) => {
     const msg = await c.fetchOne(uid, { uid: true, source: true, flags: true }, { uid: true });
-    if (!msg || !msg.source) throw new Error('Message not found');
+    // `notFound` is what every caller reads to tell "this uid is gone" from
+    // "something broke" — see readMessage in server/index.js, which drops the
+    // stale cache row and answers 410 with a sentence a person can act on.
+    // EWS and Graph have always set it; IMAP never did, so a uid that had been
+    // moved or deleted from another client came back as a raw 500 and
+    // "Error: Message not found" instead, and the cached row that caused it was
+    // left in place to do the same thing again on the next click.
+    if (!msg || !msg.source) throw Object.assign(new Error('Message not found'), { notFound: true });
     return { source: msg.source, flags: msg.flags };
   }, true);
   sourceCache.set(key, { ...result, at: Date.now() });

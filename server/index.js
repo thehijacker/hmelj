@@ -180,13 +180,71 @@ app.get('/manifest.webmanifest', (req, res) => {
   res.json(manifest);
 });
 
-app.use(express.static(path.join(__dirname, '..', 'public')));
+/**
+ * A ?v=-stamped script or stylesheet can be cached forever.
+ *
+ * The HTML entry points above rewrite every local /js and /css reference to
+ * carry `?v=<asset mtime>` — so the URL itself changes whenever the file does,
+ * which is the entire precondition for `immutable`. Without this they were
+ * served with express.static's default (revalidate on every load), which is
+ * correct but leaves nothing durable in a browser's HTTP cache.
+ *
+ * Durability is the point: the Android shell has no service worker to fall
+ * back on (a plain-http LAN address is not a secure context), so when there is
+ * no network it loads the app out of the WebView's HTTP cache instead. That
+ * cache can only hold what it was allowed to store. Nothing here is a
+ * behaviour change online — a changed file gets a new URL either way.
+ *
+ * Set through express.static's own `setHeaders` rather than a middleware in
+ * front of it, so it can only ever affect files this mount actually serves —
+ * and because send() applies its own Cache-Control only when the header is not
+ * already set, which makes this the last word without turning its default off
+ * for everything else. ETag and Last-Modified are untouched either way, so an
+ * unstamped request (a direct hit, an old bookmark) still revalidates exactly
+ * as it always did.
+ */
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders(res, filePath) {
+    if (res.req?.query?.v && /[/\\](?:js|css)[/\\]/.test(filePath)) {
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+    // Everything else falls through to send's own default (`public, max-age=0`,
+    // i.e. revalidate every time), which it only applies when nothing has set
+    // the header already — exactly today's behaviour for every unstamped file.
+  },
+}));
 // Admin-uploaded custom fonts (see server/fonts.js) — unauthenticated, same
 // as the public/ mount above: font files aren't sensitive, and gating this
 // would only complicate the CSS @font-face/iframe fetch path for no real
 // benefit (every filename actually reachable here is one the fonts.json
 // manifest itself put there).
-app.use('/fonts/custom', express.static(path.join(config.dataDir, 'fonts'), { index: false, dotfiles: 'deny' }));
+//
+// `Access-Control-Allow-Origin: *`, and it is not optional: the message
+// reading pane renders every body inside a SANDBOXED srcdoc iframe with no
+// `allow-same-origin` (messageFrame.js#buildFrame), which gives that document
+// an OPAQUE origin. A font is always fetched in CORS mode, and from an opaque
+// origin every request is cross-origin — including one back to this very
+// server. Without the header the browser fetches the file, gets its 200, and
+// then refuses to use it:
+//
+//   downloadable font: download failed … cross-site access not allowed
+//
+// So a custom Message font silently fell back to the default in the reading
+// pane, while the same family worked everywhere else in the app — app.js
+// injects the identical @font-face into the MAIN document, which is
+// same-origin and needs no header. Nothing is given away by this: the mount is
+// already unauthenticated (see above), so the header only lets the browser use
+// bytes it was always allowed to download.
+app.use('/fonts/custom', express.static(path.join(config.dataDir, 'fonts'), {
+  index: false,
+  dotfiles: 'deny',
+  setHeaders(res) {
+    res.set('Access-Control-Allow-Origin', '*');
+    // Belt and braces for a deployment that ever turns on COEP: without this a
+    // cross-origin subresource is blocked before CORS is even consulted.
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  },
+}));
 const uploadFont = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 // multer's own middleware calls next(err) on failure (oversized file, bad
 // field) rather than throwing — this app has no global 4-arg Express error
@@ -361,6 +419,27 @@ app.get('/oauth/callback', wrap(async (req, res) => {
  try { window.close(); } catch (e) {}
 </script></body></html>`);
 }));
+
+/**
+ * No HTTP-level caching of the API, by default, anywhere.
+ *
+ * Several routes already said this for themselves; this makes it the rule
+ * instead of a habit, and the handful that mean something else still win —
+ * they set their own header later, and a later res.set replaces this one (the
+ * attachment route's `private, max-age=86400, immutable`, the manifest's hour).
+ *
+ * It matters more than it used to. The Android shell now loads the app out of
+ * the WebView's own HTTP cache when there is no network (MainActivity's
+ * LOAD_CACHE_ELSE_NETWORK fallback), and that mode serves ANY response the
+ * cache holds, expired or not. A mail listing that a browser cache could hand
+ * back hours later, behind the app's back and outside its own offline store, is
+ * exactly the stale-content bug offline mode must not introduce. `no-store` is
+ * the one directive that keeps it out of the cache in the first place.
+ */
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 
 // Everything below /api requires a valid session.
 app.use('/api', requireAuth);
@@ -3063,9 +3142,23 @@ function sanitizeMessageHtml(html, { allowRemote, folder, uid }) {
   return { clean, blockedRemote };
 }
 
-app.get('/api/message/:folder/:uid', wrap(async (req, res) => {
-  const folder = decodeURIComponent(req.params.folder);
-  const uid = decodeURIComponent(req.params.uid); // opaque per-account-type id — an IMAP integer UID or (e.g.) an Exchange ItemId, not necessarily numeric
+/**
+ * One message, rendered the way a client wants it: sanitized HTML, the quoted
+ * half marked, the unsubscribe-link guess, and whether this sender has already
+ * been unsubscribed from.
+ *
+ * Lifted out of the GET route below so the batch route beside it — which the
+ * offline prefetcher uses to fill a device's cache (see public/js/offline.js) —
+ * cannot drift from it. A message cached for offline reading that rendered
+ * differently from the same message read online would be a bug nobody could
+ * even see until they had no connection.
+ *
+ * Answers `{ gone: true }` instead of throwing when the message is not on the
+ * server any more, having already dropped its own stale cache row: that is an
+ * ordinary outcome here (moved, deleted, or an invitation consumed by answering
+ * it), not an exceptional one.
+ */
+async function readMessage(folder, uid, { allowImages = false } = {}) {
   const settings = store.getSettings();
   let msg;
   try {
@@ -3084,12 +3177,12 @@ app.get('/api/message/:folder/:uid', wrap(async (req, res) => {
       cache.adjustFolderCounts(uKey, acctId, folder, cache.removeMessages(uKey, acctId, folder, [uid]));
     }
     events.broadcastForAccount(currentUser().userKey, currentUserAccountId());
-    return res.status(410).json({ error: 'This message is no longer on the server — it was moved, deleted, or already answered.', gone: true });
+    return { gone: true, error: 'This message is no longer on the server — it was moved, deleted, or already answered.' };
   }
 
   let allowRemote;
   const senderDomain = msg.from?.[0]?.address?.split('@')[1] || '';
-  if (req.query.allowImages === '1' || settings.externalImages === 'always') allowRemote = true;
+  if (allowImages || settings.externalImages === 'always') allowRemote = true;
   else if (settings.externalImages === 'never') allowRemote = false;
   else {
     // 'trusted' and 'ask' modes: a trusted entry can be a SENDER domain
@@ -3150,7 +3243,81 @@ app.get('/api/message/:folder/:uid', wrap(async (req, res) => {
   // it did: press Unsubscribe, open another message, come back, and the same
   // button was sitting there with no record of anything.
   const unsubscribed = store.getUnsubscribes()[senderKeyOf(msg)] || null;
-  res.json({ ...msg, html, blockedRemote, senderDomain, unsubscribed });
+  return { payload: { ...msg, html, blockedRemote, senderDomain, unsubscribed } };
+}
+
+
+app.get('/api/message/:folder/:uid', wrap(async (req, res) => {
+  const folder = decodeURIComponent(req.params.folder);
+  const uid = decodeURIComponent(req.params.uid); // opaque per-account-type id — an IMAP integer UID or (e.g.) an Exchange ItemId, not necessarily numeric
+  // The externalImages setting is readMessage's own business; this flag is only
+  // the reader's explicit "load them for this one message" (app.js's banner).
+  const r = await readMessage(folder, uid, { allowImages: req.query.allowImages === '1' });
+  if (r.gone) return res.status(410).json({ error: r.error, gone: true });
+  res.json(r.payload);
+}));
+
+/**
+ * Bodies for several messages at once.
+ *
+ * Exists for one caller: the offline prefetcher, which fills a device's cache
+ * with the newest few hundred messages so they can be READ with no connection.
+ * One request per message would be a few hundred round trips over whatever link
+ * a phone happens to be on — the difference between a background task and a
+ * visible one.
+ *
+ * A POST rather than a GET with a uid list because the list can be long enough
+ * to trouble a URL, and because nothing about this is cacheable. Capped: this is
+ * a convenience over the single-message route, not a way to ask for a mailbox in
+ * one call. Messages that have gone missing since the listing are simply left
+ * out — the prefetcher has nothing to say about them, and the next real read of
+ * that folder corrects the client's list anyway.
+ */
+const BODIES_MAX = 25;
+// How long this route will keep working before answering with what it has.
+//
+// A uid that isn't in the content cache is fetched from IMAP, and there is no
+// upper bound on how long a mail server takes about that. Holding the request
+// open until every message has been read means holding one of the browser's
+// handful of connections — and one of this server's own mail connections —
+// while the requests the user is actually waiting on queue up behind it. That
+// is not theoretical: it is what made a first run of the offline prefetcher
+// look like the connection had dropped.
+//
+// A short answer is not a failure here. The prefetcher asks for whatever is
+// still missing on its next pass, so stopping early costs nothing but time.
+const BODIES_BUDGET_MS = 15000;
+app.post('/api/messages/:folder/bodies', wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const folder = decodeURIComponent(req.params.folder);
+  const uids = Array.isArray(req.body?.uids) ? req.body.uids.slice(0, BODIES_MAX) : [];
+  const deadline = Date.now() + BODIES_BUDGET_MS;
+  const messages = [];
+  // Uids this server is SURE are gone, told apart from the ones it simply did
+  // not get to (the deadline below, or a transient read error). The client
+  // drops those from its own message list rather than asking for them again on
+  // every pass for ever — see fetchMissingBodies in public/js/offline.js.
+  const gone = [];
+  for (const uid of uids) {
+    // Per message, not per request. This route is opportunistic — the client is
+    // filling a cache in the background — so one uid that cannot be read must
+    // cost only itself. Without this the whole batch 500s and the four
+    // perfectly good messages beside it are lost, which is precisely what a
+    // stale uid did: one message deleted from another client took every batch
+    // containing it down, forever, since the prefetcher kept asking for the
+    // same window.
+    try {
+      const r = await readMessage(folder, String(uid));
+      if (r.gone) gone.push(uid);
+      else messages.push(r.payload);
+    } catch (e) {
+      reqLog.debug(`bodies ${folder}/${uid}: skipped — ${e?.message || e}`);
+    }
+    // Checked after the first one, never before: a request that answers with
+    // nothing at all teaches the client nothing and it would simply ask again.
+    if (Date.now() > deadline) break;
+  }
+  res.json({ messages, gone });
 }));
 
 /** The address that identifies "this newsletter" — see store.getUnsubscribes. */

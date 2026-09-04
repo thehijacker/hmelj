@@ -153,7 +153,13 @@ const THEME_DEVICE_KEYS = ['theme', 'customThemeBg', 'customThemeFg'];
 // the screen should stay lit is a property of the thing with the screen. A
 // phone propped up reading mail and a desktop browser tab want opposite
 // answers, and they share one account.
-const DEVICE_SETTINGS_KEYS = [...THEME_DEVICE_KEYS, 'uiFont', 'uiFontSize', 'uiFontWeight', 'keepScreenOn'];
+// The offline keys ride along for the same reason: how much mail this machine
+// keeps on its own disk is a property of the machine, not of the login. A phone
+// and a desktop sharing one account want different answers, and public/js/
+// offline.js reads them straight out of localStorage — it runs before boot()
+// has a settings object at all (and message.html never gets one).
+const DEVICE_SETTINGS_KEYS = [...THEME_DEVICE_KEYS, 'uiFont', 'uiFontSize', 'uiFontWeight', 'keepScreenOn',
+  'offlineEnabled', 'offlineMessages', 'offlineAttachments', 'offlineMaxMb'];
 const DEVICE_SETTINGS_STORAGE_KEY = 'hmelj-device-settings';
 
 // These keys were named 'hmail-*' before the app was renamed to Hmelj. Carry
@@ -216,6 +222,10 @@ async function saveServerSettings(patch) {
   const local = loadDeviceSettings();
   for (const k of DEVICE_SETTINGS_KEYS) if (local[k] !== undefined) result[k] = local[k];
   state.settings = result;
+  // The font settings may have just changed. Fire-and-forget: saving a setting
+  // must not wait on a font download, and a failure here costs only the offline
+  // copy, never the setting itself.
+  ensureOfflineFonts();
   return result;
 }
 
@@ -521,6 +531,27 @@ function applyCustomFontFaces() {
   }
   style.textContent = MessageFrame.buildFontFaceCss(state.customFonts || []);
 }
+/**
+ * Save the font files this device actually reads mail in, so they survive going
+ * offline.
+ *
+ * Only the families the two font settings NAME, and only their real styles — at
+ * most a handful of files. Which families those are is a question only this file
+ * can answer, which is why offline.js takes the list rather than working it out:
+ * it is a settings question, not a caching one. Passing the current list also
+ * evicts whatever family was selected before.
+ */
+function ensureOfflineFonts() {
+  const wanted = new Set([
+    migrateFontValue(state.settings?.uiFont),
+    migrateFontValue(state.settings?.messageFont),
+  ]);
+  const urls = (state.customFonts || [])
+    .filter((f) => wanted.has(f.family))
+    .flatMap((f) => Object.values(f.styles || {}).filter(Boolean));
+  return Offline.cacheFonts(urls);
+}
+
 async function refreshCustomFonts() {
   try { state.customFonts = await API.fonts(); } catch { state.customFonts = state.customFonts || []; }
   applyCustomFontFaces();
@@ -1079,6 +1110,7 @@ async function loadFolders() {
     appendSavedSearchRows(ul);
     appendSnoozedRow(ul);
     appendScheduledRow(ul);
+    appendOutboxRow(ul);
     appendCalendarRow(ul);
     // total unread badge per account is refreshed alongside
     refreshUnread();
@@ -1135,6 +1167,7 @@ async function loadFolders() {
   appendSavedSearchRows(ul);
   appendSnoozedRow(ul);
   appendScheduledRow(ul);
+  appendOutboxRow(ul);
   appendCalendarRow(ul);
   updateSilenceMarkers();
 }
@@ -2354,6 +2387,144 @@ function appendScheduledRow(ul) {
   ul.appendChild(li);
 }
 
+/* ---------- the Outbox ----------
+ *
+ * Not a mailbox and not the server's scheduled-send queue: this is what THIS
+ * DEVICE did while it could not reach the server (see public/js/outbox.js). It
+ * appears only when it has something in it — an empty row that is empty every
+ * day for months is chrome, not information — and it empties itself the moment
+ * the connection comes back.
+ *
+ * Built as a peer of the Scheduled row above, deliberately: they are the two
+ * places in this app where something is waiting rather than filed, and a person
+ * looking for "where did my message go" should find both in the same part of
+ * the sidebar. */
+const OUTBOX_FOLDER = '__OUTBOX__';
+
+function appendOutboxRow(ul) {
+  if (!Outbox.count()) return;
+  const li = document.createElement('li');
+  li.dataset.path = OUTBOX_FOLDER;
+  if (state.currentFolder === OUTBOX_FOLDER) li.classList.add('active');
+  li.innerHTML = '<span class="f-icon">📤</span><span>Outbox</span>'
+    + `<span class="f-count">${Outbox.count()}</span>`;
+  li.addEventListener('click', () => openFolder(OUTBOX_FOLDER));
+  ul.appendChild(li);
+}
+
+/** Keeps the row and its count honest without rebuilding the whole sidebar —
+ *  the queue changes on every offline click, and loadFolders() is a network
+ *  call that offline would not even complete. Adds the row when the first
+ *  action is queued and takes it away when the last one drains; if the view
+ *  itself is open, it repaints too. */
+function paintOutboxBadge() {
+  const ul = $('#folder-list');
+  const li = $(`#folder-list li[data-path="${OUTBOX_FOLDER}"]`);
+  const n = Outbox.count();
+  if (!n) {
+    li?.remove();
+    // The queue just emptied while its own view was open: there is nothing
+    // left to show, so go somewhere there is.
+    if (state.currentFolder === OUTBOX_FOLDER) openFolder('INBOX');
+    return;
+  }
+  if (!li) { if (ul) appendOutboxRow(ul); return; }
+  const span = $('.f-count', li);
+  if (span) span.textContent = n; else li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
+  if (state.currentFolder === OUTBOX_FOLDER) renderOutbox();
+}
+
+/** One queued action, in the user's own words. The queue stores an API call;
+ *  this is the only place that turns one back into a sentence, so every string
+ *  it can produce is in the catalogues (see public/i18n/en.json). */
+function describeOutboxOp(op) {
+  const p = op.payload || {};
+  const n = p.uids?.length || 1;
+  const many = (one, more) => (n === 1 ? I18n.t(one) : `${I18n.t(more)} (${n})`);
+  switch (op.type) {
+    case 'send': return { icon: '✉️', title: I18n.t('Send message'), detail: p.payload?.subject || I18n.t('(no subject)') };
+    case 'draft': return { icon: '📝', title: I18n.t('Save draft'), detail: p.payload?.subject || I18n.t('(no subject)') };
+    case 'delete': return { icon: '🗑️', title: many('Delete message', 'Delete messages'), detail: p.folder };
+    case 'move': return { icon: '📁', title: many('Move message', 'Move messages'), detail: `${p.folder} → ${p.target}` };
+    case 'copy': return { icon: '📄', title: many('Copy message', 'Copy messages'), detail: `${p.folder} → ${p.target}` };
+    case 'refile': return {
+      icon: p.box === 'junk' ? '🚫' : '🗄️',
+      title: I18n.t(p.box === 'junk'
+        ? (p.revert ? 'Not spam' : 'Mark as spam')
+        : (p.revert ? 'Move out of Archive' : 'Move to Archive')),
+      detail: p.folder,
+    };
+    case 'flags': {
+      const has = (list, f) => (list || []).some((x) => String(x).toLowerCase() === f);
+      if (has(p.add, '\\seen')) return { icon: '📖', title: many('Mark as read', 'Mark as read'), detail: p.folder };
+      if (has(p.remove, '\\seen')) return { icon: '📩', title: many('Mark as unread', 'Mark as unread'), detail: p.folder };
+      if (has(p.add, '\\flagged')) return { icon: '★', title: many('Star', 'Star'), detail: p.folder };
+      if (has(p.remove, '\\flagged')) return { icon: '☆', title: many('Unstar', 'Unstar'), detail: p.folder };
+      return { icon: '🏷️', title: I18n.t('Change flags'), detail: p.folder };
+    }
+    default: return { icon: '•', title: op.type, detail: p.folder || '' };
+  }
+}
+
+/** The Outbox view — the message list, showing the queue instead of mail.
+ *  Modelled on renderScheduled() next door, down to reusing its row classes,
+ *  so the two waiting-rooms of this app look like each other rather than like
+ *  two different apps. */
+function renderOutbox() {
+  const ul = $('#msg-list');
+  applyScheduledChrome(true); // no select-all/star/refresh over a queue — same as Scheduled
+  const ops = Outbox.list();
+  state.messages = []; // nothing here is a mail row; see paintScheduled's own note
+  state.total = ops.length;
+  renderPager({ total: ops.length, page: 1, pageSize: Math.max(ops.length, 1) });
+  if (!ops.length) {
+    ul.innerHTML = `<li class="msg-list-loading">${esc(I18n.t('Nothing is waiting to be sent.'))}</li>`;
+    return;
+  }
+  ul.innerHTML = '';
+  for (const op of ops) {
+    const d = describeOutboxOp(op);
+    const li = document.createElement('li');
+    li.className = 'msg-row outbox-row' + (op.state === 'failed' ? ' outbox-failed' : '');
+    li.dataset.uid = String(op.id);
+    li.innerHTML = `
+      <span class="m-from">${d.icon} ${esc(d.title)}</span>
+      <span class="m-subject" data-no-i18n>${esc(d.detail || '')}</span>
+      <span class="m-date" title="${escAttr(fmtDate(op.at, { long: true }))}">${esc(fmtDate(op.at))}</span>
+      ${op.lastError ? `<span class="outbox-error" data-no-i18n>${esc(op.lastError)}</span>` : ''}`;
+    const menu = (x, y) => openCtxMenu(outboxMenuItems(op), x, y);
+    li.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e.clientX, e.clientY); });
+    li.addEventListener('click', (e) => menu(e.clientX, e.clientY));
+    bindLongPress(li, menu);
+    ul.appendChild(li);
+  }
+}
+
+function outboxMenuItems(op) {
+  const items = [];
+  if (Connection.isOnline()) {
+    items.push({ label: I18n.t('Try again now'), onClick: () => Outbox.retry(op.id) });
+  }
+  if (op.type === 'send' || op.type === 'draft') {
+    // Back into the composer with everything it was written with — the same
+    // door a cancelled scheduled message comes back through (compose.js).
+    items.push({
+      label: I18n.t('Edit'),
+      onClick: async () => { await Outbox.drop(op.id); Compose.reopen(op.payload?.payload || {}); },
+    });
+  }
+  items.push({
+    label: I18n.t('Discard'),
+    danger: true,
+    onClick: async () => {
+      if (!await Dialog.confirm(I18n.t('Discard this queued action? It will never be sent.'),
+        { title: I18n.t('Discard'), okLabel: I18n.t('Discard'), danger: true })) return;
+      await Outbox.drop(op.id);
+    },
+  });
+  return items;
+}
+
 /** Repaints the sidebar badge from the queue we last fetched. Every path that
  *  fetches one goes through adoptScheduledList() and therefore through here —
  *  opening the Scheduled view used to refresh only the LIST, leaving the badge
@@ -2682,6 +2853,24 @@ function messageViewKey() {
 }
 let lastMessageViewKey = null;
 
+/**
+ * Which mailboxes the view currently on screen covers, as {account, folder}
+ * pairs — what Offline.buildList needs to answer a listing from saved headers.
+ *
+ * Only this file can work it out: "All inboxes" means one folder per account,
+ * and which folder that is (INBOX, or each account's own Sent) is a property of
+ * the accounts, not of the cache.
+ */
+function offlineScopes() {
+  if (state.currentAccount !== 'all') {
+    return [{ account: state.currentAccount, folder: state.currentFolder }];
+  }
+  const sent = state.currentFolder === '__SENT__';
+  return activeAccounts()
+    .map((a) => ({ account: a.id, folder: sent ? a.sentFolder : 'INBOX' }))
+    .filter((s) => s.folder);
+}
+
 /** The list container is reused across loads, so its scroll position survives
  * a page change: tapping "›" after scrolling down left the reader parked
  * halfway down a page they had never seen, which on a phone (where the pager
@@ -2738,6 +2927,12 @@ async function loadMessages() {
     clearTimeout(loadingTimer);
     return renderScheduled();
   }
+  // Same shape as Scheduled above: a local queue, not a mailbox, and every one
+  // of its rows is already in memory — there is nothing to fetch.
+  if (state.currentFolder === OUTBOX_FOLDER) {
+    clearTimeout(loadingTimer);
+    return renderOutbox();
+  }
   applyScheduledChrome(false); // leaving the queue view — restore the real toolbar
   let data;
   try {
@@ -2748,15 +2943,31 @@ async function loadMessages() {
       data = await API.messages(state.currentFolder, { page: state.page, q: state.query, unread: state.unreadOnly, flagged: state.starredOnly, scope: searchScopeParam() });
     }
   } catch (e) {
-    clearTimeout(loadingTimer);
-    if (seq !== loadMessagesSeq) return; // superseded — a newer call already owns the view
-    ul.innerHTML = `<li style="padding:20px;color:var(--danger)">Error: ${esc(e.message)}</li>`;
-    return;
+    // api.js has already tried the offline cache for this exact request; an
+    // `.offline` error here means it had never seen this particular view — page
+    // four of a folder, or a search typed with no connection. Rather than an
+    // error where a list should be, build one out of the message headers this
+    // device HAS saved, and label it (renderList's local-results note) so it is
+    // never mistaken for the server's answer.
+    if (e?.offline) {
+      const local = await Offline.buildList({
+        scopes: offlineScopes(), page: state.page, pageSize: state.settings.messagesPerPage || 50,
+        q: state.query, unread: state.unreadOnly, flagged: state.starredOnly,
+      });
+      if (local && seq === loadMessagesSeq) { clearTimeout(loadingTimer); data = local; }
+    }
+    if (!data) {
+      clearTimeout(loadingTimer);
+      if (seq !== loadMessagesSeq) return; // superseded — a newer call already owns the view
+      ul.innerHTML = `<li style="padding:20px;color:var(--danger)">Error: ${esc(e.message)}</li>`;
+      return;
+    }
   }
   clearTimeout(loadingTimer);
   if (seq !== loadMessagesSeq) return; // superseded while this fetch was in flight — discard, don't paint stale data over newer
   state.messages = data.messages;
   state.total = data.total;
+  state.listLocal = !!data._local;
   state.searchScopeUsed = data.scope || null;
   renderList();
   renderPager(data);
@@ -2886,6 +3097,9 @@ async function reconcileMessages() {
   // a reconcile run here would fetch a folder the server has never heard of and
   // then patch the list down to the empty array it compared against.
   if (state.currentFolder === SCHEDULED_FOLDER) return refreshScheduled();
+  // And the Outbox is not on the server at all — nothing there could be
+  // reconciled against it.
+  if (state.currentFolder === OUTBOX_FOLDER) return renderOutbox();
   // Same reasoning: the calendar is not backed by state.messages, and a
   // reconcile here would fetch a folder the server has never heard of.
   if (inCalendar()) return Calendar.refresh();
@@ -3121,25 +3335,240 @@ function updateConnIndicator(online) {
  * navigator.onLine alone (a device with "a network" but no route to a
  * self-hosted server is offline as far as Hmelj is concerned). This is just
  * what the mail UI does on each edge. */
-Connection.onChange((online) => {
+Connection.onChange(async (online) => {
   updateConnIndicator(online);
+  updateOfflineBanner();
   if (!online) {
     // Nothing here can succeed until the server is back, and a poll that
     // fails every 15s is just noise — connection.js is already probing.
     stopSyncStatusPolling();
     disconnectEvents();
+    // What CAN still be done is disabled rather than left to fail one toast at
+    // a time (see the function's own note).
+    applyOfflineAffordances();
+    // Re-asked on every drop, not just at boot: a session that started with an
+    // empty cache has usually filled it by the time the connection goes, and
+    // the banner would otherwise still be apologising for mail that is right
+    // there on the screen.
+    Offline.envelopes().then((e) => {
+      state.offlineHasCache = e.length > 0;
+      updateOfflineBanner();
+    });
     return;
   }
+  applyOfflineAffordances();
   startSyncStatusPolling(); // no-op if it was never actually stopped
   connectEvents();
-  // Force a real IMAP/EWS sync now for every active account (not just a
-  // cache re-read) — this is also what lets the server's own push hook
-  // (sync.js#notifyNewMail) discover and notify about anything that
-  // arrived while this specific device was offline, not just refresh this
-  // page's own view.
-  Promise.all(activeAccounts().map((a) => API.syncAccountNow(a.id).catch(() => {})))
-    .finally(() => { loadMessages(); loadFolders(); refreshUnread(); });
+  scheduleReconnectRefresh();
 });
+
+/* ---------- coming back ----------
+ *
+ * Reconnecting is expensive: it drains the outbox, asks every account's server
+ * to go and talk to IMAP, then reloads the list, the folders and the counts.
+ * Doing that once, when the connection returns, is right. Doing it every time
+ * `reachable` flips is what turned a flaky link into a page that refreshed
+ * itself every few seconds.
+ *
+ * And it flips easily, for a reason that is not a bug: a self-hosted server
+ * that is merely BUSY still answers the cheap /api/session probe while timing
+ * out the calls that need IMAP. connection.js is right to report that as up;
+ * this is the part that has to be sceptical about it.
+ *
+ * Two guards, and both are needed. The connection must still be up after a
+ * settling delay — a flip that lasted two seconds was never a reconnection —
+ * and two full refreshes can never happen close together, however many times
+ * it flips in between.
+ */
+const RECONNECT_SETTLE_MS = 2500;
+const RECONNECT_MIN_GAP_MS = 30000;
+let reconnectTimer = null;
+let reconnectRunning = false;
+let lastReconnectAt = 0;
+
+function scheduleReconnectRefresh() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(runReconnectRefresh, RECONNECT_SETTLE_MS);
+}
+
+async function runReconnectRefresh() {
+  reconnectTimer = null;
+  if (!Connection.isOnline() || reconnectRunning) return; // gone again, or already doing it
+  const since = Date.now() - lastReconnectAt;
+  if (since < RECONNECT_MIN_GAP_MS) {
+    // Too soon after the last one. Not dropped — deferred, so a link that
+    // settles down five seconds from now still gets its one refresh.
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(runReconnectRefresh, RECONNECT_MIN_GAP_MS - since);
+    return;
+  }
+  reconnectRunning = true;
+  lastReconnectAt = Date.now();
+  try {
+    // Before any refresh: everything done while the connection was gone goes
+    // out, in the order it was done. A refresh first would re-read the server's
+    // pre-change state and race the queue that is about to change it.
+    await flushOutbox().catch((e) => console.error('outbox flush failed', e));
+    // Force a real IMAP/EWS sync now for every active account (not just a
+    // cache re-read) — this is also what lets the server's own push hook
+    // (sync.js#notifyNewMail) discover and notify about anything that
+    // arrived while this specific device was offline, not just refresh this
+    // page's own view.
+    await Promise.all(activeAccounts().map((a) => API.syncAccountNow(a.id).catch(() => {})));
+  } finally {
+    reconnectRunning = false;
+  }
+  // Those calls take seconds and can themselves be what proves the connection
+  // is not really back. Repainting from a server we have just decided is
+  // unreachable would be the same flicker one level down.
+  if (!Connection.isOnline()) return;
+  loadMessages();
+  loadFolders();
+  refreshUnread();
+  // Well after the refresh, not alongside it: the prefetcher's own requests are
+  // the last thing a just-recovered server needs.
+  Offline.schedulePrefetch(20000);
+}
+
+/* ---------- offline: the queue, the banner, and what is switched off ----------
+ *
+ * Reading offline needs nothing from this file — api.js answers cached GETs on
+ * its own, so loadMessages(), showSingleMessage() and loadFolders() simply
+ * work. What lives here is everything a CACHE cannot decide: when the queue
+ * drains, what the banner says while it hasn't, and which buttons should stop
+ * pretending they can do something. */
+
+/** Drain the outbox and say what happened. Actions the server refused outright
+ * — the message was moved or deleted from another client while this device was
+ * away — are reported rather than retried forever; see outbox.js. */
+async function flushOutbox() {
+  if (!Outbox.count()) return;
+  const r = await Outbox.replay({
+    onDropped: (dropped) => toast(
+      `${I18n.t('Some queued actions could not be applied — those messages are no longer where they were')} (${dropped.length})`,
+      6000),
+  });
+  if (r.sent) toast(r.sent === 1
+    ? I18n.t('Queued action sent')
+    : `${I18n.t('Queued actions sent')} (${r.sent})`);
+  scheduleReconcile();
+  loadFolders();
+}
+
+/** The top bar. It has said the same sentence since it was added; now it can
+ * say the two things that actually differ — whether there is saved mail to read
+ * and whether anything is waiting to go out. */
+function updateOfflineBanner() {
+  const text = $('.offline-bar-text');
+  if (!text) return;
+  const queued = Outbox.count();
+  const parts = [];
+  parts.push(state.offlineHasCache
+    ? I18n.t('Offline — showing saved mail. New mail will arrive when the connection is back.')
+    : I18n.t('No connection to the Hmelj server — mail can’t be loaded or sent until it’s back.'));
+  if (queued) {
+    parts.push(queued === 1
+      ? I18n.t('1 action is waiting to be sent.')
+      : I18n.t('{n} actions are waiting to be sent.').replace('{n}', queued));
+  }
+  text.textContent = parts.join(' ');
+}
+
+/**
+ * Switch off the standing controls that cannot work without a server.
+ *
+ * Not cosmetic. Each of these starts something the server has to go and do —
+ * talk to IMAP, run the filters over a mailbox, scan it, hold a message until
+ * a chosen time — none of which this device can even begin. Enabled, they fail
+ * one toast at a time on top of a banner already saying why; disabled with a
+ * reason attached, they say it once and stay out of the way.
+ *
+ * Deliberately NOT here: everything the outbox can take — read/unread, star,
+ * delete, move, archive, spam, compose and send — which keeps working. Nor the
+ * per-message server actions (unsubscribe, read receipt, answering an
+ * invitation), which are drawn fresh with each card and are rare enough that
+ * the ordinary "no connection" error on pressing one is a clearer answer than
+ * a button that arrives already dead.
+ */
+const OFFLINE_DISABLED = [
+  '#btn-run-filters',  // filters run server-side, over the whole mailbox
+  '#btn-analytics',    // a scan of the mailbox, on the server
+  '#btn-send-later',   // the scheduled-send queue lives on the server, not here
+];
+
+/**
+ * The two places that say "you are offline" for as long as you are.
+ *
+ * The banner above them announces it; these are what remain once it has been
+ * read and scrolled past, and they had to be in the chrome rather than over it
+ * — an indicator that disappears the moment you open a message is not an
+ * indicator, and on a phone that is exactly what happened.
+ *
+ * Two of them because one is not enough to cover both screens. #btn-refresh
+ * lives inside #msg-list-pane, and on a phone opening a message sets
+ * .mobile-show-message, which hides that whole pane — the toolbar, the
+ * connection dot and the refresh button with it. The message view's own sticky
+ * back row is the only chrome left there, so it carries a second copy.
+ *
+ * Neither is `disabled`. A disabled button fires no click, and a control that
+ * silently does nothing when pressed is the thing that sends someone looking
+ * for a bug: pressed, each one says what is going on and what it means for
+ * what is on screen.
+ */
+function applyOfflineMarkers(online) {
+  const btn = $('#btn-refresh');
+  if (btn) {
+    btn.classList.toggle('offline', !online);
+    // A refresh that was in flight when the connection went is over, however it
+    // ends: nothing will come back to clear this, and .spinning also disables
+    // pointer events (see the CSS), which would leave the marker unpressable.
+    if (!online) btn.classList.remove('spinning');
+    btn.textContent = online ? '⟳' : '⊘';
+    if (btn.dataset.onlineTitle === undefined) btn.dataset.onlineTitle = btn.title || '';
+    btn.title = online ? btn.dataset.onlineTitle : I18n.t('Offline — showing saved mail');
+  }
+  const chip = $('#mv-offline-chip');
+  if (chip) chip.hidden = online;
+}
+
+/** What either marker says when pressed. One sentence on what is on screen,
+ *  one on what will happen, and — when something is queued — how much is
+ *  waiting, since that is the part a person actually needs to decide anything. */
+async function explainOffline() {
+  const queued = Outbox.count();
+  const lines = [I18n.t('Hmelj can’t reach the server, so it can’t check for new mail. Everything on screen is a copy saved on this device.')];
+  if (queued) {
+    lines.push(queued === 1
+      ? I18n.t('1 action is waiting to be sent.')
+      : I18n.t('{n} actions are waiting to be sent.').replace('{n}', queued));
+  }
+  lines.push(I18n.t('It will catch up on its own as soon as the connection is back.'));
+  // bodyHtml rather than the plain `message`, which renders into one div where
+  // newlines collapse — three sentences run together as a wall is exactly the
+  // thing nobody reads. Each line is escaped on its way in.
+  await Dialog.alert('', {
+    title: I18n.t('Offline'),
+    bodyHtml: lines.map((l) => `<p class="dialog-message">${esc(l)}</p>`).join(''),
+  });
+}
+
+function applyOfflineAffordances() {
+  const online = Connection.isOnline();
+  applyOfflineMarkers(online);
+  // Also a hook for the stylesheet: .is-offline is what dims the parts of the
+  // chrome that are standing by rather than broken.
+  document.body.classList.toggle('is-offline', !online);
+  for (const sel of OFFLINE_DISABLED) {
+    for (const el of document.querySelectorAll(sel)) {
+      el.disabled = !online;
+      // Keep the button's real tooltip to put back — a button that permanently
+      // says "not available while offline" after the connection returned is a
+      // worse lie than the one this is preventing.
+      if (el.dataset.onlineTitle === undefined) el.dataset.onlineTitle = el.title || '';
+      el.title = online ? el.dataset.onlineTitle : I18n.t('Not available while offline');
+    }
+  }
+}
 
 /* ---------- live event stream (SSE) ----------
  * "Something changed, go check" from the server (server/events.js) — makes
@@ -3154,9 +3583,22 @@ Connection.onChange((online) => {
 let eventSource = null;
 let eventRetryMs = 2000;
 let eventRetryTimer = null;
+let lastEventAttempt = 0;
 function connectEvents() {
   if (eventSource || !Connection.isOnline()) return;
+  // The backoff has to survive an offline/online flip, not just a failed
+  // connection. disconnectEvents() clears the retry timer, so without this
+  // every flip opened a fresh EventSource immediately — which is why a flaky
+  // link produced a steady stream of /api/events requests to a server that had
+  // been refusing them for minutes. Defer to when the backoff actually allows.
+  const wait = lastEventAttempt + eventRetryMs - Date.now();
+  if (wait > 0) {
+    clearTimeout(eventRetryTimer);
+    eventRetryTimer = setTimeout(connectEvents, wait);
+    return;
+  }
   clearTimeout(eventRetryTimer);
+  lastEventAttempt = Date.now();
   eventSource = new EventSource('/api/events');
   eventSource.addEventListener('open', () => { eventRetryMs = 2000; });
   eventSource.addEventListener('mail-changed', (e) => {
@@ -3221,7 +3663,13 @@ function connectEvents() {
     if (eventSource?.readyState !== EventSource.CLOSED) return; // still CONNECTING — its own retry is running, leave it alone
     eventSource = null;
     clearTimeout(eventRetryTimer);
-    eventRetryTimer = setTimeout(() => { connectEvents(); scheduleReconcile(2); }, eventRetryMs);
+    eventRetryTimer = setTimeout(() => {
+      connectEvents();
+      // Only when there is something to reconcile AGAINST. Offline this read is
+      // answered from the cache, so it repainted the sidebar on every failed
+      // reconnect — work, and a flicker, for an answer we already had.
+      if (Connection.isOnline()) scheduleReconcile(2);
+    }, eventRetryMs);
     eventRetryMs = Math.min(60000, eventRetryMs * 2);
   });
 }
@@ -4007,6 +4455,7 @@ function renderList() {
   // without this the queue would be replaced by "No messages here" the moment
   // a queued message was opened.
   if (state.currentFolder === SCHEDULED_FOLDER) return paintScheduled();
+  if (state.currentFolder === OUTBOX_FOLDER) return renderOutbox();
   if (state.currentFolder === SNOOZED_FOLDER) return paintSnoozed();
   // The calendar draws itself into its own pane; renderList has nothing to do.
   if (inCalendar()) return;
@@ -4014,9 +4463,23 @@ function renderList() {
   ul.innerHTML = '';
   $('#lh-chip').hidden = !state.messages.some((m) => rowAccount(m));
   updateSortHeader();
+  // These rows were assembled on this device out of saved message headers, not
+  // answered by the server (see loadMessages' offline branch). Say so where the
+  // results are: "no matches" from a local search means "none among the mail
+  // this device kept", which is a materially different statement, and one the
+  // reader has to be told before they conclude a message isn't there.
+  if (state.listLocal) {
+    const note = document.createElement('li');
+    note.className = 'msg-list-note';
+    note.textContent = I18n.t('Offline — showing only mail saved on this device.');
+    ul.appendChild(note);
+  }
   if (!state.messages.length) {
     if (hasNoAccounts()) { renderNoAccountState(); return; }
-    ul.innerHTML = '<li style="padding:28px;text-align:center;color:var(--text-dim)">No messages here. Enjoy the silence. 🌿</li>';
+    // Appended, not assigned: the offline note above it is part of the answer
+    // — "nothing here" and "nothing here among what was saved" are different
+    // sentences, and overwriting the list would leave only the first.
+    ul.insertAdjacentHTML('beforeend', '<li style="padding:28px;text-align:center;color:var(--text-dim)">No messages here. Enjoy the silence. 🌿</li>');
     const emptyScopeRow = searchScopeRow();
     if (emptyScopeRow) ul.appendChild(emptyScopeRow); // "nothing found" is exactly when the wider search is worth offering
     updateSelectToolbar();
@@ -4117,6 +4580,11 @@ function patchList() {
   // but it has to stay LAST once rows have been reordered around it.
   const scopeRow = $('.search-scope-row', ul);
   if (scopeRow) ul.appendChild(scopeRow);
+  // Same for the offline note at the other end: the insert anchor above is
+  // ul.firstChild, so a reordering pass would otherwise leave the caveat
+  // stranded halfway down the results it is a caveat about.
+  const note = $('.msg-list-note', ul);
+  if (note) ul.insertBefore(note, ul.firstChild);
   updateSelectToolbar();
 }
 
@@ -4411,6 +4879,25 @@ function accountOf(entry) {
   return entry?.account?.id || (state.currentAccount !== 'all' ? state.currentAccount : null);
 }
 
+/**
+ * What the reading pane shows for a message this device didn't save.
+ *
+ * It still knows who it is from, what it is about and when it arrived — that
+ * came from the list, which IS cached — so the card shows all three rather than
+ * a bare apology. What is missing is only the body, and saying exactly that (and
+ * exactly why) is the difference between a limit and a fault.
+ */
+function offlineMessageCardHtml(m) {
+  const from = m.from?.name || m.from?.address || I18n.t('(unknown)');
+  return `<div class="mv-offline">
+    <div class="mv-offline-icon">📭</div>
+    <h2 data-no-i18n>${esc(m.subject || I18n.t('(no subject)'))}</h2>
+    <p class="mv-offline-meta" data-no-i18n>${esc(from)} · ${esc(fmtDate(m.date, { long: true }))}</p>
+    <p>${esc(I18n.t('This message isn’t saved on this device, so it can’t be opened while offline. It will open normally once the connection is back.'))}</p>
+    <p class="mv-offline-hint">${esc(I18n.t('Settings › Offline sets how much mail is kept for offline reading.'))}</p>
+  </div>`;
+}
+
 async function showSingleMessage(view, m, { allowImages = false } = {}) {
   const msgFolder = m.folder || state.currentFolder;
   const msgAccount = accountOf(m);
@@ -4425,6 +4912,16 @@ async function showSingleMessage(view, m, { allowImages = false } = {}) {
     if (e.status === 410) {
       dropMessageRow(m);
       toast(e.message, 5000);
+      return;
+    }
+    // Offline, and this particular message's body was never saved on this
+    // device — the prefetcher had not reached it, or it was evicted to stay
+    // under the size cap. That is not an error, it is a fact about this
+    // device's cache, and it has a specific remedy: read it when the
+    // connection is back, or keep more mail offline.
+    if (e?.offline) {
+      view.classList.remove('mv-placeholder');
+      view.innerHTML = offlineMessageCardHtml(m);
       return;
     }
     view.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`;
@@ -5793,6 +6290,10 @@ function bindToolbar() {
   document.addEventListener('click', (e) => { if (!e.target.closest('.layout-menu-wrap')) $('#layout-menu').classList.remove('open'); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#layout-menu').classList.remove('open'); });
   $('#btn-refresh').addEventListener('click', async () => {
+    // Offline this button is the offline marker (see applyOfflineMarkers), and
+    // pressing it asks a question rather than starting a sync there is no
+    // server for.
+    if (!Connection.isOnline()) return explainOffline();
     if (!requireAccount()) return;
     // Already spinning — either this same handler still in flight, or a
     // background sync already doing the exact same work (see
@@ -5883,6 +6384,10 @@ function bindToolbar() {
   $('#btn-menu').addEventListener('click', () => setSidebarOpen($('#sidebar').classList.contains('collapsed')));
   $('#sidebar-backdrop').addEventListener('click', () => setSidebarOpen(false));
   $('#btn-mv-back').addEventListener('click', () => closeMessage());
+  // A real sibling button in the same row (see .mv-top-row), so it needs no
+  // event juggling to avoid also triggering Back, and Enter/Space reach it for
+  // free.
+  $('#mv-offline-chip')?.addEventListener('click', () => explainOffline());
 
   $('#btn-user-menu').addEventListener('click', openUserMenu);
   $('#user-menu-backdrop').addEventListener('mousedown', (e) => { if (e.target === $('#user-menu-backdrop')) closeUserMenu(); });
@@ -6062,11 +6567,29 @@ async function boot() {
   // A failed session read used to be indistinguishable from "not logged in", so
   // opening the app with no connection bounced you to a login page you also
   // couldn't use — reading as "signed out" when the truth was "unreachable".
-  // Connection.session() returns null only for the latter, and its own screen
-  // takes over and reloads once the server answers.
-  const session = await Connection.session();
-  if (!session) { Connection.showBootOffline(); return; }
+  // Connection.session() returns null only for the latter.
+  let session = await Connection.session();
+  if (!session) {
+    // Unreachable — but if this device has booted successfully before, it has
+    // the session (and the mail) it booted with, and can open on that instead.
+    // Only a device with nothing cached still gets the boot-offline screen,
+    // which polls and reloads itself once the server answers.
+    session = await Offline.cachedSession();
+    if (!session) { Connection.showBootOffline(); return; }
+    state.offlineBoot = true;
+  }
   if (!session.loggedIn) { location.replace('/login.html'); return; }
+  // Before anything reads or writes the offline store: it binds to this login,
+  // and wipes itself if the last person to use this device was someone else.
+  await Offline.init(session.username);
+  // connection.js probes /api/session with a raw fetch — deliberately, so no
+  // layer of ours can make a dead server look alive — which means the one read
+  // that decides whether the app can open offline at all never passes through
+  // api.js's cache hook. Hand it over explicitly.
+  if (!state.offlineBoot) Offline.rememberSession(session);
+  // Loads whatever was queued while this device was last offline, and rebuilds
+  // the overlay that keeps those actions visible in cached listings.
+  await Outbox.init();
   // #app starts `hidden` (see index.html) so a not-logged-in visitor never sees the
   // full mail UI flash before the redirect above fires — reveal it now that we
   // actually know a session exists, before the rest of boot() renders into it.
@@ -6077,7 +6600,18 @@ async function boot() {
   state.username = session.displayUsername || session.username;
   state.session = session;
   $('#btn-logout').addEventListener('click', async () => {
+    // Anything still queued is about to become unreachable: logging out is the
+    // last moment somebody can be told, and sending it after a logout is not
+    // something this app should decide to do on its own.
+    if (Outbox.count() && !await Dialog.confirm(
+      I18n.t('{n} action(s) have not been sent yet. Logging out will discard them.').replace('{n}', Outbox.count()),
+      { title: I18n.t('Log out'), okLabel: I18n.t('Log out'), danger: true })) return;
     await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+    // The offline store holds this person's mail in plain form on this device.
+    // Logging out is the one unambiguous "I am done here", so it goes — a
+    // session that merely expired does not wipe it (see api.js's 401 path),
+    // because re-logging in as the same user should not cost a re-download.
+    await Offline.wipe();
     location.replace('/login.html');
   });
   applyUsername();
@@ -6095,6 +6629,10 @@ async function boot() {
   // Before applyUiFont() — migrateFontValue() (used there) needs to already
   // know the custom-font list to correctly keep a custom family selected
   // instead of momentarily falling back to system-ui.
+  // Before refreshCustomFonts, which paints the @font-face rules: the saved
+  // copies have to be in memory by then, because buildFontFaceCss() reads them
+  // synchronously (see messageFrame.js).
+  await Offline.loadFonts();
   await refreshCustomFonts();
   applyTheme();
   applyUiFont();
@@ -6204,6 +6742,41 @@ async function boot() {
   // background-sync indicator + auto-refresh when the server finds new mail
   startSyncStatusPolling();
   connectEvents(); // instant cross-device sync — see the block above the offline/online listeners
+
+  /* ---------- offline mode ---------- */
+  // Whether there is anything saved to read at all decides what the offline
+  // banner says, so it is answered once here rather than guessed at each time.
+  state.offlineHasCache = state.offlineBoot || (await Offline.envelopes()).length > 0;
+  Outbox.onChange(() => { paintOutboxBadge(); updateOfflineBanner(); });
+  paintOutboxBadge();
+  updateOfflineBanner();
+  applyOfflineAffordances();
+  if (Connection.isOnline()) {
+    // An online boot has just done everything a reconnect refresh would do, so
+    // it counts as one: a connection that flickers in the next half minute
+    // defers its refresh instead of repeating the whole load. An OFFLINE boot
+    // deliberately does not set this — there, coming back really is the first
+    // time anything has been read from the server.
+    lastReconnectAt = Date.now();
+    // A queue left over from the last time this device was offline — including
+    // one left by a tab that was closed before it could drain.
+    flushOutbox();
+    // And then fill the cache, well after the app has finished painting: this
+    // is a background download, and the first seconds after boot belong to the
+    // person waiting for their inbox.
+    Offline.schedulePrefetch(8000);
+    // Same reasoning, same delay class: a font file is a few hundred kilobytes
+    // and nothing on screen is waiting for it. Deliberately not inside
+    // refreshCustomFonts(), which runs while the inbox is still loading.
+    setTimeout(ensureOfflineFonts, 6000);
+  }
+  // Outside the branch above, and it has to be: a session that BOOTED offline
+  // still wants the top-up once the connection comes back, and a timer only
+  // started on an online boot would never exist to do it. The guard inside is
+  // what makes that safe.
+  // A quiet top-up while the app stays open, so a laptop that has been sitting
+  // on a desk all afternoon is still worth closing the lid on.
+  setInterval(() => { if (Connection.isOnline() && !document.hidden) Offline.prefetch(); }, 10 * 60 * 1000);
   // `desktopNotifications` is one shared setting per Hmelj login (see
   // store.js) — turning it on on one device makes the Settings checkbox
   // render pre-checked on every OTHER device too, without ever firing the
@@ -6212,7 +6785,11 @@ async function boot() {
   // besides (browser endpoint rotation, Android FCM token rotation). This
   // re-registers whenever the server no longer has a working registration
   // for this device — see ensurePushRegistered.
-  await ensurePushRegistered();
+  // Caught, like the other call site: these are server round trips (the push
+  // registration asks which subscriptions the server still holds), and with no
+  // connection they throw. Nothing after this point is worth failing the whole
+  // boot for — least of all offline, where the app is already up and usable.
+  await ensurePushRegistered().catch(() => { /* offline, or logged out — the next visibility change tries again */ });
   maybePromptNotifications();
   checkAndroidHealth();
 }
@@ -6381,4 +6958,21 @@ if (new URLSearchParams(location.search).get('compose')) {
   }
 }
 
-boot().catch((e) => toast('Startup error: ' + e.message, 8000));
+boot().catch((e) => {
+  // #app is revealed as soon as a session is known, so its being visible means
+  // the mail UI is up and working and whatever failed was one of boot's late,
+  // optional steps. Covering a usable mail client with a full-screen "no
+  // connection" panel over that would be far worse than the failure itself.
+  if (!$('#app').hidden) {
+    console.error('boot failed after the app was up', e);
+    // Offline, the banner already says why and there is nothing to act on.
+    if (Connection.isOnline()) toast('Startup error: ' + e.message, 8000);
+    return;
+  }
+  // Nothing on screen at all. Unreachable here means this device has nothing
+  // cached to open with (a first run with no connection, a cleared browser
+  // store) — which is exactly what the boot-offline screen says, and it
+  // reloads by itself the moment the server answers.
+  if (!Connection.isOnline()) return Connection.showBootOffline();
+  toast('Startup error: ' + e.message, 8000);
+});

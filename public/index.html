@@ -286,7 +286,20 @@
 
       <div class="col-resizer" id="resizer-list" title="Drag to resize"></div>
       <section class="reading-pane" id="reading-pane">
-        <button class="mv-back-btn" id="btn-mv-back" title="Back">← <span>Back</span></button>
+        <!-- Mobile-only sticky header for an open message (the whole row is
+             display:none above the phone breakpoint). Two controls, so it is a
+             row containing a button rather than a button pretending to be a
+             row — a focusable chip nested inside a button element is invalid
+             HTML and unreachable by keyboard. -->
+        <div class="mv-top-row">
+          <button class="mv-back-btn" id="btn-mv-back" title="Back">← <span>Back</span></button>
+          <!-- The offline marker for the one screen the toolbar's own marker
+               cannot reach: on a phone, opening a message hides the whole list
+               pane (and with it #btn-refresh and #conn-status), so without this
+               there is nothing left saying the mail on screen is a saved copy.
+               Pressing it explains, exactly as the toolbar button does. -->
+          <button type="button" class="mv-offline-chip" id="mv-offline-chip" hidden>⊘ Offline</button>
+        </div>
         <div class="empty-state" id="empty-state">
           <div class="empty-glyph">🌿</div>
           <p>Select a message to read it here.</p>
@@ -406,6 +419,7 @@
           <button data-tab="templates"><span class="tab-icon">📋</span><span>Templates</span></button>
           <button data-tab="folders"><span class="tab-icon">📁</span><span>Folders</span></button>
           <button data-tab="scheduler"><span class="tab-icon">🔔</span><span>Scheduler</span></button>
+          <button data-tab="offline"><span class="tab-icon">💾</span><span>Offline</span></button>
           <button data-tab="contacts"><span class="tab-icon">👥</span><span>Contacts</span></button>
           <button data-tab="calendars"><span class="tab-icon">📅</span><span>Calendars</span></button>
           <button data-tab="accounts"><span class="tab-icon">✉️</span><span>Accounts</span></button>
@@ -498,6 +512,11 @@
 
 <script src="/js/i18n.js"></script>
 <script src="/js/connection.js"></script>
+<!-- Offline mode, before api.js: it is api.js that reads and writes this
+     cache on every request (see public/js/offline.js). -->
+<script src="/js/offlineDb.js"></script>
+<script src="/js/offline.js"></script>
+<script src="/js/outbox.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/dialog.js"></script>
 <script src="/js/scheduleUtil.js"></script>

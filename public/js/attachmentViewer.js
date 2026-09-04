@@ -88,8 +88,15 @@ const AttachmentViewer = (() => {
    *  the whole difference between "Download" being instant and it being the
    *  same multi-second wait a second time. `a.download` supplies the filename
    *  the Content-Disposition header would have. */
-  function triggerDownload(url, filename) {
-    const cached = recall(url);
+  async function triggerDownload(url, filename) {
+    let cached = recall(url);
+    // Offline, `downloadUrl(url)` is a navigation to a server that is not
+    // there, which a browser answers with its own error page over the top of
+    // the app. If this device saved the file, hand over those bytes instead.
+    if (!cached && window.Connection?.isOnline?.() === false) {
+      const saved = await offlineBytes(url);
+      if (saved) cached = remember(url, saved.blob);
+    }
     const a = document.createElement('a');
     a.href = cached ? cached.objectUrl : downloadUrl(url);
     a.download = filename || '';
@@ -112,6 +119,11 @@ const AttachmentViewer = (() => {
    * Always the server URL, never a blob: a blob: URL exists only inside this
    * page and means nothing to an Android intent. */
   function handOffToOS(url, filename, contentType) {
+    // Offline there is no URL worth handing anywhere — the native shell would
+    // re-fetch it and fail exactly as this page would. triggerDownload knows
+    // how to serve the saved copy instead, and how to fall back to the ordinary
+    // error if there isn't one.
+    if (window.Connection?.isOnline?.() === false) { triggerDownload(url, filename); return; }
     const bridge = window.AndroidApp || window.AndroidCodexa;
     if (bridge?.openAttachment) {
       try {
@@ -189,6 +201,22 @@ const AttachmentViewer = (() => {
   /* ---------- loading ---------- */
 
   /**
+   * The saved copy of this attachment, if this device has one.
+   *
+   * Only files small enough to be worth keeping are ever saved, and only when
+   * Settings › Offline is asked to keep attachments at all — so a miss here is
+   * ordinary, not a failure, and the caller falls through to its normal "could
+   * not load" card.
+   */
+  async function offlineBytes(url) {
+    // The `download=1` variant names the same file — the offline store keys
+    // on the message and the attachment index, and ignores the rest of the
+    // query, so both spellings find the same bytes.
+    const hit = await window.Offline?.attachment?.(url);
+    return hit ? { blob: hit.blob, type: hit.type } : null;
+  }
+
+  /**
    * Fetches the attachment, reporting progress as it goes.
    *
    * Determinate whenever the server sent a Content-Length, which it now always
@@ -199,7 +227,23 @@ const AttachmentViewer = (() => {
    * bar it started with.
    */
   async function fetchWithProgress(url, signal, onProgress) {
-    const res = await fetch(url, { signal, credentials: 'same-origin' });
+    // Nothing to try over the wire — go straight to what was saved, so a
+    // deliberate offline open does not spend a timeout first.
+    if (window.Connection?.isOnline?.() === false) {
+      const saved = await offlineBytes(url);
+      if (saved) return saved;
+    }
+    let res;
+    try {
+      res = await fetch(url, { signal, credentials: 'same-origin' });
+    } catch (e) {
+      // The connection went while this was in flight (or was never really
+      // there). A saved copy is a better answer than the error.
+      if (signal.aborted) throw e;
+      const saved = await offlineBytes(url);
+      if (saved) return saved;
+      throw e;
+    }
     // Every /api route answers a failure as {error}. Showing "HTTP 400" rather
     // than the sentence the server actually wrote is the difference between a
     // report that names the bug and one that needs the server log to decode.
@@ -319,8 +363,11 @@ const AttachmentViewer = (() => {
       shareBtn.hidden = false;
       shareBtn.addEventListener('click', async () => {
         try {
-          // Whatever the preview is already showing, not a second download of it.
-          const blob = recall(url)?.blob || await fetch(url, { credentials: 'same-origin' }).then((r) => r.blob());
+          // Whatever the preview is already showing, not a second download of
+          // it — then the saved copy, then the network.
+          const blob = recall(url)?.blob
+            || (await offlineBytes(url))?.blob
+            || await fetch(url, { credentials: 'same-origin' }).then((r) => r.blob());
           const file = new File([blob], filename || 'attachment', { type: contentType || blob.type });
           if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
           else await navigator.share({ url });

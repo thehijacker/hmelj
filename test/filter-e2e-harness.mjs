@@ -94,6 +94,30 @@ export async function imapClient({ port, user, pass }) {
   return c;
 }
 
+/**
+ * Every Hmelj this harness has spawned and not yet killed.
+ *
+ * A suite that forgets to close one, throws before it gets there, or is
+ * interrupted, leaks a REAL server: a full Node process with its own SQLite
+ * handle and sync timers, reparented to init when the test run exits, and
+ * invisible afterwards because its data directory is a temp dir that has
+ * already been deleted. Sixty of them accumulated over three days that way,
+ * holding about 3.5 GB, before anyone thought to look.
+ *
+ * So cleanup does not depend on the suites remembering. This is the backstop,
+ * and it fires on the paths a `finally` block cannot cover — an uncaught
+ * throw, a Ctrl-C, a killed runner.
+ */
+const spawnedServers = new Set();
+function killSpawnedServers() {
+  for (const child of spawnedServers) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+  spawnedServers.clear();
+}
+process.on('exit', killSpawnedServers);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { killSpawnedServers(); process.exit(1); });
+}
+
 export async function startHmelj({ dataDir, port, extraEnv = {}, serverDir = null }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const entry = (serverDir || `${REPO}/server`) + '/index.js';
@@ -134,7 +158,16 @@ export async function startHmelj({ dataDir, port, extraEnv = {}, serverDir = nul
     if (child.exitCode !== null) break; // it died — stop waiting and report why
     try {
       const r = await fetch(`${base}/healthz`);
-      if (r.ok) return { child, base, out, close: () => { child.kill('SIGKILL'); } };
+      if (r.ok) {
+        spawnedServers.add(child);
+        child.once('exit', () => spawnedServers.delete(child));
+        return {
+          child,
+          base,
+          out,
+          close: () => { child.kill('SIGKILL'); spawnedServers.delete(child); },
+        };
+      }
     } catch {}
     await sleep(100);
   }

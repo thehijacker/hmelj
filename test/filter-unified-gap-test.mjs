@@ -116,9 +116,13 @@ try {
   if (app?.out?.length) console.log('--- server output ---\n' + app.out.join('').slice(-4000));
 } finally {
   try { await c?.logout(); } catch { /* already gone */ }
-  await app?.stop?.();
-  await imap?.stop?.();
-  await smtp?.stop?.();
+  // close(), not stop() — and NOT optionally-called. These handles have only
+  // ever exposed close(); `await app?.stop?.()` silently evaluated to undefined
+  // and killed nothing, which is how this suite leaked a real Hmelj process on
+  // every single run (see spawnedServers in filter-e2e-harness.mjs).
+  if (app) await app.close();
+  if (imap) await imap.close();
+  if (smtp) await smtp.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
 

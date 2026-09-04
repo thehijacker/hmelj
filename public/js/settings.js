@@ -306,6 +306,97 @@ const Settings = (() => {
     </div>`;
   }
 
+  /* ---------- Offline ----------
+   * Per DEVICE, not per login — see DEVICE_SETTINGS_KEYS in app.js. A phone and
+   * a desktop sharing one Hmelj account have completely different answers to
+   * "how much of my mail should live on this machine", and only one of them is
+   * ever in someone's pocket.
+   *
+   * The panel leads with the figures rather than the switches: what this device
+   * is actually holding, and how much room the browser is willing to give it.
+   * Those are the two numbers that make the settings under them mean anything. */
+  function renderOffline() {
+    body().innerHTML = `<div class="set-grid">
+      ${field('Keep mail available offline', chk('s-offline', draft.offlineEnabled !== false),
+    'Saves the newest messages on this device so they can be read with no connection at all — including messages you have not opened yet. Anything you do while offline (read, star, delete, archive, or send) is queued in the Outbox and goes out as soon as the server is reachable again. Turning this off stops new mail being saved; press "Delete saved mail" below to remove what is already here.')}
+      ${field('Messages kept per account', num('s-offline-count', draft.offlineMessages ?? 300, 0, 5000),
+    'How many of the newest messages in each account are downloaded in full, in the background, so they can be opened offline. Older mail still appears in the list and still opens normally when there is a connection.')}
+      ${field('Include attachments', chk('s-offline-att', !!draft.offlineAttachments),
+    'Off by default, and the images inside a message are saved either way — this is about the files attached to it, which are usually the largest thing in a mailbox by a wide margin.')}
+      ${field('Storage limit (MB)', num('s-offline-max', draft.offlineMaxMb ?? 250, 8, 20000),
+    'The ceiling for saved mail on this device. When it is reached the oldest messages are dropped first, so what stays is always the newest — their list entries remain either way.')}
+      <div class="set-section">On this device</div>
+      <div class="offline-usage" id="offline-usage">${esc(I18n.t('Reading…'))}</div>
+      <div class="offline-actions">
+        <button class="btn-sm" id="btn-offline-now">Download now</button>
+        <button class="btn-sm danger" id="btn-offline-clear">Delete saved mail</button>
+      </div>
+      <p class="offline-note">${esc(I18n.t('Saved mail is stored unencrypted in this browser’s own storage, like any other site’s data. On a shared or unencrypted device, leave this off — logging out deletes it.'))}</p>
+    </div>`;
+    refreshOfflineUsage();
+    document.getElementById('btn-offline-now').addEventListener('click', async (e) => {
+      if (!Connection.isOnline()) return toast(I18n.t('Not available while offline'));
+      e.target.disabled = true;
+      // collectCurrentTab first: pressing Download now with a larger number
+      // typed but not yet saved should download that number, not the old one.
+      collectCurrentTab();
+      saveDeviceSettings({
+        offlineEnabled: draft.offlineEnabled, offlineMessages: draft.offlineMessages,
+        offlineAttachments: draft.offlineAttachments, offlineMaxMb: draft.offlineMaxMb,
+      });
+      toast(I18n.t('Saving mail for offline reading…'));
+      const done = await Offline.prefetch({ force: true });
+      e.target.disabled = false;
+      // A pass that stopped early — the connection went, or the server was too
+      // busy and the prefetcher stood down (see offline.js) — must not report
+      // success. What it did manage is kept either way; the next pass resumes.
+      toast(I18n.t(done ? 'Saved mail is up to date' : 'Stopped early — the server didn’t keep up. What was saved is kept.'), 6000);
+      refreshOfflineUsage();
+    });
+    document.getElementById('btn-offline-clear').addEventListener('click', async () => {
+      if (!await Dialog.confirm(
+        I18n.t('Delete every message saved on this device for offline reading? Nothing is removed from the server.'),
+        { title: I18n.t('Delete saved mail'), okLabel: I18n.t('Delete'), danger: true })) return;
+      await Offline.wipe();
+      // wipe() also clears the outbox, and a sidebar row counting a queue that
+      // no longer exists would outlive it.
+      await Outbox.init();
+      toast(I18n.t('Saved mail deleted'));
+      refreshOfflineUsage();
+    });
+  }
+
+  /** The two figures the Offline panel leads with. Async and re-run rather than
+   *  rendered once: a prefetch started from this very panel moves them while it
+   *  is on screen. */
+  async function refreshOfflineUsage() {
+    const el = document.getElementById('offline-usage');
+    if (!el) return;
+    const u = await Offline.usage();
+    const mb = (n) => (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+    const lines = [
+      // Two different counts on purpose, and the gap between them is the point:
+      // an entry is a row in a message list (sender, subject, date — enough to
+      // list and to search), a saved message is that plus the body, which is
+      // what makes it readable offline. Every saved message has an entry; the
+      // extra entries are messages this device knows about but did not download
+      // — beyond the per-account limit, too new for the last pass, or dropped
+      // to stay under the size cap.
+      `${I18n.t('Messages saved in full')}: ${u.counts.bodies}`,
+      `${I18n.t('Message list entries')}: ${u.counts.envelopes}`,
+      `${I18n.t('Space used by saved mail')}: ≈ ${mb(u.bytes)}`,
+    ];
+    // The browser's own numbers, shown next to ours rather than instead of them,
+    // because they answer a different question — they cover everything this site
+    // stores (the app itself included) and report what is actually on disk,
+    // which a browser that compresses its database (Firefox does) makes SMALLER
+    // than our figure. Ours is an estimate of the content's own size, hence the
+    // ≈ above; the two are not meant to agree.
+    if (u.quota) lines.push(`${I18n.t('Space this browser allows')}: ${mb(u.used || 0)} / ${mb(u.quota)}`);
+    if (u.counts.outbox) lines.push(`${I18n.t('Waiting in the Outbox')}: ${u.counts.outbox}`);
+    el.innerHTML = lines.map((l) => `<div>${esc(l)}</div>`).join('');
+  }
+
   /** A plain anchor navigation, never a Blob: an export can be gigabytes, and
    *  the Android shell's DownloadListener only sees a real navigation (it
    *  carries the session cookie, which JS cannot read to re-fetch with). */
@@ -4211,6 +4302,14 @@ const Settings = (() => {
       case 'general':
         Object.assign(draft, { language: g('s-lang').value, uiFont: g('s-uifont').value, uiFontSize: +g('s-uifontsize').value, uiFontWeight: +g('s-uiweight').value, keepScreenOn: g('s-keepawake').checked, timeFormat: g('s-time').value, dateFormat: g('s-date').value, conversationView: g('s-convview').checked, conversationExpandAll: g('s-convexpand').checked, messagesPerPage: +g('s-perpage').value, syncBackfillLimit: +g('s-backfill').value, contentCacheLimit: +g('s-contentcache').value, searchAutocomplete: g('s-searchauto').checked, searchIndexMaxMb: +g('s-ftsmax').value, runFiltersOnLoad: g('s-runfilters').checked, deleteBehavior: g('s-delmode').value, markReadOnDelete: g('s-delread').checked, desktopNotifications: g('s-notify')?.checked ?? draft.desktopNotifications, swipeGestures: g('s-swipe').checked, swipeSwapDirection: g('s-swipedir').value === 'swapped' });
         break;
+      case 'offline':
+        Object.assign(draft, {
+          offlineEnabled: g('s-offline').checked,
+          offlineMessages: +g('s-offline-count').value,
+          offlineAttachments: g('s-offline-att').checked,
+          offlineMaxMb: +g('s-offline-max').value,
+        });
+        break;
       case 'reading':
         Object.assign(draft, {
           readingPane: g('s-pane').value, autoMarkRead: g('s-amr').value, autoMarkReadDelay: +g('s-amr-delay').value,
@@ -4909,7 +5008,7 @@ const Settings = (() => {
   }
 
   function renderTab() {
-    ({ general: renderGeneral, reading: renderReading, compose: renderCompose, identities: renderIdentities, filters: renderFilters, subject: renderSubject, saved: renderSaved, templates: renderTemplates, folders: renderFolders, scheduler: renderScheduler, contacts: renderContacts, calendars: renderCalendars, accounts: renderAccountsTab, security: renderSecurity, admin: renderAdmin, log: renderLog }[tab])();
+    ({ general: renderGeneral, reading: renderReading, compose: renderCompose, identities: renderIdentities, filters: renderFilters, subject: renderSubject, saved: renderSaved, templates: renderTemplates, folders: renderFolders, scheduler: renderScheduler, offline: renderOffline, contacts: renderContacts, calendars: renderCalendars, accounts: renderAccountsTab, security: renderSecurity, admin: renderAdmin, log: renderLog }[tab])();
   }
 
   /** `startTab` is for the callers that mean a specific one (the user menu's

@@ -215,6 +215,7 @@
 
 <div class="nav-group"><div class="nav-group-title">Apps &amp; Building</div><ul>
 <li><a data-section="pwa" href="#pwa">Install as an App (PWA)</a></li>
+<li><a data-section="offline" href="#offline">Working Offline</a></li>
 <li>
 <a data-section="android" href="#android">Android App</a>
 <ul class="nav-sub">
@@ -3178,9 +3179,92 @@ over plain HTTP on a LAN address will not offer to install.
 
 <p>
   The service worker is <strong>network-first</strong> for the app shell, so you always get
-  the current version and a local edit shows up on refresh. <code>/api/*</code> is never
-  cached — mail data is always live, and going offline produces a clean error rather than
-  stale content.
+  the current version and a local edit shows up on refresh. It deliberately does
+  <em>not</em> cache <code>/api/*</code>: mail is cached, but by the app itself rather than
+  by the service worker — see <a data-section="offline" href="#offline">Working
+  Offline</a>, which explains why.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════ Offline ═══ -->
+<section id="offline">
+<h1>Working Offline</h1>
+<p class="section-subtitle">Reading and answering mail with no server</p>
+
+<p>
+  Hmelj keeps a copy of your newest mail on each device, so it opens and works with no
+  connection at all — on a plane, on the underground, or simply when the server is down.
+  It is on by default and needs no setup.
+</p>
+
+<h2 id="offline-reading">What you can read</h2>
+<p>
+  While you are online and the app is idle, Hmelj quietly downloads the newest
+  <strong>300 messages of each account</strong> (adjustable), including the images inside
+  them. So offline you can open mail you had never opened before, not only what you
+  happened to read earlier. If you read mail in a custom font, that font file is saved
+  too, so a message offline is set the way it is online rather than dropping to a
+  fallback face. Your folder list, contacts, identities, settings and the
+  calendar weeks you have looked at are saved with it, which is what lets the app start at
+  all with the server unreachable.
+</p>
+<p>
+  A message whose body was not saved — older than the limit, or dropped to stay under the
+  storage cap — says so plainly when you open it, and opens normally once you are back.
+</p>
+
+<h2 id="offline-search">Searching offline</h2>
+<p>
+  The search box keeps working; it searches what is saved on the device rather than asking
+  the server, and the results say so. <code>from:</code>, <code>to:</code>,
+  <code>subject:</code>, <code>is:unread</code>, <code>is:starred</code> and
+  <code>has:attachment</code> all work, as do plain words, which also match the text of
+  any message whose body is saved.
+</p>
+
+<h2 id="offline-outbox">The Outbox</h2>
+<p>
+  Anything you <em>do</em> offline is queued rather than refused: marking read or unread,
+  starring, deleting, moving, archiving, marking spam, saving a draft and sending. The
+  list updates immediately, an <strong>Outbox</strong> row appears in the sidebar with a
+  count, and the queue survives closing the app. When the connection returns it is sent in
+  the order you did it.
+</p>
+<p>
+  Right-click (or long-press) anything in the Outbox to retry it, edit it — a queued
+  message reopens in the composer — or discard it.
+</p>
+<div class="callout">
+  If a message was moved or deleted from another device while you were offline, the
+  queued action for it can no longer be applied. Hmelj says so once and drops it, rather
+  than retrying something that can never succeed.
+</div>
+
+<h2 id="offline-storage">Storage, and what it costs</h2>
+<p>
+  <strong>Settings › Offline</strong> is per device — a phone and a desktop sharing one
+  Hmelj account keep their own answers. It sets whether to keep mail offline at all, how
+  many messages per account, whether to include attachments (off by default; inline images
+  are kept either way), and a storage ceiling (250&nbsp;MB by default). When the ceiling
+  is reached the oldest messages are dropped first. The same panel shows what is stored
+  right now and can delete all of it.
+</p>
+<div class="callout warning">
+  <strong>Saved mail is not encrypted.</strong> It lives in the browser's own storage for
+  this site, like any other site's data, and anyone with access to the unlocked device
+  profile can read it. On a shared or unencrypted machine, turn offline mode off. Logging
+  out deletes it, and so does signing in as a different user.
+</div>
+
+<h2 id="offline-android">On Android</h2>
+<p>
+  The native app works offline too. Because it usually points at a plain-http LAN address
+  — which browsers do not treat as a secure context, so there is no service worker there —
+  it loads the app from the WebView's own cache when there is no network, instead of the
+  "no connection" screen. That screen still appears if the app has never been loaded on
+  that device.
 </p>
 
 <a class="back-top" href="#about">↑ Top</a>

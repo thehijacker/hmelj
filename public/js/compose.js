@@ -1125,7 +1125,13 @@ const Compose = (() => {
         // this is the exact content the server actually has, regardless of
         // anything typed while the save was in flight.
         pristinePayload = snapshot;
-        document.getElementById('draft-status').textContent = 'Draft saved ' + new Date().toLocaleTimeString();
+        // Offline the save is queued, not stored on the server (outbox.js) —
+        // the draft is safe on this device and goes up on reconnect, and the
+        // status line says which of the two happened rather than claiming the
+        // stronger one.
+        document.getElementById('draft-status').textContent = (r?.queued
+          ? I18n.t('Draft saved on this device ')
+          : 'Draft saved ') + new Date().toLocaleTimeString();
         return true;
       } catch (e) {
         if (!silent) toast('Draft save failed: ' + e.message);
@@ -1621,6 +1627,12 @@ const Compose = (() => {
         // said it would hold the message, so the toast can never outlast the
         // window and promise a recall that will be refused.
         if (r?.undo?.id) offerUndoSend(r.undo, r.undoSeconds);
+        // Queued rather than sent: there was no server to hand it to, so it is
+        // sitting in this device's outbox (api.js's _write / outbox.js). Saying
+        // "Sending…" here would be a promise nothing is currently keeping — and
+        // the Outbox row in the sidebar is where it can be seen, edited or
+        // discarded until it goes.
+        else if (r?.queued) toast(I18n.t('No connection — queued in the Outbox and sent when it’s back'), 6000);
         else toast(I18n.t('Sending…'));
         loadFolders();
       } catch (e) {

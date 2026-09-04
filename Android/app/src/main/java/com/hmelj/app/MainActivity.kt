@@ -688,13 +688,36 @@ class MainActivity : AppCompatActivity() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    /**
+     * Whether the OS currently reports a network at all.
+     *
+     * Only used to choose the WebView's cache mode when a load STARTS (see
+     * loadServerUrl). It is deliberately not treated as "the server is
+     * reachable" anywhere else — that question belongs to the page, which
+     * answers it from what actually happens to its own requests
+     * (public/js/connection.js), and a phone on a café network with no route
+     * to a home server is the case that distinction exists for.
+     */
+    private var hasNetwork: Boolean = true
+
+    /** One cache-only retry per load attempt — see onReceivedError. Guards
+     *  against a load that fails from the cache too turning into a loop. */
+    private var cacheFallbackTried = false
+
     private fun registerNetworkCallback() {
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
+        hasNetwork = connectivityManager?.activeNetwork != null
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                hasNetwork = true
+                // Back on a real network: stop reading the app out of the HTTP
+                // cache. Nothing about the offline data store changes — that
+                // lives in the page's IndexedDB — but a live session must never
+                // be served a stale API response from underneath it.
+                runOnUiThread { webView.settings.cacheMode = WebSettings.LOAD_DEFAULT }
                 // Small delay to let the network fully settle before making API calls.
                 // NOT gated on isOnReader() any more — that checks for the original shell app's
                 // /reader.html, a page this app never has, so the restore hook
@@ -703,6 +726,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onLost(network: Network) {
+                hasNetwork = connectivityManager?.activeNetwork != null
                 notifyNetworkLost()
             }
         }
@@ -770,9 +794,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Loads the real app, clearing the offline stand-in first. */
+    /**
+     * Loads the real app, clearing the offline stand-in first.
+     *
+     * With no network, this loads it out of the WebView's own HTTP cache
+     * instead of failing. That is the whole reason the app can be opened at all
+     * on a flight: this shell usually points at a plain-http LAN address, which
+     * is not a secure context, so there is no service worker here and none of
+     * the PWA's cached shell exists. LOAD_CACHE_ELSE_NETWORK serves whatever
+     * the cache holds even though it has expired, and the server marks the
+     * ?v=-stamped scripts and stylesheets as immutable precisely so that they
+     * are still in it (server/index.js).
+     *
+     * Once the app is up it reads its MAIL from its own IndexedDB store
+     * (public/js/offlineDb.js), which has nothing to do with this cache — this
+     * only gets the application itself onto the screen. If even that is not
+     * cached (a first launch with no connection), onReceivedError still falls
+     * back to the bundled offline page as it always did.
+     */
     private fun loadServerUrl(url: String) {
         showingOfflinePage = false
+        cacheFallbackTried = false
+        webView.settings.cacheMode =
+            if (hasNetwork) WebSettings.LOAD_DEFAULT else WebSettings.LOAD_CACHE_ELSE_NETWORK
         webView.loadUrl(url)
     }
 
@@ -977,10 +1021,17 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Main-frame load failure = we couldn't reach the server at all
-            // (no network, wrong Wi-Fi, VPN down, server off). Show our own
-            // offline page instead of the WebView's raw error page. Subresource
+            // (no network, wrong Wi-Fi, VPN down, server off). Subresource
             // failures are ignored: a single missing image must not blow the
             // whole app away, and the page's own connection.js handles those.
+            //
+            // Before giving up, try once more out of the HTTP cache. "There is
+            // a network but the server is not answering" — a VPN that hasn't
+            // come up, a home server that is restarting, the wrong Wi-Fi — is
+            // by far the most common way this app is offline, and it is exactly
+            // the case the no-network check in loadServerUrl cannot see. If the
+            // app is in the cache, the user gets the real thing, reading their
+            // saved mail, instead of a stand-in page that can do nothing.
             override fun onReceivedError(
                 view: WebView,
                 request: WebResourceRequest,
@@ -988,6 +1039,13 @@ class MainActivity : AppCompatActivity() {
             ) {
                 if (!request.isForMainFrame) return
                 if (request.url.toString().startsWith("file:///android_asset/")) return // the offline page itself
+                val saved = getSavedUrl()
+                if (!cacheFallbackTried && saved != null) {
+                    cacheFallbackTried = true
+                    view.settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+                    view.loadUrl(saved)
+                    return
+                }
                 showOfflinePage()
             }
 
@@ -1002,6 +1060,15 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
+                // The cache-only mode above exists to get the app onto the
+                // screen with no network; it must not outlive that load. Left
+                // on, every request the running app makes could be answered
+                // from the HTTP cache — including API responses, behind the
+                // app's back and outside its own offline store. (The server
+                // also sends `Cache-Control: no-store` on /api for the same
+                // reason; this is the other half of that belt.)
+                view.settings.cacheMode = WebSettings.LOAD_DEFAULT
+                cacheFallbackTried = false
                 val immersive = shouldBeImmersive(url)
                 pendingPushTapData?.let { data ->
                     deliverPushTapToJs(data)

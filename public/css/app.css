@@ -258,6 +258,14 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
   padding: 9px 14px; padding-top: calc(9px + var(--sat, 0px));
   background: #f9a825; color: #1a1a1a;
   font-size: calc(13px * var(--ui-scale)); line-height: 1.35;
+  /* #app is sized in lvh — the LARGE viewport height, which on a phone is
+     taller than what is on screen while the browser's own chrome is showing.
+     So the document itself can scroll, and a plain flex child at the top
+     scrolls away with it: the bar was there, and then a message was opened and
+     it was not. Sticky pins it to the top of that scroll instead. The two
+     persistent markers exist because it had gone missing; this is why it
+     could. */
+  position: sticky; top: 0; z-index: 41;
 }
 .offline-bar[hidden] { display: none; }
 .offline-bar-icon { flex: 0 0 auto; }
@@ -276,6 +284,91 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .boot-offline-icon { font-size: 42px; margin-bottom: 10px; }
 .boot-offline-card h1 { font-size: calc(19px * var(--ui-scale)); margin: 0 0 10px; }
 .boot-offline-card p { color: var(--text-dim); font-size: calc(13.5px * var(--ui-scale)); margin: 0 0 18px; }
+
+/* ---------- offline mode ----------
+   Everything below belongs to reading and acting on mail with no server (see
+   public/js/offline.js and outbox.js). The bar above says the connection is
+   gone; these say what that means for the thing you are looking at. */
+
+/* Results assembled on this device out of saved headers rather than answered by
+   the server. Sits above the rows it qualifies, in the same amber as the bar —
+   the reader has already been told what that colour means. */
+.msg-list-note {
+  padding: 7px 14px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, #f9a825 16%, var(--surface));
+  color: var(--text); font-size: calc(12px * var(--ui-scale)); line-height: 1.35;
+}
+
+/* A message whose body this device never saved. Same centred-card shape as the
+   empty state next to it, so it reads as a state of the pane rather than an
+   error inside a message. */
+.mv-offline {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; min-height: 100%; padding: 32px 24px; text-align: center; color: var(--text-dim);
+}
+.mv-offline-icon { font-size: 40px; }
+.mv-offline h2 { margin: 4px 0 0; font-size: calc(16px * var(--ui-scale)); color: var(--text); }
+.mv-offline p { margin: 0; max-width: 44ch; font-size: calc(13px * var(--ui-scale)); line-height: 1.5; }
+.mv-offline-meta { color: var(--text-dim); }
+.mv-offline-hint { opacity: .75; font-size: calc(12px * var(--ui-scale)) !important; }
+
+/* The Outbox list. Deliberately the same .msg-row skeleton the Scheduled queue
+   uses — the two waiting-rooms of this app should look like each other. */
+.outbox-row { cursor: pointer; }
+.outbox-row .m-from { flex: 0 0 auto; color: var(--text); }
+.outbox-row .m-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outbox-row .outbox-error {
+  flex: 0 0 100%; order: 9; color: var(--danger);
+  font-size: calc(11.5px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Retried to exhaustion and parked: a left border rather than a red row, so a
+   queue with one bad entry in it doesn't read as entirely broken. */
+.outbox-row.outbox-failed { border-left-color: var(--danger); }
+
+/* Standing by, not broken: a control that will work again on its own says so by
+   fading rather than by looking disabled-forever. */
+body.is-offline .icon-btn[disabled] { opacity: .45; }
+
+/* Refresh, wearing its offline state. Not dimmed like the disabled controls
+   above, and deliberately: those are standing by, this one is the thing that
+   tells you why — it has to read as present. Still a real button, so it can
+   answer when pressed (see explainOffline). */
+#btn-refresh.offline {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+#btn-refresh.offline:hover { background: color-mix(in srgb, var(--danger) 18%, transparent); }
+/* .spinning brings `animation` and `pointer-events: none` with it. A refresh
+   caught in flight when the connection dropped would otherwise leave this
+   spinning as an ⊘ and — worse — untappable, which is the one thing it must
+   never be: pressing it is how anyone finds out what is going on. */
+#btn-refresh.offline { animation: none; pointer-events: auto; }
+
+/* The same marker on the one screen the toolbar cannot reach: a phone showing a
+   message full-screen (see applyOfflineMarkers). Rides in the sticky back row,
+   pushed to the far end so it never crowds Back. */
+.mv-offline-chip {
+  flex: 0 0 auto;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: calc(11.5px * var(--ui-scale)); font-weight: 600; letter-spacing: .01em;
+  color: #1a1a1a; background: #f9a825;   /* the offline bar's amber, so the two read as one state */
+  cursor: pointer;
+}
+.mv-offline-chip[hidden] { display: none; }
+.mv-offline-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Settings › Offline. All three span the whole settings grid — they are figures
+   and actions about the tab as a whole, not one more labelled control. */
+.set-grid .offline-usage {
+  grid-column: 1 / -1; display: grid; gap: 2px;
+  font-size: calc(12.5px * var(--ui-scale)); color: var(--text-dim);
+}
+.set-grid .offline-actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.set-grid .offline-note {
+  grid-column: 1 / -1; margin: 6px 0 0; max-width: 60ch;
+  font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); line-height: 1.45;
+}
 
 .conn { font-size: calc(12px * var(--ui-scale)); color: var(--danger); flex: 0 0 auto; }
 .conn.ok { color: #188038; }
@@ -1720,6 +1813,9 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 /* ---------- responsive ---------- */
 .sidebar-backdrop { display: none; }
 .mv-back-btn { display: none; }
+/* The row that holds it (and the offline chip) — mobile-only for the same
+   reason, and it is the row, not the button, that is sticky now. */
+.mv-top-row { display: none; }
 
 @media (max-width: 900px) {
   /* ---- sidebar as an overlay, closed by default (app.js sets this) ---- */
@@ -1770,13 +1866,19 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
      3 classes still lose to an ID regardless of source order, which matters
      here since the default readingPane setting is "right". */
   #content .msg-list-pane, #content .reading-pane { border-radius: 0; max-width: none; min-width: 0; flex: 1 1 auto; }
-  .mv-back-btn {
-    display: flex; align-items: center; gap: 6px; width: 100%;
-    /* Same story as .list-search-bar's inset below: with a message open the
-       reading pane IS the screen, so this sticky row is what sits under the
-       status bar — and Back is the one control there is. */
-    padding: 12px 14px; padding-top: calc(12px + var(--sat)); font-size: calc(14px * var(--ui-scale)); font-weight: 600; color: var(--text);
+  /* Same story as .list-search-bar's inset below: with a message open the
+     reading pane IS the screen, so this sticky row is what sits under the
+     status bar. Back is the main control on it; the offline chip joins it at
+     the far end whenever there is no connection. */
+  .mv-top-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; padding-top: calc(12px + var(--sat));
     border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .mv-back-btn {
+    display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0;
+    font-size: calc(14px * var(--ui-scale)); font-weight: 600; color: var(--text);
+    text-align: left;
   }
   .mv-header-card { margin: 12px 16px 0; padding: 12px 14px; }
   .mv-stub { margin-left: 16px; margin-right: 16px; padding: 10px 14px; }

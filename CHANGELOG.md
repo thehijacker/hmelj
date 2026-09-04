@@ -4,6 +4,37 @@ All notable changes to Hmelj are recorded here. Versions follow
 [semantic versioning](https://semver.org/): the major number changes when an upgrade needs
 manual work, the minor when features are added, the patch for fixes.
 
+## 1.0.8 — 2026-09-04
+
+### Offline mode
+Hmelj now works with no server. Previously `/api/*` was network-only, so losing the
+connection left an app that could say only that it had lost the connection.
+
+- **Reading.** The newest messages of each account are downloaded in the background —
+  bodies, their inline images, and the custom font the mail is read in — so mail can be
+  opened offline that was never opened online, and it looks the way it does online.
+  Message lists, folders, contacts, identities, settings and the calendar windows you
+  have viewed are cached alongside, so the app boots and works with the server switched
+  off. A message that was not saved says so, rather than erroring.
+- **Search.** Offline, the search box searches the saved message headers (and the text of
+  saved bodies) on the device, supporting `from:`, `to:`, `subject:`, `is:unread`,
+  `is:starred` and `has:attachment`. Such results are labelled as local.
+- **Writing.** Marking read/unread, starring, deleting, moving, archiving, spam, saving a
+  draft and sending are queued in a new **Outbox** and go out in order on reconnect. The
+  list reflects them immediately and keeps doing so across reloads. Actions the server
+  later refuses — the message was moved or deleted from another client meanwhile — are
+  reported once rather than retried forever.
+- **Settings › Offline** (per device): on/off, how many messages to keep per account,
+  whether to include attachments, a storage cap, what is currently stored, and a button
+  to delete it. Saved mail is removed on logout and when a different user signs in.
+- **Android.** With no network the shell now loads the app from the WebView's own HTTP
+  cache instead of the bundled offline page, so offline mode is available on a plain-http
+  LAN address too — where there is no service worker at all. The bundled page remains the
+  fallback for a device that has never loaded the app.
+- `POST /api/messages/:folder/bodies` (new): several message bodies in one request, for
+  the prefetcher. `/api/*` is now `Cache-Control: no-store` by default, and `?v=`-stamped
+  scripts and stylesheets are immutable.
+
 ## 1.0.0 — 2026-08-29
 
 First public release. Hmelj had been developed privately for months before this; this entry

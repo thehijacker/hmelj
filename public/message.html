@@ -46,6 +46,11 @@
 <div class="message-view" id="view" style="max-width:900px;margin:0 auto;background:var(--surface);min-height:100vh">Loading…</div>
 <script src="/js/i18n.js"></script>
 <script src="/js/connection.js"></script>
+<!-- Offline mode, before api.js: it is api.js that reads and writes this
+     cache on every request (see public/js/offline.js). -->
+<script src="/js/offlineDb.js"></script>
+<script src="/js/offline.js"></script>
+<script src="/js/outbox.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/messageFrame.js"></script>
 <script src="/js/messageFind.js"></script>
@@ -135,6 +140,12 @@
     // gets corrected for good the next time messageFont is actually saved
     // from the main window's own Settings, same as everywhere else.
     const customFonts = await API.fonts().catch(() => []);
+    // The saved copies of those font files, so a custom Message font still
+    // renders with no connection. buildFontFaceCss() reads them synchronously,
+    // so this has to finish before MessageFrame.create() below — see
+    // public/js/offline.js for why a data: URL is the only thing that can work
+    // inside the sandboxed body frame.
+    await Offline.loadFonts();
     const knownFont = settings.messageFont === 'system-ui' || settings.messageFont === 'serif'
       || settings.messageFont === 'sans-serif' || settings.messageFont === 'monospace' || settings.messageFont === 'cursive'
       || customFonts.some((f) => f.family === settings.messageFont);

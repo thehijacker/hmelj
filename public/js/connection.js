@@ -89,7 +89,24 @@ const Connection = (() => {
   function setReachable(next) {
     const changed = next !== reachable;
     reachable = next;
-    if (!next) scheduleProbe(PROBE_MIN_MS); else stopProbe();
+    if (next) {
+      stopProbe();
+    } else if (changed) {
+      // Just went down: start probing promptly.
+      scheduleProbe(PROBE_MIN_MS);
+    } else if (!probeTimer) {
+      // Already down and somehow left with no probe pending — re-arm at
+      // whatever the backoff has reached, never back at the minimum.
+      scheduleProbe(probeDelay);
+    }
+    // What is NOT here any more: an unconditional scheduleProbe(PROBE_MIN_MS)
+    // on every failure. During an outage failures are continuous — every list
+    // read, every background poll — and each one reset the 4s→30s backoff, so
+    // the backoff never actually happened: the probe hammered a server that
+    // was already known to be down, every four seconds, for as long as the
+    // outage lasted. Worse, on a server that answers the cheap probe but not
+    // the expensive calls, that turned into a four-second up/down/up cycle,
+    // with every "up" firing a full reconnect refresh in the app.
     if (!changed) return;
     render();
     for (const fn of listeners) {

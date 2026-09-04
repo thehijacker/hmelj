@@ -2,9 +2,15 @@
 // Strategy:
 //  - App shell (HTML/CSS/JS/icons): network-first, fall back to cache when offline.
 //    Network-first keeps self-hosted tweaking painless (edit a file, refresh, see it).
-//  - /api/*: network only — mail data must always be fresh. When offline, list/read
-//    requests get a JSON error the UI shows as a normal error toast.
-const VERSION = 'hmelj-20260904008';
+//  - /api/*: network only, and it stays that way. Mail data IS cached offline —
+//    but in IndexedDB, in the page (public/js/offlineDb.js), not here. That is
+//    deliberate: the Android shell usually points at a plain-http LAN address,
+//    which is not a secure context, so on the device most likely to be offline
+//    there is no service worker at all and a cache living here would simply not
+//    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
+//    503 below is how api.js tells "nothing answered" from "the server said no",
+//    and it is what makes it reach for the offline store.
+const VERSION = 'hmelj-20260904013';
 const SHELL = [
   '/',
   '/index.html',
@@ -13,6 +19,12 @@ const SHELL = [
   '/css/app.css',
   '/js/i18n.js',
   '/js/connection.js',
+  // Offline mode's three modules. They must be in the shell cache for the same
+  // reason connection.js is: without them the app loads and then cannot read a
+  // single cached message, which is precisely the situation they exist for.
+  '/js/offlineDb.js',
+  '/js/offline.js',
+  '/js/outbox.js',
   '/i18n/en.json',
   '/i18n/sl.json',
   '/js/api.js',

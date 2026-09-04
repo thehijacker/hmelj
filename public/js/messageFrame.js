@@ -121,7 +121,15 @@ const MessageFrame = (() => {
       .filter(([, url]) => url)
       .map(([style, url]) => {
         const [fontStyle, weight] = FONT_STYLE_CSS[style] || ['normal', 400];
-        return `@font-face{font-family:'${cssSafe(f.family)}';src:url('${cssSafe(url)}');font-style:${fontStyle};font-weight:${weight};font-display:swap;}`;
+        // Offline, the saved copy of the file as a data: URL (offline.js).
+        // Nothing else can work here: this same CSS is inlined into a SANDBOXED
+        // srcdoc iframe whose opaque origin puts its requests beyond both the
+        // service worker and this page, so the bytes have to be in the rule
+        // itself — exactly like the inline images. Online this returns null and
+        // the real URL is used, so an admin replacing a font file still takes
+        // effect immediately.
+        const src = window.Offline?.fontUrl?.(url) || url;
+        return `@font-face{font-family:'${cssSafe(f.family)}';src:url('${cssSafe(src)}');font-style:${fontStyle};font-weight:${weight};font-display:swap;}`;
       }).join('')).join('');
   }
 

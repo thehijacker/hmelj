@@ -41,21 +41,63 @@ const API = {
     return Object.assign(new Error('No connection to the Hmelj server'), { offline: true });
   },
 
-  async _req(method, url, body) {
+  /** Nothing answered. For a GET that is a question the offline cache may be
+   * able to answer instead (see public/js/offline.js) — a cached listing, a
+   * cached message, the settings this device booted with. For anything else,
+   * and for a GET the cache has never seen, this is exactly the error that was
+   * thrown before offline mode existed, so every call site's own handling of it
+   * is unchanged.
+   *
+   * Deliberately NOT applied to writes: those are queued instead, one layer up
+   * in _write, where the call site's own arguments are still in hand. */
+  async _offlineAnswer(method, url, background) {
+    // A BACKGROUND request never gets a vote on whether the server is
+    // reachable. The offline prefetcher makes a great many of them, they are
+    // the first thing a struggling server drops, and letting each one report an
+    // outage is how a slow link turned into a connection state that flipped
+    // every few seconds — with a full reconnect refresh on every flip. What the
+    // app itself asks for, and connection.js's own probe, decide this.
+    const err = background
+      ? Object.assign(new Error('No connection to the Hmelj server'), { offline: true })
+      : API._offlineError();
+    if (method !== 'GET') throw err;
+    const hit = await window.Offline?.recall?.(url);
+    if (hit === null || hit === undefined) throw err;
+    return hit;
+  },
+
+  /** When the app last asked for something on the user's behalf. The prefetcher
+   *  waits for a quiet moment rather than competing with it (see offline.js). */
+  lastUserRequestAt: 0,
+
+  async _req(method, url, body, { background = false, timeoutMs = 0 } = {}) {
+    if (!background) API.lastUserRequestAt = Date.now();
+    // A background request that hangs holds one of the browser's handful of
+    // connections to this host — and the SSE stream is already holding another.
+    // Giving up is strictly better than starving the requests the user is
+    // actually waiting for.
+    const ctl = timeoutMs ? new AbortController() : null;
+    const bail = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
     let res;
     try {
       res = await fetch(url, {
         method,
         headers: body ? { 'Content-Type': 'application/json' } : undefined,
         body: body ? JSON.stringify(body) : undefined,
+        signal: ctl?.signal,
       });
-    } catch {
-      throw API._offlineError();
+    } catch (e) {
+      // Our own timeout, not the network's answer: it says the server is slow,
+      // which is not the same as unreachable and must not be reported as one.
+      if (e?.name === 'AbortError') throw Object.assign(new Error('Timed out'), { timedOut: true });
+      return API._offlineAnswer(method, url, background);
+    } finally {
+      clearTimeout(bail);
     }
-    if (res.headers.get('X-Hmelj-Offline')) throw API._offlineError();
+    if (res.headers.get('X-Hmelj-Offline')) return API._offlineAnswer(method, url, background);
     // The server answered, whatever it said — that alone proves the connection
     // is back, which is what ends an outage without waiting for the next probe.
-    window.Connection?.noteSuccess();
+    if (!background) window.Connection?.noteSuccess();
     if (res.status === 401 && !location.pathname.startsWith('/login')) {
       location.replace('/login.html');
       throw new Error('Not authenticated');
@@ -70,11 +112,63 @@ const API = {
       // browser's spellchecker) and a 429 as transient (try again next check).
       throw Object.assign(new Error(msg), { status: res.status });
     }
-    return res.json();
+    const data = await res.json();
+    // Remember it, so the same question can be answered with no server. Not
+    // awaited: a cache write must never add latency to a response somebody is
+    // waiting for, and offline.js swallows its own failures.
+    if (method === 'GET') window.Offline?.remember?.(url, data);
+    return data;
   },
-  get: (u) => API._req('GET', u),
+
+  /** The resolved account for a call — the explicit argument if there is one,
+   *  otherwise the ambient one. Same rule as _acct, factored out because the
+   *  outbox needs the ANSWER (to key a queued action by account) rather than a
+   *  URL with it appended. */
+  _acctId(accountId) {
+    const acct = accountId != null ? accountId : API.account;
+    return acct || '';
+  },
+
+  /**
+   * One mail write, which the Outbox takes over when the server is unreachable.
+   *
+   * `run` is the request exactly as it would have gone out; `type`/`payload`
+   * are what the queue needs to replay it later and to state what it did to
+   * which message in the meantime (outbox.js's overlay). The caller gets a
+   * synthetic acknowledgement shaped like the real response, so the optimistic
+   * update it has already painted stands, and none of the ~20 mutation call
+   * sites in app.js needed to learn about any of this.
+   *
+   * The check happens twice: before trying (we already know we're offline —
+   * don't spend a request finding out) and, for most writes, again after a
+   * transport failure (we thought we were online and weren't).
+   *
+   * `queueOnFailure: false` turns that second check off, and SEND uses it. A
+   * fetch that rejects proves only that no answer came back — the request may
+   * have been received and acted on in full. For a flag, a move or a delete
+   * that ambiguity is harmless: replaying one either repeats something
+   * idempotent or names a uid that is no longer there, which the replay drops.
+   * Replaying a send delivers the message twice, to real people, and there is
+   * no taking it back. So a send that fails mid-flight is reported to the
+   * composer exactly as it always was, and the person who wrote it decides.
+   */
+  async _write(type, account, payload, run, { queueOnFailure = true } = {}) {
+    const meta = { account, payload };
+    if (window.Outbox?.shouldQueue?.()) return window.Outbox.enqueue(type, meta);
+    try {
+      return await run();
+    } catch (e) {
+      if (queueOnFailure && e?.offline && window.Outbox?.isReady?.() && !window.Outbox.isReplaying()) {
+        return window.Outbox.enqueue(type, meta);
+      }
+      throw e;
+    }
+  },
+
+  // `opts` is only ever passed by the offline prefetcher — {background, timeoutMs}.
+  get: (u, opts) => API._req('GET', u, undefined, opts),
   put: (u, b) => API._req('PUT', u, b),
-  post: (u, b) => API._req('POST', u, b),
+  post: (u, b, opts) => API._req('POST', u, b, opts),
   del: (u) => API._req('DELETE', u),
 
   status: () => API.get(API._acct('/api/status')),
@@ -354,10 +448,22 @@ const API = {
   attachmentsZipUrl: (folder, uid, accountId) =>
     API._acct('/api/message/' + encodeURIComponent(folder) + '/' + encodeURIComponent(uid)
       + '/attachments.zip', accountId),
-  flags: (folder, uids, add, remove, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/flags', accountId), { uids, add, remove }),
-  move: (folder, uids, target, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/move', accountId), { uids, target }),
-  copy: (folder, uids, target, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/copy', accountId), { uids, target }),
-  deleteMsgs: (folder, uids, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/delete', accountId), { uids }),
+  // The five mailbox writes, each wrapped in _write so an unreachable server
+  // queues them instead of failing them — see public/js/outbox.js. `run` is
+  // byte-for-byte the request that always went out; nothing about the online
+  // path changed.
+  flags: (folder, uids, add, remove, accountId) => API._write(
+    'flags', API._acctId(accountId), { folder, uids, add, remove },
+    () => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/flags', accountId), { uids, add, remove })),
+  move: (folder, uids, target, accountId) => API._write(
+    'move', API._acctId(accountId), { folder, uids, target },
+    () => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/move', accountId), { uids, target })),
+  copy: (folder, uids, target, accountId) => API._write(
+    'copy', API._acctId(accountId), { folder, uids, target },
+    () => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/copy', accountId), { uids, target })),
+  deleteMsgs: (folder, uids, accountId) => API._write(
+    'delete', API._acctId(accountId), { folder, uids },
+    () => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/delete', accountId), { uids })),
   /** Mark as spam / not spam, archive / unarchive. `box` is 'junk' or
    * 'archive'; the destination folder is the account's own setting and is
    * resolved server-side, never sent from here (see server/refile.js). */
@@ -366,10 +472,22 @@ const API = {
   respondToInvitation: (folder, uid, action, comment, sendResponse, accountId) =>
     API.post(API._acct('/api/message/' + encodeURIComponent(folder) + '/' + encodeURIComponent(uid) + '/invitation', accountId),
       { action, comment, sendResponse }),
-  refile: (folder, uids, box, revert, accountId) =>
-    API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/refile', accountId), { uids, box, revert: !!revert }),
-  send: (payload, accountId) => API.post('/api/send' + (accountId ? '?account=' + accountId : ''), payload),
-  saveDraft: (payload, accountId) => API.post('/api/drafts' + (accountId ? '?account=' + accountId : ''), payload),
+  refile: (folder, uids, box, revert, accountId) => API._write(
+    'refile', API._acctId(accountId), { folder, uids, box, revert: !!revert },
+    () => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/refile', accountId), { uids, box, revert: !!revert })),
+  // Queued rather than failed when there is no server: the composed message is
+  // kept whole (recipients, body, attachments) and goes out on reconnect. The
+  // response carries `queued: true` — compose.js says so instead of "Sending…",
+  // which offline would be a promise nothing was keeping.
+  send: (payload, accountId) => API._write(
+    'send', accountId || '', { payload },
+    () => API.post('/api/send' + (accountId ? '?account=' + accountId : ''), payload),
+    // Queued only when we KNEW there was no connection before trying — never
+    // after a request that may already have gone out. See _write.
+    { queueOnFailure: false }),
+  saveDraft: (payload, accountId) => API._write(
+    'draft', accountId || '', { payload },
+    () => API.post('/api/drafts' + (accountId ? '?account=' + accountId : ''), payload)),
   // Queued messages are per-person, not per-account, so no ?account= on these
   // two (see the /api/scheduled routes' own note).
   scheduled: () => API.get('/api/scheduled'),

@@ -185,6 +185,16 @@ export const DEFAULT_SETTINGS = {
   // device starts from. On by default because that is what the Android app has
   // always done unconditionally; the setting is the way to stop it.
   keepScreenOn: true,
+  // ---- offline mode (public/js/offline.js) ----
+  // Device-local for the same reason keepScreenOn is: how much mail a machine
+  // keeps on its own disk is a property of that machine. A laptop and a phone
+  // sharing one Hmelj login want different answers, and these are only the
+  // defaults a device starts from before it stores its own (DEVICE_SETTINGS_KEYS
+  // in app.js).
+  offlineEnabled: true,       // keep mail readable with no connection at all
+  offlineMessages: 300,       // newest messages PER ACCOUNT whose bodies are downloaded ahead of time
+  offlineAttachments: false,  // inline images are always kept; ordinary attachments only with this on
+  offlineMaxMb: 250,          // ceiling for the offline mail store; oldest messages are dropped first
   desktopNotifications: false, // browser Notification popups for new mail (needs OS/browser permission too)
   uiFont: 'system-ui',       // whole-app chrome font — separate from messageFont, which only styles message content
   uiFontSize: 14,            // px, base size everything else scales from (see --ui-scale in app.css)
