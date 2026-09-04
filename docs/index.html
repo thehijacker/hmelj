@@ -100,11 +100,13 @@
 <li><a data-scroll="list-escape" data-section="list" href="#list-escape">Escape</a></li>
 <li><a data-scroll="list-swipe" data-section="list" href="#list-swipe">Swipe gestures</a></li>
 <li><a data-scroll="list-spam" data-section="list" href="#list-spam">Spam and Archive</a></li>
+<li><a data-scroll="list-snooze" data-section="list" href="#list-snooze">Snooze</a></li>
 </ul>
 </li>
 <li>
 <a data-section="reading" href="#reading">Reading a Message</a>
 <ul class="nav-sub">
+<li><a data-scroll="read-auth" data-section="reading" href="#read-auth">Is the sender who they say?</a></li>
 <li><a data-scroll="read-images" data-section="reading" href="#read-images">External images</a></li>
 <li><a data-scroll="read-quotes" data-section="reading" href="#read-quotes">Collapsed quotes</a></li>
 <li><a data-scroll="read-unsub" data-section="reading" href="#read-unsub">Unsubscribe</a></li>
@@ -122,6 +124,9 @@
 <li><a data-scroll="compose-editor" data-section="compose" href="#compose-editor">The editor</a></li>
 <li><a data-scroll="compose-drafts" data-section="compose" href="#compose-drafts">Drafts</a></li>
 <li><a data-scroll="compose-schedule" data-section="compose" href="#compose-schedule">Scheduled sending</a></li>
+<li><a data-scroll="compose-undo" data-section="compose" href="#compose-undo">Undo send</a></li>
+<li><a data-scroll="compose-guards" data-section="compose" href="#compose-guards">Before it goes out</a></li>
+<li><a data-scroll="compose-templates" data-section="compose" href="#compose-templates">Templates</a></li>
 <li><a data-scroll="compose-spell" data-section="compose" href="#compose-spell">Spell checking</a></li>
 </ul>
 </li>
@@ -130,9 +135,20 @@
 <ul class="nav-sub">
 <li><a data-scroll="search-syntax" data-section="search" href="#search-syntax">Syntax</a></li>
 <li><a data-scroll="search-scope" data-section="search" href="#search-scope">What actually gets searched</a></li>
+<li><a data-scroll="search-index" data-section="search" href="#search-index">Searching inside messages</a></li>
+<li><a data-scroll="search-saved" data-section="search" href="#search-saved">Saved searches</a></li>
 </ul>
 </li>
-<li><a data-section="filters" href="#filters">Filters</a></li>
+<li><a data-section="shortcuts" href="#shortcuts">Keyboard Shortcuts</a></li>
+<li>
+<a data-section="filters" href="#filters">Filters</a>
+<ul class="nav-sub">
+<li><a data-scroll="filters-match" data-section="filters" href="#filters-match">Matching</a></li>
+<li><a data-scroll="filters-actions" data-section="filters" href="#filters-actions">Actions</a></li>
+<li><a data-scroll="filters-when" data-section="filters" href="#filters-when">When they run</a></li>
+<li><a data-scroll="filters-downtime" data-section="filters" href="#filters-downtime">Mail that arrived while Hmelj was off</a></li>
+</ul>
+</li>
 <li><a data-section="contacts" href="#contacts">Contacts</a></li>
 <li>
 <a data-section="calendar" href="#calendar">Calendar</a>
@@ -168,9 +184,13 @@
 <li><a data-scroll="set-compose" data-section="settings" href="#set-compose">Compose</a></li>
 <li><a data-scroll="set-identities" data-section="settings" href="#set-identities">Identities</a></li>
 <li><a data-scroll="set-filters" data-section="settings" href="#set-filters">Filters</a></li>
+<li><a data-scroll="set-subject" data-section="settings" href="#set-subject">Subject</a></li>
+<li><a data-scroll="set-saved" data-section="settings" href="#set-saved">Saved searches</a></li>
+<li><a data-scroll="set-templates" data-section="settings" href="#set-templates">Templates</a></li>
 <li><a data-scroll="set-folders" data-section="settings" href="#set-folders">Folders</a></li>
 <li><a data-scroll="set-scheduler" data-section="settings" href="#set-scheduler">Scheduler</a></li>
 <li><a data-scroll="set-contacts" data-section="settings" href="#set-contacts">Contacts</a></li>
+<li><a data-scroll="set-calendars" data-section="settings" href="#set-calendars">Calendars</a></li>
 <li><a data-scroll="set-accounts" data-section="settings" href="#set-accounts">Accounts</a></li>
 <li><a data-scroll="set-login" data-section="settings" href="#set-login">Login</a></li>
 <li><a data-scroll="set-log" data-section="settings" href="#set-log">Log</a></li>
@@ -186,6 +206,7 @@
 <li><a data-scroll="admin-fonts" data-section="admin" href="#admin-fonts">Custom fonts</a></li>
 </ul>
 </li>
+<li><a data-section="export" href="#export">Exporting Your Data</a></li>
 <li><a data-section="env" href="#env">Environment Variables</a></li>
 <li><a data-section="languages" href="#languages">Languages</a></li>
 <li><a data-section="security" href="#security">Security &amp; Privacy</a></li>
@@ -268,8 +289,8 @@ AGPL-3.0
 <p>
   It is a single Node.js process with <strong>no build step</strong>: the entire front end
   is plain HTML, CSS and JavaScript served as-is. Everything it stores — your accounts,
-  settings, filters, contacts and the local message cache — lives in one directory on your
-  own server. Mailbox passwords are encrypted at rest with AES-256-GCM.
+  settings, filters, contacts, calendars and the local message cache — lives in one directory
+  on your own server. Mailbox passwords are encrypted at rest with AES-256-GCM.
 </p>
 <p>
   <em>Hmelj</em> is Slovenian for hops. The icon is a hop cone resting in an open envelope.
@@ -288,7 +309,9 @@ AGPL-3.0
 <li><strong>Local SQLite cache</strong> — a background poller keeps it warm, so lists are instant instead of a live fetch on every click</li>
 <li><strong>Real push notifications</strong> — Web Push (VAPID) for browsers and PWAs, Firebase for the Android app, with quiet hours and per-folder rules</li>
 <li><strong>Conversation view</strong> — a message and its replies as one row, opened as a stack</li>
-<li><strong>Server-side filters</strong> — move, copy, redirect, auto-reply, delete, mark, star; run on a schedule or on demand</li>
+<li><strong>Server-side filters</strong> — move, copy, redirect, auto-reply, delete, mark, star; run on a schedule or on demand, and they catch up on whatever arrived while Hmelj was off</li>
+<li><strong>Calendar and contacts</strong> — CalDAV, Google, Microsoft 365 and Exchange in one view, and Hmelj can publish calendars of its own for a phone to subscribe to</li>
+<li><strong>Search that goes inside messages</strong> — an optional local full-text index, per account, plus saved searches and snooze</li>
 <li><strong>Installable</strong> — PWA on desktop and mobile, plus a native Android APK</li>
 <li><strong>Light, dark and custom themes</strong>, English and Slovenščina</li>
 <li><strong>One container</strong> — published for <code>linux/amd64</code> and <code>linux/arm64</code></li>
@@ -329,6 +352,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Account presets</strong> — admin-editable, prefill server settings for common providers</li>
 <li><strong>Share an account</strong> with another Hmelj user, by username; revocable at any time</li>
 <li><strong>Connection test</strong> before an account is ever saved</li>
+<li><strong>Full-text index, per account</strong> — turn it on only for the mailboxes you actually search inside</li>
 </ul>
 </div>
 
@@ -343,6 +367,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>One-click unsubscribe</strong> — RFC 8058 POST, <code>mailto:</code>, or the sender's page</li>
 <li><strong>Attachments</strong> — inline preview for images, PDF, audio and video, with a progress bar</li>
 <li><strong>Find in message</strong> (Ctrl/Cmd+F) with live match count</li>
+<li><strong>Sender verification</strong> — the SPF/DKIM/DMARC result your own server recorded, as a quiet chip or a warning</li>
 <li><strong>Calendar invitations</strong> — Accept / Tentative / Decline, with or without a reply</li>
 <li><strong>Read receipts</strong> — asked for, and answered, on your terms</li>
 <li><strong>Auto mark-as-read</strong> — immediately, after a delay, only via the icon, or never</li>
@@ -359,6 +384,9 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Attachments</strong>, Cc/Bcc, priority, read-receipt request</li>
 <li><strong>Draft autosave</strong> on a configurable interval, plus manual save</li>
 <li><strong>Scheduled sending</strong> — queued on the server, retried with backoff, reschedulable</li>
+<li><strong>Undo send</strong> — a window you choose, held on the server, so closing the tab still honours it</li>
+<li><strong>Templates</strong> — reusable snippets, inserted where the caret is</li>
+<li><strong>Before it goes out</strong> — "you said it was attached", and "you replied to one of nine"</li>
 <li><strong>Spell checking</strong> as you type — Slovenian and English, detected automatically</li>
 <li><strong>Contact autocomplete</strong>, learned from the mail you actually send</li>
 </ul>
@@ -373,8 +401,25 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Select mode</strong> — Ctrl+click, Shift+click for a whole run, or the checkbox, then act on everything at once</li>
 <li><strong>Swipe gestures</strong> on mobile, with a configurable direction</li>
 <li><strong>Search</strong> — Gmail-style syntax, cached-first with a one-click "search everywhere"</li>
+<li><strong>Search inside messages</strong> — a local full-text index, opt-in per account, with a size ceiling</li>
+<li><strong>Saved searches</strong> — pinned in the sidebar, re-run live every time you open one</li>
+<li><strong>Snooze</strong> — the message really moves out and comes back when you asked, with an optional calendar reminder</li>
+<li><strong>Keyboard shortcuts</strong> — Gmail's letters and Outlook's <kbd>Del</kbd> / <kbd>Ctrl+Q</kbd> / <kbd>Ctrl+U</kbd>, <kbd>?</kbd> for the list</li>
 <li><strong>Mailbox analytics</strong> — where the quota went, who sends the most, what is safe to delete</li>
 <li><strong>Contacts</strong> — address book, Google-CSV and vCard import, and a direct pull from a Microsoft or Exchange account</li>
+</ul>
+</div>
+
+<div class="feature-card">
+<h3>📅 Calendar &amp; Contacts</h3>
+<ul>
+<li><strong>Calendars from anywhere</strong> — CalDAV, Google, Microsoft 365, Exchange, or one that lives in Hmelj itself</li>
+<li><strong>Month, week, day and agenda</strong>, each calendar in its own colour, with time-zone-correct events</li>
+<li><strong>Create and edit</strong> — repeats, all-day events, attendees, and <em>Add to calendar</em> straight from a message</li>
+<li><strong>Reminders</strong> delivered as push, whether or not Hmelj is open</li>
+<li><strong>Invitations</strong> — Accept / Tentative / Decline, replying or not</li>
+<li><strong>Address book</strong> — learned from your own mail, imported from Google CSV or vCard, or pulled from Microsoft and Exchange</li>
+<li><strong>Hmelj as a CalDAV/CardDAV server</strong> — subscribe a phone or another app, with per-device app passwords and busy-only sharing</li>
 </ul>
 </div>
 
@@ -400,6 +445,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Per-user error log</strong> — filters that failed, mail that could not be sent, servers unreachable</li>
 <li><strong>Instant cross-device sync</strong> over Server-Sent Events</li>
 <li><strong>Themes</strong> light / dark / system, plus custom colours; resizable columns</li>
+<li><strong>Export</strong> — settings, filters, contacts and calendars as one zip; mail as streamed mbox, one folder at a time</li>
 <li><strong>English and Slovenščina</strong>, switchable per user</li>
 </ul>
 </div>
@@ -1372,6 +1418,41 @@ locked off rather than offered as a false choice.
   optimistic and offer an Undo.
 </p>
 
+<h2 id="list-snooze">Snooze</h2>
+<p>
+  A message you cannot deal with now, back in front of you when you can. Right-click a row
+  (long-press on a phone) → <strong>Snooze…</strong>, or press <kbd>z</kbd>. Pick
+  <em>Later today</em>, <em>Tomorrow morning</em>, <em>This weekend</em>, <em>Next week</em>,
+  or an exact date and time.
+</p>
+<p>
+  The message <strong>really moves</strong>, into a <code>Snoozed</code> folder created on the
+  account the first time you use it, and comes back to where it was at the time you chose —
+  marked unread, with a notification. It moves for a reason: hiding it only inside Hmelj would
+  leave it sitting in the Inbox on your phone, in Thunderbird, and in your provider's own
+  webmail.
+</p>
+<ul>
+<li>A <strong>🕰️ Snoozed</strong> row appears in the sidebar with a count, listing what is waiting and when each one is due.</li>
+<li>Click one, or use its menu, to <strong>bring it back now</strong> or <strong>change the time</strong>.</li>
+<li>If Hmelj is not running when a message comes due, it comes back as soon as Hmelj is. Nothing is missed, it is just late.</li>
+<li>Moved a snoozed message somewhere yourself in the meantime? That is treated as your decision — Hmelj drops the reminder rather than dragging the message back out of where you filed it.</li>
+</ul>
+
+<figure>
+<img alt="Snoozed messages" data-src="screenshots/snooze.png" decoding="async" loading="lazy"/>
+<figcaption>Picking when a message comes back, and the Snoozed view</figcaption>
+</figure>
+
+<div class="callout">
+  <strong>A reminder in your calendar as well.</strong> If you have a calendar Hmelj can
+  write to, snoozing offers <em>Snooze and remind me</em>: an event at the wake-up time,
+  named after the message and linking back to it, with an alarm set for the moment it
+  starts. Useful when the deadline is the point and the mail is only the record of it —
+  a reply due in two months lands as a calendar entry you will see coming, not just a
+  message reappearing on the day. Snoozed messages carrying one are marked 📅 in the list.
+</div>
+
 <h2 id="list-sort">Sorting and filtering</h2>
 <p>
   The list header sorts by date, sender or subject. The toolbar filters to unread only or
@@ -1406,6 +1487,61 @@ locked off rather than offered as a false choice.
   and the address. Right-click or long-press one for <strong>Copy address</strong> and
   <strong>New message</strong>.
 </p>
+
+<h2 id="read-auth">Is the sender who they say?</h2>
+<p>
+  When a message arrives, the receiving mail server checks it against the rules the sender's
+  domain publishes — <strong>SPF</strong> (was this server allowed to send for that domain),
+  <strong>DKIM</strong> (is the signature intact) and <strong>DMARC</strong> (does the domain
+  in the From line stand behind either result) — and writes the outcome into the message.
+  Hmelj reads that verdict back out and shows it.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Verdict</th><th>You see</th></tr></thead>
+<tbody>
+<tr><td>Checks passed</td><td>🔒 <strong>Verified sender</strong>, a quiet chip beside the sender's name. Hover it for the individual SPF, DKIM and DMARC results.</td></tr>
+<tr><td>DMARC failed</td><td>A red banner above the message: it claims a domain it is not authorised to send for. Treat its links and attachments as untrusted.</td></tr>
+<tr><td>Name does not match address</td><td>A red banner. The message wears the name of somebody in your contacts over an address that is not theirs.</td></tr>
+<tr><td>Nothing was checked, or only partly</td><td><strong>Nothing at all.</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <p>
+    <strong>Why an unchecked message is not marked as suspect.</strong> A mailing list breaks
+    SPF by design — it sends on your behalf from its own servers — and plenty of small mail
+    hosts run no checks whatsoever. Flagging either would put a warning on ordinary mail every
+    day, which is precisely how people learn to click past warnings. Only the two cases worth
+    interrupting you over say anything.
+  </p>
+  <p>
+    <strong>The second banner is the one that catches people.</strong> A message from
+    <code>ceo@totally-real-invoices.com</code> signed <em>"Ana Novak"</em> passes every check
+    there is, because the domain it really came from did authorise it. Nothing in SPF, DKIM or
+    DMARC can see that. Matching the display name against your own address book can.
+  </p>
+</div>
+
+<p>
+  Only the <strong>topmost</strong> verification header is read — the one your own server
+  wrote. Anything below it arrived with the message and was written by whoever's honesty is
+  the question, and a convincing forged "everything passed" is trivial to include. If your
+  mail passes through several of your own servers before reaching the mailbox, the account
+  can be told which one to trust by name (<code>authservId</code>, settable through the
+  accounts API; there is no field for it in Settings yet).
+</p>
+<p>
+  Turn the whole thing off with <em>Show whether the sender is verified</em> in
+  <strong>Settings → Reading</strong>.
+</p>
+
+<figure>
+<img alt="Sender verification" data-src="screenshots/sender-auth.png" decoding="async" loading="lazy"/>
+<figcaption>The chip on a message that passed, and the banner on one that did not</figcaption>
+</figure>
 
 <h2 id="read-images">External images</h2>
 <p>
@@ -1645,6 +1781,65 @@ Rescheduling never reopens the composer. Pushing a body back through the editor 
 one timestamp risks the message coming back subtly different from the one you approved.
 </div>
 
+<h2 id="compose-undo">Undo send</h2>
+<p>
+  Send holds the message back for a few seconds first, and the toast that appears offers
+  <strong>Undo</strong>. Take it and the message comes straight back into the composer,
+  exactly as you wrote it. Ignore it and the message goes out when the time is up.
+</p>
+<p>
+  <em>Undo send window</em> in <strong>Settings → Compose</strong> sets how long: ten
+  seconds by default, up to two minutes, <code>0</code> to send immediately.
+</p>
+<div class="callout">
+  <strong>The wait is on the server, not in your browser tab.</strong> Press Send and close
+  Hmelj, and the message still goes out on time — the delay is a very short scheduled send,
+  running through the same queue. That also means the last moment of the window belongs to
+  the server: once it has picked the message up, Undo says so plainly rather than pretending
+  it worked. Queued undo sends do not clutter the Scheduled view.
+</div>
+
+<h2 id="compose-guards">Before it goes out</h2>
+<p>Two checks, both optional, both in <strong>Settings → Compose</strong>.</p>
+<ul>
+<li>
+  <strong>Warn about a missing attachment.</strong> If what you wrote mentions an
+  attachment and nothing is attached, Hmelj asks before sending. It reads
+  <strong>English and Slovenian</strong>, including forms typed without šumniki
+  (<em>prilozeno</em> counts), and matches the stems rather than exact words, so
+  <em>priloga</em>, <em>prilogi</em> and <em>prilagam</em> all trigger it.
+</li>
+<li>
+  <strong>Offer Reply to all.</strong> Press Reply on a message that had other people on
+  it and Hmelj offers to include them. A message addressed only to you never asks.
+</li>
+</ul>
+<div class="callout">
+  <p>
+    <strong>Only your own text is read.</strong> The quoted original and your signature are
+    skipped, so replying to somebody who wrote "v prilogi" does not ask you where your
+    attachment is.
+  </p>
+  <p>
+    When the language of a short message is genuinely unclear — and "Pozdravljeni, v
+    prilogi." is four words, which is not enough to be sure — <em>every</em> language's word
+    list is checked rather than a guessed one. A false alarm costs one dismissed dialog; the
+    other kind of mistake is the invoice not going out.
+  </p>
+</div>
+
+<h2 id="compose-templates">Templates</h2>
+<p>
+  Text you send over and over — a standard reply, a set of directions to the office, a
+  disclaimer. Write them in <strong>Settings → Templates</strong>, then insert one while
+  composing with the <strong>📋</strong> button in the toolbar.
+</p>
+<p>
+  A template lands <em>where your text is</em> — at the caret, above the signature and above
+  the quoted message, never underneath your sign-off. Templates are yours alone: they are not
+  shared with anyone you share a mailbox with.
+</p>
+
 <h2 id="compose-spell">Spell checking</h2>
 <p>
   On by default. Slovenian and English, detected automatically from what you are writing.
@@ -1680,10 +1875,13 @@ one timestamp risks the message coming back subtly different from the one you ap
 </div>
 
 <div class="callout">
-<strong>A bare word does not search message bodies.</strong> Only <code>body:word</code>
-does. Bodies are never cached, so a <code>body:</code> term is the one thing that always
-forces a slow live round-trip to the mail server; everything else can be answered from the
-local cache instantly.
+<strong>Whether a bare word searches message bodies depends on one setting.</strong> With
+the full-text index off — which it is until you turn it on — a bare word looks at the
+subject, sender and recipients only, and <code>body:word</code> is the one term that has to
+go and ask the mail server, message by message. Turn the index on for an account and both
+change: bodies are searched locally, instantly, and a bare word covers them too. See
+<a data-scroll="search-index" data-section="search" href="#search-index">Searching inside
+messages</a>.
 </div>
 <p>
   An unrecognised <code>word:</code> prefix — a URL like <code>http://example.com</code>,
@@ -1718,6 +1916,133 @@ local cache instantly.
 <figure>
 <img alt="Search results" data-src="screenshots/search.png" decoding="async" loading="lazy"/>
 <figcaption>Search results, with the line explaining the scope</figcaption>
+</figure>
+
+<h2 id="search-index">Searching inside messages</h2>
+<p>
+  Hmelj can keep a <strong>full-text index</strong> of the message bodies it has already
+  cached, so <code>body:</code> searches — and bare words — are answered from disk in
+  milliseconds instead of by asking the mail server one folder at a time.
+</p>
+<p>
+  It is <strong>off by default and turned on per account</strong>, in
+  <strong>Settings → Accounts</strong>, on the account's own row. That is deliberate: most
+  people search two mailboxes constantly and the rest almost never, and there is no reason
+  to spend disk on the rest.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Question</th><th>Answer</th></tr></thead>
+<tbody>
+<tr><td>What gets indexed?</td><td>Only bodies already in the local content cache — the newest messages of each folder, bounded by <em>Messages kept ready to open instantly</em> (Settings → General). The index never fetches anything of its own.</td></tr>
+<tr><td>How big does it get?</td><td>Roughly a third to a half of the text it covers. The index stores no second copy of your mail, only the words and where they were. The account row shows the live figure — messages indexed, megabytes used, and how many are still waiting.</td></tr>
+<tr><td>Can I cap it?</td><td><em>Search index size limit</em> in Settings → General, 250 MB by default, <code>0</code> for no limit.</td></tr>
+<tr><td>What happens at the cap?</td><td>Indexing stops. Nothing already indexed is thrown away, so search keeps working exactly as it did — it just stops getting deeper until older mail ages out of the content cache and takes its entries with it.</td></tr>
+<tr><td>Turning it off?</td><td>That account's index rows are deleted straight away. The cached messages themselves are untouched, and turning it back on re-indexes them.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Accented and unaccented spellings match each other, both ways — <code>racun</code> finds
+  <em>račun</em> and <em>račun</em> finds <code>racun</code> — and a word matches from its
+  start, so <code>prilog</code> finds <em>prilogi</em> and <em>priloge</em>.
+</p>
+
+<div class="callout">
+  <strong>A search that spans an indexed and an un-indexed account still goes to the
+  server.</strong> In <em>All inboxes</em> with the index on for one mailbox and off for
+  another, a <code>body:</code> term cannot be answered locally: the result would cover half
+  your mail and look like all of it. Hmelj would rather be slow than wrong, so it asks the
+  servers. Bare words are different — an un-indexed account simply contributes nothing extra,
+  which is honest — so those stay instant.
+</div>
+
+<p>
+  A body search only ever reaches what has been cached. <em>Search everywhere</em> is still
+  there, and still the way to reach a ten-year-old message in an archive folder.
+</p>
+
+<h2 id="search-saved">Saved searches</h2>
+<p>
+  A search you keep retyping can be pinned. Run it, then click <strong>Save this
+  search</strong> in the line under the results and give it a name. It appears in the
+  sidebar under a 🔎, below your folders.
+</p>
+<p>
+  A saved search stores the <em>question</em>, not the answer: opening one re-runs it, so it
+  is always current. Rename, reorder and delete them in
+  <strong>Settings → Saved searches</strong>.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════ Keyboard shortcuts ═════ -->
+<section id="shortcuts">
+<h1>Keyboard Shortcuts</h1>
+<p class="section-subtitle">Gmail's letters and Outlook's combinations, both</p>
+
+<p>
+  Press <kbd>?</kbd> anywhere in the mail view for the whole list without leaving the page.
+  Shortcuts do nothing while you are typing in a field, and never fight a browser or system
+  shortcut — anything with <kbd>Alt</kbd> or <kbd>Cmd</kbd> held is left alone.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>j</kbd> / <kbd>↓</kbd></td><td>Next message</td></tr>
+<tr><td><kbd>k</kbd> / <kbd>↑</kbd></td><td>Previous message</td></tr>
+<tr><td><kbd>Enter</kbd> / <kbd>o</kbd></td><td>Open</td></tr>
+<tr><td><kbd>u</kbd></td><td>Back to the list</td></tr>
+<tr><td><kbd>c</kbd></td><td>Compose</td></tr>
+<tr><td><kbd>/</kbd></td><td>Jump to the search box</td></tr>
+<tr><td><kbd>Del</kbd> / <kbd>Backspace</kbd> / <kbd>#</kbd></td><td>Delete</td></tr>
+<tr><td><kbd>Ctrl+Q</kbd></td><td>Mark as read</td></tr>
+<tr><td><kbd>Ctrl+U</kbd></td><td>Mark as unread</td></tr>
+<tr><td><kbd>e</kbd></td><td>Archive</td></tr>
+<tr><td><kbd>!</kbd></td><td>Mark as spam</td></tr>
+<tr><td><kbd>s</kbd></td><td>Star</td></tr>
+<tr><td><kbd>z</kbd></td><td>Snooze</td></tr>
+<tr><td><kbd>r</kbd> / <kbd>a</kbd> / <kbd>f</kbd></td><td>Reply · Reply to all · Forward</td></tr>
+<tr><td><kbd>?</kbd></td><td>This list</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <strong>The cursor is not the open message.</strong> <kbd>j</kbd> and <kbd>k</kbd> move an
+  outline around a row without opening it, and that outlined row is what the next
+  <kbd>Del</kbd> or <kbd>e</kbd> acts on. Acting on a row moves the cursor to the next one,
+  so a run of mail can be cleared without looking back at the screen. If you have not moved
+  the cursor at all, the shortcuts act on whatever is open.
+</p>
+
+<div class="callout">
+  <strong><kbd>Ctrl+Q</kbd> and <kbd>Ctrl+U</kbd> name a direction, they do not toggle</strong>
+  — the same as Outlook. Pressing <kbd>Ctrl+U</kbd> twice leaves a message unread rather than
+  putting it back. <strong><kbd>Ctrl+F</kbd> deliberately stays "find in message"</strong>
+  rather than Outlook's Forward, because every other page in your browser uses it that way;
+  forward is <kbd>f</kbd>.
+</div>
+
+<p>
+  They work with the caret inside a message body too, even though that body is a sandboxed
+  frame with a document of its own — keystrokes are handed back out to the app.
+</p>
+<p>
+  The calendar has its own small set, listed under
+  <a data-scroll="cal-views" data-section="calendar" href="#cal-views">The views</a>:
+  <kbd>←</kbd> <kbd>→</kbd> to page, <kbd>t</kbd> for today, and
+  <kbd>m</kbd> <kbd>w</kbd> <kbd>d</kbd> <kbd>a</kbd> to switch view.
+</p>
+
+<figure>
+<img alt="The keyboard shortcut list" data-src="screenshots/shortcuts.png" decoding="async" loading="lazy"/>
+<figcaption>The <kbd>?</kbd> overlay</figcaption>
 </figure>
 
 <a class="back-top" href="#about">↑ Top</a>
@@ -1778,6 +2103,27 @@ matches</strong>, or <strong>All messages</strong> (no conditions at all).</p>
   A filter that fails — an unreachable server, a folder that no longer exists — is recorded
   in Settings → Log with the reason, rather than failing silently.
 </p>
+
+<h2 id="filters-downtime">Mail that arrived while Hmelj was off</h2>
+<p>
+  It gets filtered anyway. Hmelj remembers, per folder, how far its filters have got, and on
+  the first check after a restart it works through everything that arrived since — however
+  long the gap was, up to <strong>30 days</strong>, saying so in Settings → Log if it ever
+  has to stop at that ceiling.
+</p>
+<p>
+  Nothing is filed twice. Each message is recorded against each filter that acted on it, so
+  an overlapping catch-up run recognises what it has already done — a filter that forwards a
+  message does not forward it again, and an auto-reply is not sent a second time.
+</p>
+<div class="callout">
+  <strong>Why this is not Sieve.</strong> Filters could be pushed to the mail server and run
+  there, which would make downtime irrelevant. Hmelj deliberately does not: your rules would
+  then live on someone else's server in a language it may or may not support fully, and every
+  provider supports a different subset. Keeping them here means they behave identically on
+  every account type — an IMAP server, Gmail, Microsoft 365 and Exchange alike — and moving
+  to a different provider does not lose them.
+</div>
 
 <a class="back-top" href="#about">↑ Top</a>
 </section>
@@ -2350,11 +2696,13 @@ holiday list will not be yours.
 <tr><td>Messages kept per folder</td><td>How many of each folder's newest messages are cached locally for fast browsing (50–5000). Lower syncs faster; the rest is always still on the server and reachable via <em>Search everywhere</em>.</td></tr>
 <tr><td>Messages kept ready to open instantly</td><td>How many of each folder's newest messages have their full content pre-fetched, so opening them is instant. <code>0</code> turns it off — a message is still cached the first time you open it, just not before. Cannot exceed the setting above.</td></tr>
 <tr><td>Search box autocomplete</td><td>Finishes words as you type, from your own mail history</td></tr>
+<tr><td>Search index size limit</td><td>A ceiling in MB on the full-text index that lets search look inside messages — turned on per account under Accounts. <code>0</code> means no limit. A stop, not a cleanup: at the ceiling nothing new is indexed, and what is already there keeps working. See <a data-scroll="search-index" data-section="search" href="#search-index">Searching inside messages</a>.</td></tr>
 <tr><td>Run filters when opening Inbox</td><td>In addition to the automatic run on new mail</td></tr>
 <tr><td>Delete behavior</td><td>Move to Trash · only mark <code>\Deleted</code> and leave in place · delete permanently (expunge)</td></tr>
 <tr><td>Mark as read when deleting</td><td></td></tr>
 <tr><td>Notifications</td><td>Master switch for this device, plus the test button and the device list — see <a data-section="notifications" href="#notifications">Notifications</a></td></tr>
 <tr><td>Swipe gestures on mobile</td><td>And which direction does read/unread vs delete</td></tr>
+<tr><td>Export your data</td><td>Settings as one zip, mail as mbox — see <a data-section="export" href="#export">Exporting Your Data</a></td></tr>
 </tbody>
 </table>
 </div>
@@ -2376,6 +2724,7 @@ holiday list will not be yours.
 <tr><td>Trusted domains</td><td>One per line</td></tr>
 <tr><td>Show deleted messages</td><td>Messages flagged <code>\Deleted</code> appear struck through</td></tr>
 <tr><td>Unsubscribe button</td><td>And whether its banner is shown compact</td></tr>
+<tr><td>Show whether the sender is verified</td><td>The SPF/DKIM/DMARC result your server recorded — a chip when the checks pass, a warning when a message claims a domain it may not use or wears a contact's name over a different address. Unchecked mail is left unmarked. See <a data-scroll="read-auth" data-section="reading" href="#read-auth">Is the sender who they say?</a></td></tr>
 <tr><td>Message font / size</td><td>The reading pane only</td></tr>
 <tr><td>Also use them for formatted mail</td><td>Makes those two win over the sender's own fonts</td></tr>
 </tbody>
@@ -2408,6 +2757,9 @@ holiday list will not be yours.
 <table>
 <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
 <tbody>
+<tr><td>Undo send window (seconds)</td><td>How long Send holds a message back so you can pull it out again. <code>0</code> sends immediately, 120 is the maximum. The wait is on the server, so it still applies if you close Hmelj.</td></tr>
+<tr><td>Warn about a missing attachment</td><td>Checks your own text — English and Slovenian, šumniki optional — for a mention of an attachment when nothing is attached</td></tr>
+<tr><td>Offer Reply to all</td><td>When you press Reply on a message that had other people on it</td></tr>
 <tr><td>Default format</td><td>HTML (rich text) or plain text</td></tr>
 <tr><td>Default font</td><td>For what you write — not the quoted original. Rich text only; the toolbar still overrides it per message.</td></tr>
 <tr><td>Quoted message on reply</td><td>Below my reply · Above my reply · Do not quote</td></tr>
@@ -2424,6 +2776,30 @@ holiday list will not be yours.
 <h2 id="set-filters">Filters</h2>
 <p>See <a data-section="filters" href="#filters">Filters</a>.</p>
 
+<h2 id="set-subject">Subject</h2>
+<p>
+  Rules that shorten long subjects <strong>in the message list and in notifications</strong>.
+  Machine-generated mail often buries the useful half behind a fixed prefix, so every row on a
+  phone reads identically; a rule strips the prefix, and the next one can shorten a word
+  inside what is left. Rules run top to bottom, each on the previous one's output, matching
+  plain text or a regular expression with <code>$1</code>, <code>$2</code> for what it
+  captured.
+</p>
+<p>
+  <strong>Nothing is changed on the mail server.</strong> Search still matches what the sender
+  actually wrote, opening the message shows the real subject, and a reply goes out quoting the
+  real one. A <em>Test a subject</em> box at the bottom shows what any subject would come out
+  as, using the rules exactly as edited — saved or not.
+</p>
+
+<h2 id="set-saved">Saved searches</h2>
+<p>Rename, reorder and delete them — see
+<a data-scroll="search-saved" data-section="search" href="#search-saved">Saved searches</a>.</p>
+
+<h2 id="set-templates">Templates</h2>
+<p>Reusable snippets, inserted while writing with the 📋 toolbar button — see
+<a data-scroll="compose-templates" data-section="compose" href="#compose-templates">Templates</a>.</p>
+
 <h2 id="set-folders">Folders</h2>
 <p>See <a data-section="folders" href="#folders">Folders</a>.</p>
 
@@ -2433,16 +2809,26 @@ holiday list will not be yours.
 <h2 id="set-contacts">Contacts</h2>
 <p>See <a data-section="contacts" href="#contacts">Contacts</a>.</p>
 
+<h2 id="set-calendars">Calendars</h2>
+<p>See <a data-section="calendar" href="#calendar">Calendar</a> — which calendars are synced,
+their colours, the time zone, and
+<a data-scroll="dav-server" data-section="calendar" href="#dav-server">sharing them back out
+of Hmelj</a>.</p>
+
 <h2 id="set-accounts">Accounts</h2>
 <p>See <a data-section="accounts" href="#accounts">Accounts</a>. This tab also carries
-<strong>Share</strong>, and the entry into the Folders tab for a given account.</p>
+<strong>Share</strong>, the entry into the Folders tab for a given account, and each
+account's <strong>Search inside messages</strong> switch with its live index size.</p>
 
 <h2 id="set-login">Login</h2>
 <p>
   Your Hmelj credentials — not any mailbox's. <strong>Change password</strong> asks for the
   current one. <strong>Change username</strong> signs you out on every device, since the
   login name is what sessions are tied to; changing only the capitalisation of your own
-  name is a display change and does not.
+  name is a display change and does not. <strong>App passwords</strong> live here too — one
+  per device, for subscribing a phone or another app to Hmelj's
+  <a data-scroll="dav-server" data-section="calendar" href="#dav-server">CalDAV/CardDAV
+  server</a>.
 </p>
 
 <h2 id="set-log">Log</h2>
@@ -2521,6 +2907,57 @@ holiday list will not be yours.
   at once — the family name and style (Regular / Bold / Italic / Bold Italic) are detected
   from each filename, so <code>Bookerly-Regular.ttf</code> and
   <code>Bookerly-BoldItalic.ttf</code> land in the right slots by themselves.
+</p>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ Export ════ -->
+<section id="export">
+<h1>Exporting Your Data</h1>
+<p class="section-subtitle">Both halves, in the format that can actually be read back</p>
+
+<p>
+  <strong>Settings → General → Export your data</strong>. It comes out in two shapes,
+  because one shape cannot do both jobs.
+</p>
+
+<h2 id="export-settings">Export settings</h2>
+<p>One zip, small, containing:</p>
+<ul>
+<li>your settings, identities and signatures</li>
+<li>filters, subject rules, saved searches and templates</li>
+<li>contacts — as JSON and as vCard, so any address book can import them</li>
+<li>calendars that live in Hmelj, as <code>.ics</code></li>
+</ul>
+<p>
+  Everything is the same JSON Hmelj stores on the server, so restoring is copying a file back
+  into <code>DATA_DIR/users/&lt;your user&gt;/</code> with the server stopped. A
+  <code>README.txt</code> inside the zip says so, and says what is missing.
+</p>
+
+<div class="callout">
+  <strong>Your mail accounts are deliberately not in it</strong>, and the zip contains a
+  README saying so. Their passwords are encrypted with this server's own key, so a copy would
+  be unreadable anywhere else — and writing them out in the clear instead would put every
+  mailbox password you own into your downloads folder. Server names and ports are quick to
+  retype; a leaked password is not quick to undo.
+</div>
+
+<h2 id="export-mail">Export mail</h2>
+<p>
+  One folder at a time, as an <strong>mbox</strong> file — the format Thunderbird, Apple Mail
+  and every migration tool import. Pick the account, the folder, and optionally "only messages
+  since…".
+</p>
+<p>
+  The file streams as it is read, a message at a time, so a folder of any size uses the same
+  small amount of memory and there is no size ceiling. A big folder takes a while and the
+  download appears when the whole thing has been read — the toast says as much when it starts.
+</p>
+<p>
+  Messages are exported <strong>exactly as they arrived</strong>, headers and all, so
+  signatures still verify and nothing has been re-encoded on the way out.
 </p>
 
 <a class="back-top" href="#about">↑ Top</a>

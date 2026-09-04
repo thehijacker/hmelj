@@ -24,6 +24,9 @@ the documentation site scales them, and these are just what the placeholders are
 | `calendar-share.png` | Settings › Calendars › Share from Hmelj, with one source set to busy-only |
 | `app-passwords.png` | Settings › Login › App passwords, listing two devices |
 | `filters.png` | Settings › Filters, with one rule expanded |
+| `shortcuts.png` | The `?` keyboard-shortcut overlay, over the message list |
+| `sender-auth.png` | A message with the Verified sender chip, and one with the failed-checks banner |
+| `snooze.png` | The snooze time picker open on a message, or the Snoozed view with due times |
 | `scheduler.png` | Settings › Scheduler — quiet hours and per-folder overrides |
 | `account-wizard.png` | The add-account wizard, on the provider/preset step |
 | `settings-general.png` | Settings › General |

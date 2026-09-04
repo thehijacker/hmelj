@@ -66,9 +66,13 @@
         with AES-256-GCM, and sent only to the mail servers they belong to.</li>
       <li><strong>Your mail</strong> — message headers and, for recently read messages, bodies
         are cached on your own server so lists and reopening are fast. Attachments are held
-        briefly in that server's memory and are never written to its disk by the cache.</li>
-      <li><strong>Your settings, identities, signatures, contacts and filters</strong> — stored
-        on your own server, per user.</li>
+        briefly in that server's memory and are never written to its disk by the cache. If you
+        switch on the full-text index for an account, the words of those cached bodies are also
+        indexed on that same server, so search can look inside them without asking the mail
+        provider; the index is deleted the moment you switch it off.</li>
+      <li><strong>Your settings, identities, signatures, contacts, calendars and filters</strong>
+        — stored on your own server, per user, and exportable from Settings at any time.
+        Snoozed messages are recorded there too: which message, and when it should come back.</li>
       <li><strong>The server address, and your session</strong> — in the Android app, the server
         URL you type and the session cookie it receives are stored locally on your device.</li>
     </ul>
