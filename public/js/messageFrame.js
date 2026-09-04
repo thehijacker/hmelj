@@ -19,12 +19,17 @@ const MessageFrame = (() => {
      They then take exactly the same route HTML mail's links already take: the
      frame's click handler cancels the navigation and postMessage()s the href
      out to the parent, which opens it in the external browser. */
-  const LINK_RE = new RegExp([
+  const URL_PATTERNS = [
     'https?://[^\\s<>"\'`]+',            // explicit scheme
     'www\\.[^\\s<>"\'`]+',               // scheme-less, still unambiguously a host
     'mailto:[^\\s<>"\'`]+',
-    "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+", // bare address
-  ].join('|'), 'g');
+  ];
+  const BARE_ADDRESS = "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+";
+  const LINK_RE = new RegExp([...URL_PATTERNS, BARE_ADDRESS].join('|'), 'g');
+  // Without bare addresses. Used when linkifying HTML mail, where a footer's
+  // "info@example.com" is usually already whatever its sender meant it to be,
+  // and rewriting it is editing somebody else's markup for no gain.
+  const URL_ONLY_RE = new RegExp(URL_PATTERNS.join('|'), 'g');
 
   /* Senders write "…povezavo: https://host/x." and "(see https://host/x)" —
      the sentence's own punctuation is not part of the URL. Trailing marks are
@@ -49,23 +54,32 @@ const MessageFrame = (() => {
     return u.slice(0, end);
   }
 
-  /** Escape `text` as HTML, turning bare URLs/addresses into anchors. */
-  function linkifyText(text) {
+  /**
+   * Escape `text` as HTML, turning bare URLs/addresses into anchors.
+   *
+   * `target`: false drops target/rel, for anchors that are going into an
+   * OUTGOING message rather than into the reading frame — target="_blank" is
+   * meaningless in mail and every client strips it anyway.
+   * `addresses`: false links only URLs, leaving bare email addresses as text.
+   */
+  function linkifyText(text, { target = true, addresses = true } = {}) {
     const src = String(text ?? '');
+    const re = addresses ? LINK_RE : URL_ONLY_RE;
+    const attrs = target ? ' target="_blank" rel="noopener noreferrer"' : '';
     let out = '';
     let last = 0;
-    LINK_RE.lastIndex = 0;
-    for (let m; (m = LINK_RE.exec(src));) {
+    re.lastIndex = 0;
+    for (let m; (m = re.exec(src));) {
       const url = trimTrailingPunctuation(m[0]);
       // All that survived the trim was punctuation — nothing to link.
-      if (!url) { LINK_RE.lastIndex = m.index + m[0].length; continue; }
+      if (!url) { re.lastIndex = m.index + m[0].length; continue; }
       let href = url;
       if (/^www\./i.test(url)) href = 'https://' + url;
       else if (!/^(?:https?|mailto):/i.test(url)) href = 'mailto:' + url;
       out += esc(src.slice(last, m.index));
-      out += `<a href="${attrEsc(href)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
+      out += `<a href="${attrEsc(href)}"${attrs}>${esc(url)}</a>`;
       last = m.index + url.length;
-      LINK_RE.lastIndex = last;
+      re.lastIndex = last;
     }
     return out + esc(src.slice(last));
   }
@@ -158,10 +172,63 @@ const MessageFrame = (() => {
       + `<div class="hmelj-quoted">${innerHtml}</div>`;
   }
 
+  /* An HTML message whose sender left a URL as bare text. Hmelj's own composer
+     did exactly this until it started linking on send, and plenty of clients
+     still do — so the URL arrives as characters inside a <div> and there is
+     nothing to click, even though the body is HTML.
+
+     Only TEXT NODES are rewritten, and only outside the elements below.
+     Anywhere else this would be editing the sender's markup rather than
+     linking their content: a URL inside <style> is a real stylesheet
+     reference, one inside an existing <a> is already a link (and would nest,
+     which is invalid), and <script>/<textarea> are raw-text elements where an
+     inserted tag changes what the content IS.
+
+     URLs only, in BOTH directions — a bare email address in an HTML body is
+     left exactly as written. Reading: it is the sender's markup and they
+     presumably meant it. Composing: an address appears in the signature and in
+     every quoted reply, so linking them would rewrite parts of an outgoing
+     message that the user did not touch. The plain-text path still links
+     addresses, which is what it has always done.
+
+     `target: false` is what the composer passes — target="_blank" is
+     meaningless in a sent message and every client strips it. */
+  const NO_LINKIFY = new Set(['A', 'STYLE', 'SCRIPT', 'TEXTAREA', 'HEAD', 'TITLE', 'NOSCRIPT', 'IFRAME', 'OBJECT']);
+  function linkifyBareUrlsInHtml(html, { target = true } = {}) {
+    // Cheap reject first: most messages have no bare URL at all, and parsing
+    // every one of them would put a full HTML parse on the open path.
+    if (!/https?:\/\/|www\./i.test(html)) return html;
+    let doc;
+    // DOMParser runs no scripts and loads no subresources — this is a parse of
+    // markup that is about to be handed to the frame anyway, not a render.
+    try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch { return html; }
+    if (!doc || !doc.body) return html;
+    const targets = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) {
+      if (!/https?:\/\/|www\./i.test(n.data)) continue;
+      let skip = false;
+      for (let p = n.parentNode; p && p.nodeType === 1; p = p.parentNode) {
+        if (NO_LINKIFY.has(p.tagName)) { skip = true; break; }
+      }
+      if (!skip) targets.push(n);
+    }
+    if (!targets.length) return html;
+    // Collected first, replaced after: replaceWith() while the TreeWalker is
+    // still walking would have it stepping through nodes that are no longer in
+    // the tree.
+    for (const n of targets) {
+      const holder = doc.createElement('span');
+      holder.innerHTML = linkifyText(n.data, { target, addresses: false });
+      n.replaceWith(...holder.childNodes);
+    }
+    return doc.body.innerHTML;
+  }
+
   function buildDoc({ html, text, fontFamily, fontSize, dark, bg, fg, link, dim, fonts, fontOverride }) {
     let body;
     if (html) {
-      body = html;
+      body = linkifyBareUrlsInHtml(html);
     } else {
       // Plain text is split HERE rather than in the frame: the raw text is
       // right in front of us, line-based splitting on it is exact, and doing
@@ -1006,6 +1073,6 @@ ${fontOverride ? `
     return iframe;
   }
 
-  return { create, buildFontFaceCss, linkifyText, splitQuotedText, onFindMessage, onKeyMessage, sendFind, openLink, scrollerFor: verticalScrollerFor };
+  return { create, buildFontFaceCss, linkifyText, linkifyBareUrlsInHtml, splitQuotedText, onFindMessage, onKeyMessage, sendFind, openLink, scrollerFor: verticalScrollerFor };
 })();
 if (typeof window !== 'undefined') window.MessageFrame = MessageFrame;

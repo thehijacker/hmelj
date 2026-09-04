@@ -4821,13 +4821,24 @@ function authSpoofCheck(from) {
   const shown = String(from.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const addr = String(from.address || '').trim().toLowerCase();
   if (shown.length < 4 || !addr || shown.includes('@')) return null;
+  // Never accuse the user of impersonating themselves. Anyone with two
+  // addresses under one name — a work account and a private one, which is the
+  // normal case here — sees their OWN sent mail flagged otherwise, and a
+  // warning that fires on your own reply is worse than no warning at all.
+  if (isOwnAddress(addr)) return null;
+  // Every address the address book knows this name at, not just the first one.
+  // A contact ROW is one name + one address (server/contacts.js), so a person
+  // with two addresses is two rows: stopping at the first mismatch reports a
+  // spoof for the second address of somebody perfectly legitimate.
+  const known = [];
   for (const c of state.contacts || []) {
     const cname = String(c?.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
     const cmail = String(c?.email || '').trim().toLowerCase();
     if (!cname || !cmail || cname !== shown) continue;
-    if (cmail !== addr) return cmail;
+    if (cmail === addr) return null; // known at this very address — nothing to say
+    known.push(cmail);
   }
-  return null;
+  return known.length ? known[0] : null;
 }
 
 /* ---------- turning a message into an event ---------- */

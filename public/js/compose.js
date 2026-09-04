@@ -102,7 +102,15 @@ const Compose = (() => {
       return { text, html: null };
     }
     const ed = document.getElementById('c-editor');
-    return { html: ed.innerHTML, text: ed.innerText };
+    // A URL typed into a contenteditable is just characters — the browser does
+    // not link it, and neither did we, so "…v management programu:
+    // http://host/x" went out as text the RECIPIENT could not click either.
+    // Linked here, on the way out, rather than as you type: rewriting the
+    // editor's own DOM mid-sentence moves the caret, which is why no client
+    // does it that way. target="_blank" is dropped — it means nothing in mail.
+    // Nothing to link (the usual case, since URLs in the signature and the
+    // quoted block are already anchors) returns the same string untouched.
+    return { html: MessageFrame.linkifyBareUrlsInHtml(ed.innerHTML, { target: false }), text: ed.innerText };
   }
 
   /** The default font for new mail (Settings > Compose > Default font), as a CSS

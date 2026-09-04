@@ -4,7 +4,7 @@
 //    Network-first keeps self-hosted tweaking painless (edit a file, refresh, see it).
 //  - /api/*: network only — mail data must always be fresh. When offline, list/read
 //    requests get a JSON error the UI shows as a normal error toast.
-const VERSION = 'hmelj-20260903023';
+const VERSION = 'hmelj-20260904002';
 const SHELL = [
   '/',
   '/index.html',
