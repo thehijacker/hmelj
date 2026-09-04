@@ -143,5 +143,94 @@ console.log('\nan inline image is not also an attachment chip');
     + 'so removing a file never removes a different one');
 }
 
+console.log('\nediting a draft gets its files back');
+{
+  // open() clears `attachments` and nothing used to put them back, so editing a
+  // draft silently dropped every file on it. Invisible until images could be
+  // pasted inline — then the draft reopened showing broken images, because the
+  // body still said <img src="cid:…"> with nothing left for the cid to name.
+  ok(src.includes('restoreDraftParts(msg);'), 'editDraft asks for them');
+  ok(src.includes('/attachment/${a.index}`)'), 'fetched part by part from the server, like forward() already did');
+
+  // The inline/attachment decision, copied — asserted against the module below.
+  const isInline = (part, referenced) => !!(part.cid && referenced.has(part.cid));
+  ok(src.includes('const inline = !!(a.cid && referenced.has(a.cid));'), 'the copy still matches the module');
+
+  const used = new Set(['img1@hmelj']);
+  ok(isInline({ cid: 'img1@hmelj' }, used) === true, 'a part the body references comes back inline');
+  ok(isInline({ cid: 'orphan@hmelj' }, used) === false,
+    'a part with a cid the body does NOT reference becomes an ordinary attachment — deciding this from the '
+    + 'inlineUsed header instead would strand it, because getBody() prunes unreferenced inline parts');
+  ok(isInline({ cid: null }, used) === false, 'a plain attachment stays a plain attachment');
+  ok(isInline({ cid: undefined }, new Set()) === false, 'and an empty body references nothing');
+
+  ok(src.includes('cid: a.cid, inline: true'),
+    "the ORIGINAL Content-ID is kept — the body's existing references have to keep resolving");
+  ok(src.includes('if (draftUid !== wasDraft) return;'),
+    'a slow fetch that lands after the composer moved on does not push files into whatever is being written now');
+  ok(src.includes('dirty = false;') && src.includes('pristinePayload = JSON.stringify(payload());'),
+    'restoring is not editing — without this the freshly opened draft counts as changed and autosave writes a second copy');
+  ok(src.includes("toast(I18n.t('Could not load this draft\\'s attachments')"),
+    'a part that cannot be fetched is reported, not swallowed — better a warning than a message quietly '
+    + 'sent without the file somebody attached to it yesterday');
+}
+
+console.log('\na draft opens in the composer and nowhere else');
+{
+  const app = fs.readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  // It used to be drawn as an ordinary message AS WELL as opened for editing:
+  // two copies on screen saying different things, and — after the draft was
+  // discarded — the message still sitting in the reading pane with no row left
+  // in the list to explain it.
+  ok(app.includes('Compose.editDraft(msg);\n    state.openMessage = null;\n    closeMessage();'),
+    'opening a draft hands it to the composer and leaves the reading pane empty');
+  ok(!/function renderMessage[\s\S]{0,200}Compose\.editDraft/.test(app),
+    'renderMessage no longer opens the composer as a side effect of drawing a card');
+  ok(app.includes('const rowAccount = state.accounts.find((x) => x.id === msgAccount);'),
+    "decided from the ROW's account — state.currentAccount is 'all' in the unified view");
+  ok(src.includes("if (typeof closeMessage === 'function' && state.openUid === draftUid) closeMessage();"),
+    'and discarding a draft releases the pane if it happens to be showing that same draft');
+  ok(src.includes('state.openUid === draftUid'),
+    'guarded on the uid — discarding must not close some OTHER message opened alongside it');
+}
+
+console.log('\nthe saved draft has to carry the Content-ID');
+{
+  const index = fs.readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
+  // The reported failure: paste a screenshot, save, reopen — and the draft
+  // shows "slika.png" where the picture was. saveDraft() rebuilt the parts as
+  // {filename, content, contentType} and dropped `cid`, so the appended part
+  // had no Content-ID and <img src="cid:…"> resolved to nothing. Sending the
+  // same message was fine, which is what made it look like a display bug.
+  ok(/attachments: \(payload\.attachments \|\| \[\]\)\.map\(\(a\) => \(\{[\s\S]{0,300}cid: a\.cid \|\| undefined,/.test(index),
+    'saveDraft passes cid through to the APPENDed message');
+  ok(smtp.includes('cid: a.cid || undefined,'), 'and so does the send path, as it always did');
+  // Verified against nodemailer itself: cid alone produces Content-ID,
+  // Content-Disposition: inline AND the multipart/related wrapper, so nothing
+  // else has to be set — asserted so a "helpful" addition does not creep back.
+  ok(!index.includes("contentDisposition: a.cid ? 'inline' : undefined"),
+    'without restating a disposition nodemailer already derives from cid');
+}
+
+console.log('\na reopened draft does not get a second signature');
+{
+  // open() appends the current identity's signature. editDraft() hands it a
+  // body that already ENDS in one — the one whose author saved it — so every
+  // reopen added another, and the next one after that a third.
+  ok(src.includes('if (adoptExistingSignature()) return;'),
+    'applySignatureForIdentity stands down when the body already carries a signature');
+  ok(src.includes('insertedSignatureNode = existing;'),
+    'and adopts it, so a later identity switch REPLACES that signature rather than stacking one under it');
+  ok(src.includes('const existing = host.querySelector(`:scope > .${SIGNATURE_WRAP}`);'),
+    "scoped to the writing area's direct children — a reply quotes an original that may end with the "
+    + "sender's own signature, and that one belongs to the quote");
+  ok(src.includes('if (insertedSignatureNode?.isConnected) return false;'),
+    'a compose that already placed its own signature is not confused by it');
+  ok(src.includes("const at = head.search(/(^|\\n)-- \\n/);"),
+    'plain text has no markup, so the RFC 3676 delimiter is the only signal there is');
+  ok(!/'signature-wrap'/.test(src.replace("const SIGNATURE_WRAP = 'signature-wrap';", '')),
+    'and the class is named once, not restated at each of the four places that look for it');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

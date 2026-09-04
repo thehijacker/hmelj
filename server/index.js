@@ -3955,7 +3955,19 @@ async function saveDraft(payload, acc, previousUid) {
     subject: payload.subject || '',
     html: payload.html || undefined,
     text: payload.text || undefined,
-    attachments: (payload.attachments || []).map((a) => ({ filename: a.filename, content: Buffer.from(a.contentBase64, 'base64'), contentType: a.contentType })),
+    // `cid` is what makes an inline image an inline image, and dropping it here
+    // is why a draft with a pasted screenshot reopened showing the alt text
+    // where the picture was: the part was APPENDed with no Content-ID, so the
+    // body's <img src="cid:…"> resolved to nothing. The same message SENT was
+    // fine, because smtpClient.js has always passed cid through. Nodemailer
+    // derives Content-Disposition: inline and the multipart/related wrapper
+    // from cid on its own — nothing else needs setting here.
+    attachments: (payload.attachments || []).map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.contentBase64, 'base64'),
+      contentType: a.contentType,
+      cid: a.cid || undefined,
+    })),
   });
   if (previousUid) {
     await imap.hardDelete(acc.draftsFolder, [previousUid]).catch(() => {});

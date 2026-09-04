@@ -4437,6 +4437,19 @@ async function showSingleMessage(view, m, { allowImages = false } = {}) {
   // Kept for the keyboard shortcuts: r/a/f need the FETCHED message (body,
   // headers, attachments), not the envelope the list row carries.
   state.openMessage = msg;
+  // A draft is not a message to read — it is something you are still writing,
+  // and the composer is where it belongs. It used to be drawn as an ordinary
+  // message AS WELL, which meant two copies of it on screen saying different
+  // things, and a stale one left behind in the reading pane after the draft
+  // was discarded. The row's own account, not the current one, because
+  // `state.currentAccount` is 'all' in the unified view.
+  const rowAccount = state.accounts.find((x) => x.id === msgAccount);
+  if (rowAccount && msgFolder === rowAccount.draftsFolder) {
+    Compose.editDraft(msg);
+    state.openMessage = null;
+    closeMessage(); // nothing is open in the pane, so nothing may claim to be
+    return;
+  }
   renderMessage(view, msg, m);
   scheduleMarkRead(m);
 }
@@ -5283,11 +5296,6 @@ function noteMemberRead(entry, seen) {
 function renderMessage(view, msg, listEntry) {
   view.innerHTML = '';
   view.appendChild(buildMessageCard(msg, listEntry));
-
-  const a = acct();
-  if (a && state.currentFolder === a.draftsFolder) {
-    Compose.editDraft(msg);
-  }
 }
 
 /* ---------- conversation (threaded) reading pane ---------- */

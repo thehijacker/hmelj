@@ -176,10 +176,11 @@ export async function sendMail(payload) {
       filename: a.filename,
       content: Buffer.from(a.contentBase64, 'base64'),
       contentType: a.contentType || undefined,
-      // Only ever set by a filter's `redirect` (see filters.js) — it carries the
-      // original inline image's Content-ID through so the forwarded HTML's
-      // `cid:` references still resolve. The composer never sets it, so this is
-      // undefined for every ordinary send and nothing changes there.
+      // Set by an image pasted or dropped into the composer body, and by a
+      // filter's `redirect` (see filters.js), which carries the original inline
+      // image's Content-ID through so the forwarded HTML's `cid:` references
+      // still resolve. Undefined for an ordinary file attachment, which is what
+      // makes nodemailer treat that one as a normal attached file.
       cid: a.cid || undefined,
     })),
   };

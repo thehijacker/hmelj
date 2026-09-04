@@ -36,6 +36,10 @@ const Compose = (() => {
   // .quote-header already did.
   const BODY_CLASS = 'compose-body';
   const QUOTE_CLASS = 'quoted-block';
+  // What signatureHtml() wraps a signature in: ONE node, so switching identity
+  // removes the whole thing, spacing included — and so a signature already in
+  // the body (a reopened draft) can be recognised rather than duplicated.
+  const SIGNATURE_WRAP = 'signature-wrap';
   let identities = [];
   // {filename, contentType, contentBase64} — plus {cid, inline:true} for an
   // image pasted or dropped into the body, which travels as a normal
@@ -183,7 +187,7 @@ const Compose = (() => {
     // One wrapping div (not bare <br><br> + a sibling .signature div) so
     // applySignatureForIdentity can remove the whole thing — spacing and
     // all — as a single node when switching identities.
-    return `<div class="signature-wrap"><br><br><div class="signature">${delimiter}${body}</div></div>`;
+    return `<div class="${SIGNATURE_WRAP}"><br><br><div class="signature">${delimiter}${body}</div></div>`;
   }
 
   /** Inserts (or removes, if the newly-selected identity's own settings say
@@ -200,6 +204,16 @@ const Compose = (() => {
    * after whatever's there, just without removing anything first. */
   function applySignatureForIdentity(id, context) {
     const sig = signatureHtml(id, context);
+    // A body that ALREADY carries a signature is a message coming back to be
+    // edited — a draft reopened, or a cancelled undo-send. The one it has is
+    // the one its author saved, so it is adopted rather than added to; without
+    // this, open() appended a second copy every time a draft was reopened, and
+    // a third the time after that.
+    //
+    // Adopted, not merely skipped: `insertedSignatureNode` is what lets a later
+    // identity switch replace the signature instead of stacking another one
+    // under it, and after a reopen that pointer would otherwise be null.
+    if (adoptExistingSignature()) return;
     if (isPlain()) {
       const ta = document.getElementById('c-editor-plain');
       const text = ta.value;
@@ -230,6 +244,37 @@ const Compose = (() => {
       }
       insertedSignaturePlainText = '';
     }
+  }
+
+  /**
+   * Claims a signature that is already in the body, if this call has not put
+   * one there itself yet. Returns true when there was one.
+   *
+   * Scoped to the writing area's direct children on purpose: a reply quotes an
+   * original that may well end with the sender's own signature block, and that
+   * one belongs to them and to the quote, not to this message.
+   */
+  function adoptExistingSignature() {
+    if (isPlain()) {
+      if (insertedSignaturePlainText) return false; // this compose already placed one
+      const ta = document.getElementById('c-editor-plain');
+      const tail = plainQuoteTail && ta.value.endsWith(plainQuoteTail) ? plainQuoteTail : '';
+      const head = tail ? ta.value.slice(0, ta.value.length - tail.length) : ta.value;
+      // Plain text has no markup to recognise, so the delimiter convention is
+      // the only signal there is: "-- " on a line of its own (RFC 3676).
+      const at = head.search(/(^|\n)-- \n/);
+      if (at < 0) return false;
+      insertedSignaturePlainText = head.slice(at === 0 ? 0 : at + 1);
+      return true;
+    }
+    if (insertedSignatureNode?.isConnected) return false; // ditto
+    const ed = document.getElementById('c-editor');
+    const host = ed.querySelector(`:scope > .${BODY_CLASS}`) || ed;
+    const existing = host.querySelector(`:scope > .${SIGNATURE_WRAP}`);
+    if (!existing) return false;
+    insertedSignatureNode = existing;
+    insertedSignaturePlainText = '';
+    return true;
   }
 
   /* ---------- templates (Settings > Templates) ----------
@@ -279,7 +324,7 @@ const Compose = (() => {
       } else {
         // Before the signature if there is one, so a template never lands under
         // the sign-off.
-        const sig = host.querySelector(':scope > .signature-wrap');
+        const sig = host.querySelector(`:scope > .${SIGNATURE_WRAP}`);
         const frag = document.createElement('div');
         frag.innerHTML = t.html || '';
         if (sig) sig.insertAdjacentHTML('beforebegin', frag.innerHTML);
@@ -532,6 +577,79 @@ const Compose = (() => {
       context: 'new',
     });
     draftUid = msg.uid;
+    restoreDraftParts(msg);
+  }
+
+  /** A blob as the base64 the send payload carries. */
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(reader.error || new Error('Could not read that file'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /** Which cid: references the body actually uses right now. */
+  function bodyCids() {
+    return new Set([...document.getElementById('c-editor').querySelectorAll('img[src^="cid:"]')]
+      .map((i) => i.getAttribute('src').slice(4)));
+  }
+
+  /**
+   * Puts a draft's files back in the composer.
+   *
+   * open() clears `attachments`, and nothing used to put them back — so editing
+   * a draft silently dropped every file on it and sent a message without them.
+   * That was invisible until images could be pasted inline, at which point the
+   * draft reopened showing broken images: the body still says
+   * <img src="cid:…"> and there is nothing left for the cid to name.
+   *
+   * A part is inline if THE BODY REFERENCES ITS CID, not because a header said
+   * so. Deciding it from `inlineUsed` alone would strand a part that is
+   * structurally embedded but no longer referenced — getBody() prunes those, so
+   * it would vanish from a draft that still listed it. Anything the body does
+   * not reference becomes an ordinary attachment chip, which is recoverable;
+   * the other way round loses a file.
+   *
+   * The original Content-ID is kept rather than a fresh one minted: the body's
+   * existing references have to keep resolving, and rewriting them all would be
+   * the same job done twice.
+   */
+  async function restoreDraftParts(msg) {
+    const parts = (msg.attachments || []).filter((a) => a && a.index != null);
+    if (!parts.length) return;
+    const folder = msg.__folder || state.currentFolder;
+    const uid = msg.uid;
+    const referenced = bodyCids();
+    const wasDraft = draftUid;
+    try {
+      await Promise.all(parts.map(async (a) => {
+        const r = await fetch(`/api/message/${encodeURIComponent(folder)}/${encodeURIComponent(uid)}/attachment/${a.index}`);
+        if (!r.ok) throw new Error(`part ${a.index}: HTTP ${r.status}`);
+        const blob = await r.blob();
+        const inline = !!(a.cid && referenced.has(a.cid));
+        attachments.push({
+          filename: a.filename || `attachment-${a.index}`,
+          contentType: a.contentType || blob.type,
+          contentBase64: await blobToBase64(blob),
+          ...(inline ? { cid: a.cid, inline: true } : {}),
+        });
+      }));
+    } catch (e) {
+      // Better a visible warning than a message quietly sent without the file
+      // somebody attached to it yesterday.
+      toast(I18n.t('Could not load this draft\'s attachments') + ': ' + e.message, 6000);
+    }
+    // The composer may have moved on — a slow fetch must not push files into
+    // whatever is being written now.
+    if (draftUid !== wasDraft) return;
+    restoreInlineImages();
+    renderAttachments();
+    // Restoring is not editing. Without this the freshly opened draft counts as
+    // changed and the next autosave writes a second copy of it.
+    dirty = false;
+    pristinePayload = JSON.stringify(payload());
   }
 
   /**
@@ -1064,6 +1182,12 @@ const Compose = (() => {
       const acctId = currentIdentity().accountId || state.accounts[0]?.id;
       const acct = state.accounts.find((a) => a.id === acctId);
       await API.deleteMsgs(acct?.draftsFolder || 'Drafts', [draftUid], acct?.id).catch(() => {});
+      // If this draft is also what the reading pane is showing, the pane has to
+      // let go of it — otherwise the message stays on screen after the row it
+      // came from is gone, which is what a deleted draft used to look like.
+      // Guarded on the uid: discarding a draft must not close some OTHER
+      // message the reader opened alongside it.
+      if (typeof closeMessage === 'function' && state.openUid === draftUid) closeMessage();
       loadMessages(); loadFolders();
     }
     close();
@@ -1296,7 +1420,7 @@ const Compose = (() => {
       } else {
         const host = ed?.querySelector(':scope > .' + BODY_CLASS) || ed;
         const clone = host.cloneNode(true);
-        for (const drop of clone.querySelectorAll('.' + QUOTE_CLASS + ', .signature-wrap')) drop.remove();
+        for (const drop of clone.querySelectorAll('.' + QUOTE_CLASS + ', .' + SIGNATURE_WRAP)) drop.remove();
         typed = clone.textContent || '';
       }
       if (!ComposeGuards.missingAttachment({

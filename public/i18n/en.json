@@ -1206,7 +1206,8 @@
     "Settings, identities, filters, subject rules, saved searches, templates, contacts and local calendars come out as one zip. Mail comes out separately, one folder at a time, as an mbox file — the format Thunderbird and every migration tool import. Your mail ACCOUNTS are deliberately not included: their passwords are encrypted with this server's own key, so a copy would be useless elsewhere, and decrypting them into the file would put every mailbox password in your downloads folder.": "Settings, identities, filters, subject rules, saved searches, templates, contacts and local calendars come out as one zip. Mail comes out separately, one folder at a time, as an mbox file — the format Thunderbird and every migration tool import. Your mail ACCOUNTS are deliberately not included: their passwords are encrypted with this server's own key, so a copy would be useless elsewhere, and decrypting them into the file would put every mailbox password in your downloads folder.",
     "Used by Snooze": "Used by Snooze",
     "Snoozed messages wait here until they are due. Open the Snoozed view in the sidebar to see them.": "Snoozed messages wait here until they are due. Open the Snoozed view in the sidebar to see them.",
-    "Hmelj manages this folder": "Hmelj manages this folder"
+    "Hmelj manages this folder": "Hmelj manages this folder",
+    "Could not load this draft's attachments": "Could not load this draft's attachments"
   },
   "prefixes": [
     [
