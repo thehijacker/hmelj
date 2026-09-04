@@ -52,6 +52,22 @@ object MailNotifications {
     /** Silent, minimum-importance channel carrying only the unread count. */
     const val CHANNEL_BADGE = "codexa_unread_badge"
 
+    /**
+     * Calendar reminders.
+     *
+     * Its own channel, not the mail one, and that is the point of channels: a
+     * person who wants meeting reminders to make a sound while mail stays
+     * silent — or the exact reverse, which is at least as common — can only have
+     * that if the two are separate. Sharing CHANNEL_MAIL would make the choice
+     * unavailable and there would be no way to add it later without discarding
+     * whatever they had configured (see the note above on channel ids being
+     * persistence keys).
+     *
+     * A fresh `hmelj_` id rather than the `codexa_` prefix the two above are
+     * stuck with: there is no installed base to preserve settings for here.
+     */
+    const val CHANNEL_CALENDAR = "hmelj_calendar"
+
     /** One fixed id, so repeated updates replace rather than stack. */
     const val BADGE_NOTIFICATION_ID = -1000
 
@@ -91,6 +107,20 @@ object MailNotifications {
             enableVibration(false)
         }
         manager.createNotificationChannel(badge)
+
+        val calendar = NotificationChannel(
+            CHANNEL_CALENDAR,
+            context.getString(R.string.calendar_channel_name),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            // Deliberately NOT setShowBadge: the launcher badge is the unread
+            // MAIL count, driven by the summary in setBadge() below. A reminder
+            // adding itself to that number would make the badge mean two things
+            // at once and stop matching what the app shows.
+            setShowBadge(false)
+            enableVibration(true)
+        }
+        manager.createNotificationChannel(calendar)
     }
 
     /**

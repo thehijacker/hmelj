@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tray action icon: "Snooze" on a calendar reminder. Android 7+ doesn't render
+     action icons at all (only their titles), but NotificationCompat.addAction
+     still requires one, and Wear/Auto surfaces do show it. Material's
+     "snooze" (a clock with Z). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9,11h6v1.5l-3.75,4.5H15V19H9v-1.5l3.75,-4.5H9V11zM12,4c-4.42,0 -8,3.58 -8,8s3.58,8 8,8 8,-3.58 8,-8 -3.58,-8 -8,-8zM12,2c5.52,0 10,4.48 10,10s-4.48,10 -10,10S2,17.52 2,12 6.48,2 12,2z" />
+</vector>

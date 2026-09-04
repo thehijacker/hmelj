@@ -40,7 +40,6 @@ class MailActionWorker(context: Context, params: WorkerParameters) : Worker(cont
 
     override fun doWork(): Result {
         val action = inputData.getString(KEY_ACTION) ?: return Result.success()
-        val folder = inputData.getString(KEY_FOLDER) ?: return Result.success()
         val uid = inputData.getString(KEY_UID) ?: return Result.success()
         val accountId = inputData.getString(KEY_ACCOUNT)?.takeIf { it.isNotEmpty() }
 
@@ -52,6 +51,18 @@ class MailActionWorker(context: Context, params: WorkerParameters) : Worker(cont
         } catch (e: Exception) {
             return Result.success() // malformed saved URL — retrying won't fix it
         }
+
+        // The calendar Snooze button. It lives in this worker rather than one of
+        // its own because everything hard here — resolving the origin, borrowing
+        // the WebView's session cookie, retrying across a dead process, telling
+        // the user when it finally gave up — is identical, and duplicating it
+        // for a single POST would be the worse trade. The class name is now a
+        // little narrower than what it does.
+        if (action == NotificationActionReceiver.ACTION_SNOOZE) {
+            return doSnooze(origin, uid)
+        }
+
+        val folder = inputData.getString(KEY_FOLDER) ?: return Result.success()
 
         // Signed out (or cookies not yet flushed to disk). Worth retrying: the
         // session usually comes back, and until then there is nothing to send.
@@ -89,6 +100,64 @@ class MailActionWorker(context: Context, params: WorkerParameters) : Worker(cont
             // request later changes nothing.
             in 400..499 -> { reportFailure(action, accountId, folder, uid); Result.failure() }
             else -> retryOrReport(action, accountId, folder, uid) // 5xx or no network
+        }
+    }
+
+    /**
+     * POSTs one snooze. Same server route the browser's Service Worker uses
+     * (public/sw.js#handleCalendarClick), so both shells behave identically.
+     *
+     * Failure is reported the same way a mail action's is, and for the same
+     * reason: the notification was dismissed the instant the button was tapped,
+     * so a silent give-up would leave somebody believing they had been
+     * re-reminded when they had not.
+     */
+    private fun doSnooze(origin: String, uid: String): Result {
+        val calendarId = inputData.getString(KEY_CALENDAR) ?: return Result.success()
+        val start = inputData.getString(KEY_START) ?: return Result.success()
+        val cookie = CookieManager.getInstance().getCookie(origin)
+        if (cookie.isNullOrEmpty()) return retryOrReportSnooze()
+
+        val body = JSONObject().apply {
+            put("calendarId", calendarId)
+            put("uid", uid)
+            // A number, not a string: the server reads it with Number(start) and
+            // an occurrence is identified by the exact instant.
+            put("start", start.toLongOrNull() ?: 0L)
+            put("minutes", SNOOZE_MINUTES)
+        }.toString()
+
+        return when (post("$origin/api/calendar/snooze", cookie, body)) {
+            in 200..299 -> Result.success()
+            // 4xx is an answer, not an outage — the calendar may simply be gone.
+            in 400..499 -> { reportSnoozeFailure(); Result.failure() }
+            else -> retryOrReportSnooze()
+        }
+    }
+
+    private fun retryOrReportSnooze(): Result {
+        if (runAttemptCount < MAX_ATTEMPTS) return Result.retry()
+        reportSnoozeFailure()
+        return Result.success()
+    }
+
+    private fun reportSnoozeFailure() {
+        val nm = NotificationManagerCompat.from(applicationContext)
+        if (!nm.areNotificationsEnabled()) return
+        MailNotifications.createChannels(applicationContext)
+        val text = applicationContext.getString(R.string.notification_action_snooze_failed)
+        val id = "fail-snooze/${inputData.getString(KEY_CALENDAR)}/${inputData.getString(KEY_UID)}".hashCode()
+        val notification = NotificationCompat.Builder(applicationContext, MailNotifications.CHANNEL_CALENDAR)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(applicationContext.getString(R.string.app_name))
+            .setContentText(text)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        try {
+            nm.notify(id, notification)
+        } catch (e: SecurityException) {
+            // POST_NOTIFICATIONS revoked between the check above and here.
         }
     }
 
@@ -175,6 +244,11 @@ class MailActionWorker(context: Context, params: WorkerParameters) : Worker(cont
         private const val KEY_ACCOUNT = "accountId"
         private const val KEY_FOLDER = "folder"
         private const val KEY_UID = "uid"
+        private const val KEY_CALENDAR = "calendarId"
+        private const val KEY_START = "occurrenceStart"
+        /** Matches the button's own title and the browser's snooze in
+         *  public/sw.js — one number, said in one place per shell. */
+        private const val SNOOZE_MINUTES = 5
         /** ~10s, 30s, 90s, 4.5m with exponential backoff — an action the user
          *  took by hand deserves more patience than a background refresh, but
          *  not so much that "it failed" arrives an hour later. */
@@ -196,6 +270,24 @@ class MailActionWorker(context: Context, params: WorkerParameters) : Worker(cont
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
                 .addTag("codexa-mail-action-$notificationId")
+                .build()
+            WorkManager.getInstance(context).enqueue(req)
+        }
+
+        /** The Snooze button on a calendar reminder — see doSnooze above for why
+         *  it shares this worker. */
+        fun enqueueSnooze(context: Context, calendarId: String, uid: String, occurrenceStart: String, notificationId: Int) {
+            val data = Data.Builder()
+                .putString(KEY_ACTION, NotificationActionReceiver.ACTION_SNOOZE)
+                .putString(KEY_CALENDAR, calendarId)
+                .putString(KEY_UID, uid)
+                .putString(KEY_START, occurrenceStart)
+                .build()
+            val req = OneTimeWorkRequestBuilder<MailActionWorker>()
+                .setInputData(data)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+                .addTag("hmelj-calendar-snooze-$notificationId")
                 .build()
             WorkManager.getInstance(context).enqueue(req)
         }

@@ -84,7 +84,7 @@ function graphError(status, json, text, url) {
   const code = json?.error?.code || '';
   if (status === 403) {
     const e = new Error(
-      `Microsoft refused this request (${detail}). That is almost always a missing permission rather than a bad sign-in: in Azure → your app registration → API permissions, add the Microsoft Graph DELEGATED permissions Mail.ReadWrite, Mail.Send and Contacts.Read, then sign in again from Settings → Accounts so the new permissions are consented to.`
+      `Microsoft refused this request (${detail}). That is almost always a missing permission rather than a bad sign-in: in Azure → your app registration → API permissions, add the Microsoft Graph DELEGATED permissions Mail.ReadWrite, Mail.Send and Contacts.Read, then sign in again from Settings → Accounts so the new permissions are consented to. Live contact sync additionally needs Contacts.ReadWrite, which is requested only for accounts where you turn it on.`
     );
     e.status = 400;
     e.graphCode = code;
@@ -741,7 +741,9 @@ export async function getMessageSource(path, uid) {
 
 export async function getMessage(path, uid) {
   const { source, flags } = await getMessageSource(path, uid);
-  return { uid, ...(await parseMessage(source, flags)) };
+  // The account's own authserv-id, so the Authentication-Results reading knows
+  // which server's verdict is the trustworthy one (server/authResults.js).
+  return { uid, ...(await parseMessage(source, flags, { authservId: currentAccount()?.authservId })) };
 }
 
 export async function getMessageHeaders(path, uid) {
@@ -952,6 +954,132 @@ export async function appendMessage(path, raw, flags = []) {
   return { uid };
 }
 
+// ---------- calendars ----------
+
+/** Every calendar in the mailbox. `canEdit` is Microsoft's own answer about
+ *  write access, so a colleague's shared calendar is reported read-only rather
+ *  than guessed at. */
+export async function listCalendars() {
+  const items = await gpage('/me/calendars?$select=id,name,color,hexColor,canEdit,isDefaultCalendar,owner', { maxPages: 10 });
+  return items.map((c) => ({
+    id: c.id,
+    displayName: c.name || 'Calendar',
+    // hexColor is the real one when Outlook has been given a custom colour;
+    // `color` is a small enum ("lightBlue") that would need its own table.
+    color: /^#[0-9a-f]{6}$/i.test(c.hexColor || '') ? c.hexColor.toLowerCase() : '',
+    readOnly: c.canEdit === false,
+    isDefault: !!c.isDefaultCalendar,
+    owner: c.owner?.address || '',
+  }));
+}
+
+/**
+ * A new calendar in the signed-in mailbox.
+ *
+ * Graph takes only a name here; `hexColor` is settable but is a MAILBOX-side
+ * preference that Outlook shows in its own sidebar, and Hmelj keeps its own
+ * per-calendar colour anyway (see calendarStore.js), so it is deliberately not
+ * sent — one colour to change, not two that can disagree.
+ */
+export async function createCalendar(name) {
+  const created = await gfetch('/me/calendars', { method: 'POST', body: { name: String(name || '').trim() } });
+  return {
+    id: created?.id || '',
+    displayName: created?.name || name,
+    color: /^#[0-9a-f]{6}$/i.test(created?.hexColor || '') ? created.hexColor.toLowerCase() : '',
+    readOnly: created?.canEdit === false,
+  };
+}
+
+const EVENT_SELECT = 'id,iCalUId,subject,bodyPreview,start,end,isAllDay,location,organizer,attendees,'
+  + 'showAs,sensitivity,seriesMasterId,type,webLink,isCancelled,reminderMinutesBeforeStart,isReminderOn,lastModifiedDateTime'
+  // The join link, which is the single most useful thing about a meeting and
+  // the one thing bodyPreview reliably cuts off: it truncates at 255
+  // characters and a Teams invitation puts several paragraphs of boilerplate
+  // above the URL.
+  + ',isOnlineMeeting,onlineMeeting,onlineMeetingUrl';
+
+/**
+ * Occurrences in a window, with recurrence ALREADY EXPANDED by Microsoft.
+ *
+ * `calendarView` rather than `/events`, deliberately. `/events` returns series
+ * masters carrying Microsoft's own recurrence object, which would then have to
+ * be translated into an RRULE — and a mistranslation of "the last working
+ * Friday of every second month" is invisible until somebody misses a meeting.
+ * Exchange knows its own recurrence semantics; asking it to apply them is both
+ * less code and more correct. The cost is that the calendar is only known over
+ * the window that was asked for, which is why server/calendarSync.js syncs a
+ * rolling one and says so.
+ *
+ * Cancelled occurrences of a series come back with `isCancelled` — they are
+ * holes in the series, and are dropped here rather than shown as events.
+ */
+export async function calendarView(calendarId, fromIso, toIso, { maxPages = 40, pageSize = 200 } = {}) {
+  const base = calendarId
+    ? `/me/calendars/${eid(calendarId)}/calendarView`
+    : '/me/calendarView';
+  const url = `${base}?startDateTime=${encodeURIComponent(fromIso)}&endDateTime=${encodeURIComponent(toIso)}`
+    + `&$select=${EVENT_SELECT}&$top=${pageSize}&$orderby=start/dateTime`;
+  // Prefer the raw UTC values rather than the mailbox's own display zone: every
+  // start below is converted to an instant, and a zone Hmelj has to guess at is
+  // exactly what this avoids.
+  const items = await gpage(url, { maxPages, headers: { Prefer: 'outlook.timezone="UTC"' } });
+  return items.filter((e) => !e.isCancelled);
+}
+
+/**
+ * One event in full, including its HTML body.
+ *
+ * Separate from calendarView on purpose: `body` is the whole invitation —
+ * boilerplate, dial-in numbers, legal footers — and asking for it across a
+ * year of a busy calendar would multiply every sync's payload for something
+ * only ever read one event at a time. Fetched when somebody opens an event.
+ */
+export async function getEvent(id) {
+  return gfetch(`/me/events/${eid(id)}?$select=${EVENT_SELECT},body`,
+    { headers: { Prefer: 'outlook.timezone="UTC"' } });
+}
+
+/* ---------- calendar writes ----------
+ *
+ * Three ids, and using the wrong one is the whole difficulty:
+ *
+ *   the OCCURRENCE id   addresses one instance. PATCHing it makes Microsoft
+ *                       create the exception itself, which is exactly right and
+ *                       is why Hmelj does not build one.
+ *   the SERIES MASTER   addresses the rule. The only id a recurrence can be
+ *                       changed through.
+ *   a plain event id    a one-off, where the two above are the same thing.
+ *
+ * `seriesMasterId` on an occurrence is how the second is reached from the
+ * first; an occurrence of a series that has none is a data error, not a
+ * one-off, and is reported rather than silently edited as a single event.
+ */
+
+export async function createCalendarEvent(calendarId, event) {
+  const path = calendarId ? `/me/calendars/${eid(calendarId)}/events` : '/me/events';
+  return gfetch(path, { method: 'POST', body: event });
+}
+
+export async function updateCalendarEvent(id, patch) {
+  return gfetch(`/me/events/${eid(id)}`, { method: 'PATCH', body: patch });
+}
+
+export async function deleteCalendarEvent(id) {
+  await gfetch(`/me/events/${eid(id)}`, { method: 'DELETE', raw: true });
+  return true;
+}
+
+/** The series master behind an occurrence, with its recurrence — the shape a
+ *  "change the whole series" edit has to be applied to. */
+export async function getSeriesMaster(occurrenceId) {
+  const occ = await gfetch(`/me/events/${eid(occurrenceId)}?$select=id,seriesMasterId,type`);
+  const masterId = occ?.seriesMasterId || (occ?.type === 'seriesMaster' ? occ.id : '');
+  if (!masterId) return null;
+  return gfetch(`/me/events/${eid(masterId)}?$select=${EVENT_SELECT},recurrence,body`,
+    { headers: { Prefer: 'outlook.timezone="UTC"' } });
+}
+
 // ---------- status, probes, contacts ----------
 
 export async function imapStatus() {
@@ -1007,6 +1135,100 @@ export async function testConnection(accessToken) {
  * would silently lose the work address of everyone whose personal one happens
  * to be listed first.
  */
+/** The fields live contact sync reads. Deliberately a fixed list rather than
+ *  the whole contact: a Graph contact carries a photo, a manager, a birthday and
+ *  three postal addresses, and asking for all of it makes every delta page an
+ *  order of magnitude larger for data Hmelj neither shows nor stores. */
+const CONTACT_SELECT = 'id,displayName,givenName,surname,companyName,jobTitle,emailAddresses,businessPhones,mobilePhone';
+
+/**
+ * Contacts as a DELTA — what changed since the token, including deletions.
+ *
+ * The Graph equivalent of CardDAV's sync-collection, and it matters for exactly
+ * the same reason: without it, keeping an address book current means
+ * re-downloading all of it on every poll, forever.
+ *
+ * `token` is the opaque `@odata.deltaLink` from the previous run, or '' for a
+ * first sync (which returns everything and is reported as `full`). A token
+ * Graph no longer accepts comes back as 410 with `resyncRequired`, which means
+ * "start over" and not "this failed" — a client that treats it as an error stops
+ * syncing permanently and silently, days after being set up.
+ *
+ * A removed contact arrives as `{id, '@removed': …}` with no other fields, which
+ * is the only signal that says an item is gone rather than merely unchanged.
+ */
+export async function listContactsDelta(token = '', { maxPages = 50 } = {}) {
+  const start = token || `/me/contacts/delta?$select=${CONTACT_SELECT}`;
+  const changed = [];
+  const removed = [];
+  let next = start;
+  let deltaLink = '';
+
+  for (let page = 0; page < maxPages && next; page++) {
+    let res;
+    try {
+      res = await gfetch(next);
+    } catch (e) {
+      // Only a stale token gets a second chance, and only by starting over.
+      // NOT `e.status === 410`: graphError() maps every 4xx onto 400 for the
+      // API layer, so the original code is gone by the time it reaches here.
+      // `graphCode` is the field that survives, and the message carries the
+      // wire status for the servers that answer with a bare 410.
+      const resync = /resyncRequired|SyncStateNotFound/i.test(String(e?.graphCode || ''))
+        || /resyncRequired|SyncStateNotFound|Graph 410/i.test(String(e?.message || ''));
+      if (!resync || !token) throw e;
+      glog.info('Contact delta token is no longer accepted — re-reading every contact');
+      return listContactsDelta('', { maxPages });
+    }
+    for (const c of res?.value || []) {
+      if (c['@removed']) { removed.push(String(c.id)); continue; }
+      changed.push(c);
+    }
+    deltaLink = res?.['@odata.deltaLink'] || '';
+    next = res?.['@odata.nextLink'] || null;
+  }
+  return { changed, removed, token: deltaLink, full: !token };
+}
+
+/** One contact, by id — for a caller that holds an id and needs the fields back
+ *  (a write that has to be re-read to learn its new ETag). */
+export async function getContact(id) {
+  return gfetch(`/me/contacts/${eid(id)}?$select=${CONTACT_SELECT}`);
+}
+
+/**
+ * Creates a contact. Returns the whole created object, because Graph mints the
+ * id and the ETag and neither can be predicted.
+ */
+export async function createContact(fields) {
+  return gfetch('/me/contacts', { method: 'POST', body: fields });
+}
+
+/**
+ * Updates a contact — PATCH, never PUT.
+ *
+ * Partial by construction, which is what keeps this non-destructive: Hmelj
+ * models a name and some addresses, and a PUT would replace the birthday, the
+ * photo and the postal address with nothing. Same rule server/vcard.js follows
+ * on the CardDAV side, enforced here by the verb instead of by hand.
+ *
+ * `etag` makes it conditional. A 412 means somebody else changed the contact
+ * first and is surfaced as such rather than retried unconditionally — the
+ * unconditional retry is exactly how the other edit gets destroyed.
+ */
+export async function updateContact(id, fields, etag = '') {
+  return gfetch(`/me/contacts/${eid(id)}`, {
+    method: 'PATCH',
+    body: fields,
+    headers: etag ? { 'If-Match': etag } : {},
+  });
+}
+
+export async function deleteContact(id, etag = '') {
+  await gfetch(`/me/contacts/${eid(id)}`, { method: 'DELETE', headers: etag ? { 'If-Match': etag } : {} });
+  return true;
+}
+
 export async function listContacts({ pageSize = 200, maxPages = 25 } = {}) {
   const items = await gpage(`/me/contacts?$top=${pageSize}&$select=displayName,emailAddresses`, { maxPages });
   const out = [];

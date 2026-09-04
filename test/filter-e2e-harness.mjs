@@ -149,7 +149,7 @@ export async function startHmelj({ dataDir, port, extraEnv = {}, serverDir = nul
 /** fetch wrapper that carries the session cookie. */
 export function api(base) {
   let cookie = '';
-  return async (method, path, body) => {
+  const call = async (method, path, body) => {
     const r = await fetch(base + path, {
       method,
       headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
@@ -163,4 +163,9 @@ export function api(base) {
     if (!r.ok) throw new Error(`${method} ${path} -> ${r.status} ${text.slice(0, 300)}`);
     return json;
   };
+  /** The session cookie this helper is carrying, for a request that cannot go
+   *  through it — a binary download, say, where the JSON parsing and the
+   *  throw-on-non-2xx above are both in the way. */
+  call.cookie = () => cookie;
+  return call;
 }

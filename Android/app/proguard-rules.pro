@@ -11,5 +11,5 @@
 -keep class com.hmelj.app.PushTokenWorker { *; }
 
 # Same reasoning for MailActionWorker, which backs the "Mark as read" / "Delete"
-# buttons on a notification.
+# buttons on a mail notification and the "Snooze" button on a calendar reminder.
 -keep class com.hmelj.app.MailActionWorker { *; }

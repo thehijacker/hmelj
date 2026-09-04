@@ -22,11 +22,13 @@ import { learnSenderNames } from './contacts.js';
 import * as userLog from './userLog.js';
 import * as push from './push.js';
 import * as contentCache from './contentCache.js';
+import * as filterState from './filterState.js';
 import * as events from './events.js';
 import { isSyncScope } from './scope.js';
 import * as unread from './unread.js';
 import * as schedule from './schedule.js';
 import * as pushI18n from './pushI18n.js';
+import * as subjectRules from './subjectRules.js';
 import * as idle from './idle.js';
 import sanitizeHtml from 'sanitize-html';
 import { previewText } from './notifyText.js';
@@ -267,6 +269,12 @@ async function notifyNewMail(uKey, account, folder, freshMessages) {
   // Resolved once for the whole burst rather than per message: `active` is
   // fixed by this point, and each of these is a small per-user JSON read.
   const actionsByKey = new Map(active.map((k) => [k, notificationActions(k)]));
+  // Settings > Subject, per RECIPIENT rather than per account — the rules
+  // belong to the person, not to the mailbox (server/store.js), so on a shared
+  // account the owner's shortenings must not be applied to a grantee's
+  // notification. Same "resolve once for the whole burst" reasoning as the
+  // actions above: a small per-user JSON read, not one per message.
+  const subjectRulesByKey = new Map(active.map((k) => [k, store.getSubjectRulesFor(k)]));
   // NB: not named `unread` — that's the unread-total module imported above,
   // used further down for each recipient's badge count.
   const unreadMessages = freshMessages.filter((m) => !m.seen);
@@ -281,17 +289,20 @@ async function notifyNewMail(uKey, account, folder, freshMessages) {
     // second live fetch of the same message. A failure here (huge
     // attachment timing out, a flaky connection) just falls back to
     // subject-only, never blocks or drops the notification itself.
-    let body = subject;
+    //
+    // Fetched ONCE, outside the per-recipient loop below: this is the only
+    // expensive part here, and it is the same message for everyone. Only the
+    // subject in front of it is per person (subjectRulesByKey above), so the
+    // body is composed per recipient and the snippet is not re-read.
+    let snippet = '';
     try {
       const full = await contentCache.getMessage(uKey, account.id, folder.path, m.uid);
-      const snippet = textPreview(full);
-      if (snippet) body = `${subject}\n${snippet}`;
+      snippet = textPreview(full) || '';
     } catch (e) {
       slog.debug(`${account.label}/${folder.path}: couldn't fetch preview for uid ${m.uid}:`, e.message);
     }
     const payload = {
       title: from ? `${from} — ${account.label}` : account.label,
-      body,
       icon: '/icons/icon-192.png',
       tag: `hmelj-${account.id}-${m.uid}`,
       data: { accountId: account.id, folder: folder.path, uid: m.uid },
@@ -302,7 +313,14 @@ async function notifyNewMail(uKey, account, folder, freshMessages) {
     // right number — nothing else runs there to work it out (see sw.js's
     // setBadge and the Android service's setNumber).
     for (const key of active) {
-      await push.sendPushToUser(key, { ...payload, actions: actionsByKey.get(key), unreadTotal: unread.unreadTotalForKey(key) });
+      // The shown subject is this recipient's own — see subjectRulesByKey.
+      const shown = subjectRules.applyRules(subject, subjectRulesByKey.get(key), account.id);
+      await push.sendPushToUser(key, {
+        ...payload,
+        body: snippet ? `${shown}\n${snippet}` : shown,
+        actions: actionsByKey.get(key),
+        unreadTotal: unread.unreadTotalForKey(key),
+      });
     }
   }
 
@@ -544,12 +562,31 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
     //     this replaces still holds. Nothing is lost by the switch.
     // Exchange and Graph have no such split — their date already is the received
     // time — so both simply report it under this name too.
-    const RECENT_MS = 2 * 24 * 3600e3; // generous for delayed delivery, tight enough to exclude old resurfaced mail
-    const cutoff = Date.now() - RECENT_MS;
+    //
+    // The cutoff used to be a fixed two days. That one number was doing two
+    // unrelated jobs — excluding resurfaced old mail (wants a SHORT window) and
+    // including mail that arrived while Hmelj was off (wants a window as long
+    // as the outage) — and could only be right for one of them. An outage
+    // longer than two days left everything that arrived in it permanently
+    // unfiltered, with nothing ever going back for it.
+    //
+    // It is now a per-folder mark: "filters have covered this folder up to time
+    // T" (server/filterState.js). The window is T..now, which is five minutes
+    // on a healthy server and nine days after a holiday, while a relabelled
+    // years-old message is still far below T and still excluded.
+    const { from: cutoff, cold, skippedMs } = filterState.catchUpFrom(uKey, account.id, path);
     const arrivedAt = (m) => new Date(m.internalDate || m.date || 0).getTime();
     const fresh = messages.filter((m) => newUids.includes(m.uid) && arrivedAt(m) >= cutoff);
     const staleCount = newUids.length - fresh.length;
-    if (staleCount) slog.debug(`${account.label}/${path}: skipping filters for ${staleCount} "new" UID(s) the server received long ago (resurfaced mail, not actually new)`);
+    if (staleCount) slog.debug(`${account.label}/${path}: skipping filters for ${staleCount} "new" UID(s) the server received before ${new Date(cutoff).toISOString()} (resurfaced mail, or already filtered)`);
+    if (skippedMs > 0) {
+      // Said out loud rather than left to look like full coverage: the mark was
+      // older than the cap, so some history is deliberately not being filtered.
+      slog.info(`${account.label}/${path}: catching up filters, but only over the last ${Math.round(filterState.MAX_CATCHUP_MS / 86400e3)} days — `
+        + `${Math.round(skippedMs / 86400e3)} day(s) of older mail are left as they are`);
+    } else if (!cold && fresh.length && Date.now() - cutoff > 6 * 3600e3) {
+      slog.info(`${account.label}/${path}: catching up filters on ${fresh.length} message(s) that arrived since ${new Date(cutoff).toISOString()}`);
+    }
     // Mail a filter of ours moved here a moment ago has already been through
     // the filters once, in the folder it arrived in. Running them again would
     // fire `redirect`/`reply` a second time (see filters.js#claimFiled) —
@@ -557,8 +594,16 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
     // these: they are still genuinely new mail as far as the content cache
     // and the new-mail notification are concerned, and both keep the full
     // `fresh` set.
-    const filterable = fresh.filter((m) => !claimFiled(uKey, account.id, path, m.uid));
-    const filedHere = fresh.length - filterable.length;
+    // Which of these OUR OWN filters put here a moment ago. claimFiled consumes
+    // the note, so this is the one chance to know — hence collecting the uids
+    // rather than asking again further down.
+    const filedUids = new Set();
+    const filterable = fresh.filter((m) => {
+      if (!claimFiled(uKey, account.id, path, m.uid)) return true;
+      filedUids.add(m.uid);
+      return false;
+    });
+    const filedHere = filedUids.size;
     if (filedHere) slog.debug(`${account.label}/${path}: skipping filters for ${filedHere} message(s) a filter of ours moved here`);
     if (fresh.length) {
       // Proactively cache genuinely new mail's content BEFORE filters run
@@ -572,8 +617,18 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
         slog.warn(`Content cache warm-up failed for ${account.label}/${path}:`, e.message);
       }
       try {
-        const r = await runFilters(path, { messages: filterable });
+        // `once` makes the run idempotent (cache.js#claimFilterApplied): a
+        // message this filter has already been applied to is skipped, so a
+        // catch-up window that overlaps a previous one — or a wiped cache
+        // re-presenting old mail as new — cannot file anything twice.
+        const r = await runFilters(path, { messages: filterable, once: true });
         if (r.matched) slog.info(`${account.label}/${path}: filters matched ${r.matched} of ${filterable.length} new message(s)`);
+        // Only AFTER the run, and only to the newest thing actually seen: a
+        // mark advanced before the work would skip that work forever if it then
+        // failed, and one advanced to `now` would skip mail that arrives during
+        // the run and lands under a uid this pass never looked at.
+        const newest = Math.max(0, ...fresh.map(arrivedAt).filter(Number.isFinite));
+        if (newest) filterState.advance(uKey, account.id, path, newest);
         // A filter that moved (or expunged) a message leaves this folder's
         // cached row behind. The fetch above happened BEFORE the filters ran, so
         // pruneMissing saw the message as still present and kept it, and an
@@ -584,8 +639,32 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
         // filter filed it into. (This is what /api/messages/:folder/move has
         // always done for an interactive move; the filter path never did.)
         if (r.departed?.length) {
+          noteLocalWrite(uKey, account.id, path);
           cache.adjustFolderCounts(uKey, account.id, path, cache.removeMessages(uKey, account.id, path, r.departed));
           slog.debug(`${account.label}/${path}: dropped ${r.departed.length} cached row(s) a filter moved out`);
+        }
+        // …and the OTHER half of the same problem, which dropping the source row
+        // alone made worse rather than better. A destination folder does not
+        // self-heal until its own next poll, so between a filter moving a
+        // message and that poll the message is in NO cached folder at all: gone
+        // from the source, not yet in the target. The notification for it has
+        // already gone out and the unread badge already counts it, so what the
+        // user sees is a notification about mail that is nowhere in the list —
+        // and then, minutes later, it appears by itself.
+        //
+        // /api/filters/run has always done this for a filter run started by
+        // hand (see server/index.js); the background run, which is how filters
+        // actually fire, never did.
+        //
+        // Safe against running the filters a second time on the moved message:
+        // filters.js#claimFiled already notes where our own moves went, and the
+        // filter block above consumes that note — which is the guard that stops
+        // a `redirect` firing twice.
+        for (const target of r.targets || []) {
+          if (target === path) continue; // a self-move; already reconciled above
+          noteLocalWrite(uKey, account.id, target);
+          try { await syncFolderNow(uKey, account, target); }
+          catch (e) { slog.warn(`${account.label}: could not sync "${target}" after a filter moved mail into it: ${e.message}`); }
         }
       } catch (e) {
         slog.warn(`Filter run failed for ${account.label}/${path}:`, e.message);
@@ -603,8 +682,16 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
       // this doesn't account for (no cheap way to tell which without a
       // second cache read per message); same blind spot the older
       // foreground-only notifier already has, not a regression.
+      //
+      // Minus the ones a filter of OURS moved in here, though. Those were
+      // notified when they arrived in the folder they were delivered to; a
+      // second notification for the same message, from the folder it was filed
+      // into, is the same mail announced twice. This used to be hidden by
+      // timing — the destination was not polled until minutes later, by which
+      // point the note had expired — and syncing destinations straight after a
+      // filter run (below) would have made it a reliable double-buzz instead.
       try {
-        await notifyNewMail(uKey, account, folder, fresh);
+        await notifyNewMail(uKey, account, folder, fresh.filter((m) => !filedUids.has(m.uid)));
       } catch (e) {
         slog.warn(`Push notify failed for ${account.label}/${path}:`, e.message);
       }

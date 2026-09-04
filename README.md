@@ -107,7 +107,8 @@ over this connection, and installing it as a PWA requires HTTPS.
 ### Organising
 - **Filters** — subject/from/to/content/size/date conditions; move, copy, redirect, auto-reply, delete, mark, star
 - **Spam and Archive** in one gesture, with the return trip remembered per message
-- **Select mode**, swipe gestures, right-click menus, undo on destructive actions
+- **Select mode** (Ctrl+click a row, Shift+click for a whole run), swipe gestures, right-click menus, undo on destructive actions
+- **Attachments** — preview overlay for images/PDF/audio/video, or *Download all* as one zip
 - **Search** with Gmail-style syntax — `from:`, `-word`, `"phrase"`, `is:starred` — cached-first with a one-click *Search everywhere*
 - **Mailbox analytics** — where the quota went, who sends the most, what is safe to delete (and it counts Gmail labels honestly)
 - **Contacts** — address book, Google-CSV and vCard import, direct pull from Microsoft or Exchange
@@ -146,6 +147,11 @@ All configuration is environment variables; every one is optional.
 | `HMELJ_SECRET` | auto-generated | Key encrypting stored mailbox credentials. Unset, Hmelj writes `DATA_DIR/secret.key` instead. **Back it up.** |
 | `ALLOW_SIGNUP` | `true` | Whether new users may register. The first user always can |
 | `SYNC_INTERVAL_MS` | `120000` | Default background poll interval, minimum 30000. Overridable per account |
+| `CONTACT_SYNC_INTERVAL_MS` | `300000` | How often synced address books are checked, minimum 60000 |
+| `CALENDAR_SYNC_INTERVAL_MS` | `300000` | How often synced calendars are checked, minimum 60000 |
+| `CALENDAR_WINDOW_PAST_DAYS` | `120` | How far back Microsoft 365 / Exchange calendars are kept. CalDAV and Google are unaffected — they store the repeat rules, not expanded occurrences |
+| `CALENDAR_WINDOW_FUTURE_DAYS` | `550` | The same, ahead |
+| `HMELJ_PUBLIC_URL` | derived | Also used for the CalDAV/CardDAV address Hmelj tells you to subscribe at |
 | `CACHE_ENABLED` | `true` | Kill switch for the poller and the SQLite cache. `false` runs fully live |
 | `ATTACHMENT_CACHE_MB` | `32` | RAM held aside for already-extracted attachment bytes. `0` disables it |
 | `LOG` | `info` | `error` \| `warn` \| `info` \| `debug` |

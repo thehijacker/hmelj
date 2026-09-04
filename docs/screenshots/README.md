@@ -18,6 +18,11 @@ the documentation site scales them, and these are just what the placeholders are
 | `attachments.png` | The attachment preview overlay showing an image or PDF |
 | `analytics.png` | Mailbox analytics — the Overview tab |
 | `contacts.png` | Settings › Contacts, with the address book and suggestions |
+| `calendar-month.png` | The calendar month view, with each calendar in its own colour |
+| `calendar-week.png` | The week view — the time grid, with an event spanning two columns |
+| `calendar-event.png` | The event form, with the repeat and reminder pickers visible |
+| `calendar-share.png` | Settings › Calendars › Share from Hmelj, with one source set to busy-only |
+| `app-passwords.png` | Settings › Login › App passwords, listing two devices |
 | `filters.png` | Settings › Filters, with one rule expanded |
 | `scheduler.png` | Settings › Scheduler — quiet hours and per-folder overrides |
 | `account-wizard.png` | The add-account wizard, on the provider/preset step |

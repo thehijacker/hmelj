@@ -202,6 +202,73 @@ const Compose = (() => {
     }
   }
 
+  /* ---------- templates (Settings > Templates) ----------
+   * Reusable boilerplate, inserted at the caret. Stored as HTML because that is
+   * what the rich composer needs; plain mode flattens it on the way in rather
+   * than a second copy being kept and drifting from the first.
+   */
+  let templates = [];
+
+  /** Called at boot and after Settings saves. Hides the toolbar button entirely
+   *  when there is nothing to insert — an always-visible button that opens an
+   *  empty menu is worse than no button. */
+  function setTemplates(list) {
+    templates = Array.isArray(list) ? list : [];
+    const btn = document.getElementById('c-template');
+    if (btn) btn.hidden = !templates.length;
+  }
+
+  /**
+   * Inserts one at the caret, or at the end of the user's own text when the
+   * caret is somewhere else (in the quoted original, or nowhere at all).
+   *
+   * `.compose-body` again, for the same reason applySignatureForIdentity uses
+   * it: that wrapper is the only thing that knows where what the user is
+   * writing ends and the quoted conversation begins.
+   */
+  function insertTemplate(t) {
+    if (!t) return;
+    if (isPlain()) {
+      const ta = document.getElementById('c-editor-plain');
+      const plain = htmlToText(t.html || '');
+      const tail = plainQuoteTail && ta.value.endsWith(plainQuoteTail) ? plainQuoteTail : '';
+      const head = tail ? ta.value.slice(0, ta.value.length - tail.length) : ta.value;
+      // At the caret when it is in the user's own text; otherwise at the end of it.
+      const at = (ta.selectionStart != null && ta.selectionStart <= head.length) ? ta.selectionStart : head.length;
+      ta.value = head.slice(0, at) + plain + head.slice(at) + tail;
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = at + plain.length;
+    } else {
+      const ed = document.getElementById('c-editor');
+      const host = ed.querySelector(`:scope > .${BODY_CLASS}`) || ed;
+      const sel = window.getSelection();
+      const inBody = sel?.rangeCount && host.contains(sel.getRangeAt(0).commonAncestorContainer);
+      if (inBody) {
+        ed.focus();
+        document.execCommand('insertHTML', false, t.html || '');
+      } else {
+        // Before the signature if there is one, so a template never lands under
+        // the sign-off.
+        const sig = host.querySelector(':scope > .signature-wrap');
+        const frag = document.createElement('div');
+        frag.innerHTML = t.html || '';
+        if (sig) sig.insertAdjacentHTML('beforebegin', frag.innerHTML);
+        else host.insertAdjacentHTML('beforeend', frag.innerHTML);
+      }
+    }
+    dirty = true;
+  }
+
+  function showTemplateMenu(x, y) {
+    if (!templates.length) return;
+    openCtxMenu(templates.map((t) => ({
+      // The user's own words: not run through I18n. openCtxMenu translates its
+      // labels, and a template called "Ponudba" must not be looked up.
+      label: t.name,
+      onClick: () => insertTemplate(t),
+    })), x, y);
+  }
+
   function open({ to = '', cc = '', subject = '', bodyHtml = '', context = 'new', identityId = null } = {}) {
     const w = el();
     w.hidden = false;
@@ -295,9 +362,33 @@ const Compose = (() => {
     return fresh + quoted;
   }
 
-  function reply(msg, all) {
+  async function reply(msg, all) {
     const from = msg.replyTo?.length ? msg.replyTo : msg.from;
     const to = (from || []).map((a) => a.address).join(', ');
+    // Computed whether or not `all` is set: it costs nothing (the reply-all
+    // branch below builds the same expression), and knowing WHO would be added
+    // is the only way to ask a useful question about a plain Reply.
+    // ownAddresses() rather than the identity list alone — it also covers the
+    // account addresses, and a reply to a message addressed to one of those
+    // would otherwise look like it had a stranger on it.
+    const others = ComposeGuards.replyAllWouldAdd({
+      to: msg.to, cc: msg.cc, replyingTo: from,
+      mine: ownAddresses().map((o) => o.email),
+    });
+    if (!all && others.length && state.settings.replyAllNudge !== false) {
+      const answer = await Dialog.choose(
+        I18n.t('{n} other people are on this message.').replace('{n}', others.length),
+        {
+          title: I18n.t('Reply'),
+          buttons: [
+            { label: I18n.t('Reply to sender only'), value: 'one' },
+            { label: I18n.t('Reply to all'), value: 'all', primary: true },
+          ],
+        },
+      );
+      if (!answer) return;        // cancelled — write nothing
+      if (answer === 'all') all = true;
+    }
     let cc = '';
     if (all) {
       const mine = new Set(identities.map((i) => i.email.toLowerCase()));
@@ -566,6 +657,13 @@ const Compose = (() => {
     const inputEl = contactSuggestInput;
     if (!opt?.contact?.id) return;
     const { id, name, email } = opt.contact;
+    // Belt and braces alongside the two gesture guards: this is the only
+    // function that issues the DELETE, and for a synced row that DELETE reaches
+    // somebody else's server.
+    if (opt.contact.synced) {
+      toast(I18n.t('That contact is synced from another server — remove it in Settings › Contacts.'), 5000);
+      return;
+    }
     try { state.contacts = (await API.deleteContact(id)).contacts; }
     catch (e) { return toast(I18n.t('Could not remove contact') + ': ' + e.message, 5000); }
     toast(`${I18n.t('Removed from contacts')}: ${name || email}`, 4000);
@@ -579,6 +677,17 @@ const Compose = (() => {
     const opt = contactSuggestOptions[i];
     if (!opt?.contact?.id) return;
     const who = opt.contact.name || opt.contact.email;
+    // A synced contact gets no remove item at all. The gesture is the same one
+    // that prunes a dead local address, but the consequence is not: it would
+    // delete the card from the server it came from. Say where it lives instead,
+    // so the menu is not silently dead.
+    if (opt.contact.synced) {
+      openCtxMenu([{
+        label: `☁ ${esc(I18n.t('Synced from'))} ${esc(opt.contact.sourceLabel || I18n.t('another server'))} — ${esc(I18n.t('remove it in Settings'))}`,
+        disabled: true,
+      }], x, y);
+      return;
+    }
     // openCtxMenu injects its labels as HTML (it runs them through I18n.t), and
     // a contact's name is somebody else's text — escape here, not there.
     openCtxMenu([{
@@ -608,7 +717,15 @@ const Compose = (() => {
       // Your own addresses aren't contacts and there is nothing to remove, so
       // Delete keeps its ordinary meaning on those rows rather than arming a
       // confirm that could never be honoured.
-      if (!contactSuggestOptions[contactSuggestIndex]?.contact) return;
+      //
+      // A SYNCED contact is skipped for a much stronger reason: removing one
+      // deletes the card from the server it is synced with — a shared Exchange
+      // or CardDAV address book, possibly a colleague's. A keystroke in a text
+      // field must never be able to do that, whatever it is confirmed with. It
+      // is removable from Settings › Contacts, where the row says which server
+      // it lives on.
+      const del = contactSuggestOptions[contactSuggestIndex]?.contact;
+      if (!del || del.synced) return;
       // First press arms the highlighted row and shows the confirm in place of
       // it; second press removes the contact. The keystroke is swallowed both
       // times — with a suggestion list open and a row highlighted, Delete means
@@ -925,6 +1042,19 @@ const Compose = (() => {
   }
 
   /** The coming Monday at HH:MM (today, if it's Monday and still ahead). */
+  /** The next `dow` (0=Sunday … 6=Saturday) at hh:mm, always in the future —
+   *  today counts only if that time has not passed yet. nextMonday is this with
+   *  dow=1 and is kept as its own name because that is what the send presets
+   *  ask for. */
+  function nextWeekday(dow, hh, mm) {
+    const d = new Date();
+    d.setHours(hh, mm, 0, 0);
+    let add = (dow - d.getDay() + 7) % 7;
+    if (add === 0 && d.getTime() <= Date.now()) add = 7;
+    d.setDate(d.getDate() + add);
+    return d.getTime();
+  }
+
   function nextMonday(hh, mm) {
     const t = new Date();
     t.setHours(hh, mm, 0, 0);
@@ -956,17 +1086,112 @@ const Compose = (() => {
    * message's current setting, in the one place the user came to read that
    * setting off the screen.
    */
-  function pickSendTime(x, y, { current = null } = {}) {
+  /**
+   * "Sent — Undo", for the seconds the server is holding the message back.
+   *
+   * The window is the server's, not this toast's: the message is on the
+   * scheduled-send queue and goes out when its time comes whether or not this
+   * tab is still open, so the toast only ever shows an offer that is really
+   * available. It is shown a second SHORT of the real window, because a cancel
+   * that arrives as the runner picks the message up is refused with a 409 —
+   * better to withdraw the offer slightly early than to have it fail in the
+   * user's hand.
+   */
+  async function offerUndoSend(rec, seconds) {
+    const ms = Math.max(1000, ((Number(seconds) || 0) * 1000) - 1000);
+    toast(I18n.t('Sending…'), ms, async () => {
+      try {
+        const { payload } = await API.cancelScheduled(rec.id);
+        // Straight back into the composer with everything it had — the same
+        // path a cancelled scheduled message takes (see app.js#cancelScheduled).
+        reopen(payload);
+        toast(I18n.t('Send undone — your message is back'));
+      } catch (e) {
+        // 409: the runner already had it. Nothing was lost and nothing can be
+        // done, so say what happened rather than showing a failure.
+        if (e.status === 409) toast(I18n.t('Too late — that message has already gone out'), 5000);
+        else toast(I18n.t('Could not undo the send') + ': ' + e.message, 6000);
+      }
+    }, I18n.t('Undo'));
+  }
+
+  /**
+   * `mode` picks which set of presets and which wording — 'send' (the default)
+   * for Send later, 'snooze' for bringing a message back.
+   *
+   * One function for both on purpose: they are the same question asked about
+   * different objects, and two copies would drift. Snoozing gets a "Later
+   * today" that sending has no use for (a message you send in three hours was
+   * scheduled; a message that comes back in three hours was snoozed), and its
+   * wording never mentions the server needing to be running, because unlike a
+   * send a late wake still does exactly the right thing when it happens.
+   */
+  /**
+   * "You said it was attached." Asked before the message goes anywhere.
+   *
+   * Reads only what the user WROTE — getBody() minus the quoted block. A reply
+   * to somebody who said "the invoice is attached" must not ask: that sentence
+   * is not this person's, and the attachment was on the other message. Same for
+   * the signature, which is inside .compose-body but is not something anyone
+   * typed just now.
+   *
+   * Returns true to go ahead. Any failure inside is treated as "go ahead": a
+   * broken guard must never be able to stop mail from being sent.
+   */
+  async function attachmentCheck(p) {
+    try {
+      if (state.settings.attachmentReminder === false) return true;
+      const ed = document.getElementById('c-editor');
+      let typed;
+      if (isPlain()) {
+        // Plain mode: the quoted original sits at the END of the textarea, so
+        // what is theirs is everything before it. Same test the signature code
+        // uses, rather than splitting on a blank line — which would have cut
+        // the message off at its first paragraph break.
+        const text = p.text || '';
+        typed = plainQuoteTail && text.endsWith(plainQuoteTail) ? text.slice(0, -plainQuoteTail.length) : text;
+      } else {
+        const host = ed?.querySelector(':scope > .' + BODY_CLASS) || ed;
+        const clone = host.cloneNode(true);
+        for (const drop of clone.querySelectorAll('.' + QUOTE_CLASS + ', .signature-wrap')) drop.remove();
+        typed = clone.textContent || '';
+      }
+      if (!ComposeGuards.missingAttachment({
+        text: typed, attachmentCount: attachments.length, lang: Proofread.language?.() || 'auto',
+      })) return true;
+      return !!await Dialog.confirm(
+        I18n.t('Your message mentions an attachment, but nothing is attached. Send it anyway?'),
+        { title: I18n.t('No attachment'), okLabel: I18n.t('Send anyway') },
+      );
+    } catch (e) {
+      console.warn('Attachment check failed:', e);
+      return true;
+    }
+  }
+
+  function pickSendTime(x, y, { current = null, mode = 'send' } = {}) {
+    const snoozing = mode === 'snooze';
     return new Promise((resolve) => {
       let answered = false;
       const done = (v) => { if (!answered) { answered = true; resolve(v); } };
       const items = [];
-      if (current) items.push({ label: `🕗 ${I18n.t('Due')}: ${fmtDate(current, { long: true })}`, disabled: true });
-      items.push(...[
-        { label: 'Tomorrow morning', at: nextLocalAt(8, 0, 1) },
-        { label: 'Tomorrow afternoon', at: nextLocalAt(13, 0, 1) },
-        { label: 'Monday morning', at: nextMonday(8, 0) },
-      ].map(({ label, at }) => ({
+      if (current) items.push({ label: `🕗 ${I18n.t(snoozing ? 'Comes back' : 'Due')}: ${fmtDate(current, { long: true })}`, disabled: true });
+      const presets = snoozing
+        ? [
+          // Only offered while it is still meaningfully "later today" — at
+          // 22:00 a preset three hours out is tomorrow, and would read as one
+          // option quietly meaning something else.
+          ...(new Date().getHours() < 19 ? [{ label: 'Later today', at: Date.now() + 3 * 3600e3 }] : []),
+          { label: 'Tomorrow morning', at: nextLocalAt(8, 0, 1) },
+          { label: 'This weekend', at: nextWeekday(6, 8, 0) },
+          { label: 'Next week', at: nextMonday(8, 0) },
+        ]
+        : [
+          { label: 'Tomorrow morning', at: nextLocalAt(8, 0, 1) },
+          { label: 'Tomorrow afternoon', at: nextLocalAt(13, 0, 1) },
+          { label: 'Monday morning', at: nextMonday(8, 0) },
+        ];
+      items.push(...presets.map(({ label, at }) => ({
         label: `${I18n.t(label)} — ${fmtDate(at, { long: true })}`,
         onClick: () => done(at),
       })));
@@ -975,11 +1200,13 @@ const Compose = (() => {
         onClick: async () => {
           const suggested = toLocalInputValue(current || nextLocalAt(8, 0, 1));
           const value = await Dialog.form(
-            I18n.t('Send later'),
-            `<label class="dialog-label">${I18n.t('Send this message at')}</label>
+            I18n.t(snoozing ? 'Snooze until' : 'Send later'),
+            `<label class="dialog-label">${I18n.t(snoozing ? 'Bring this message back at' : 'Send this message at')}</label>
              <input class="dialog-input" type="datetime-local" value="${escAttr(suggested)}">
-             <div class="set-hint">${I18n.t('Your server has to be running then — if it is not, the message goes out as soon as it is back.')}</div>`,
-            { okLabel: I18n.t('Schedule'), getValue: (r) => r.querySelector('.dialog-input').value },
+             <div class="set-hint">${I18n.t(snoozing
+               ? 'If your server is not running then, the message comes back as soon as it is.'
+               : 'Your server has to be running then — if it is not, the message goes out as soon as it is back.')}</div>`,
+            { okLabel: I18n.t(snoozing ? 'Snooze' : 'Schedule'), getValue: (r) => r.querySelector('.dialog-input').value },
           );
           if (!value) return done(null); // cancelled, or the picker left empty
           const at = new Date(value).getTime();
@@ -1104,6 +1331,7 @@ const Compose = (() => {
     document.getElementById('btn-send').addEventListener('click', async () => {
       const p = payload();
       if (!p.to) return toast('Add at least one recipient');
+      if (!await attachmentCheck(p)) return;
       const btn = document.getElementById('btn-send');
       // Only guards against a double-click firing two sends in the brief
       // window before the server acks — /api/send now responds as soon as
@@ -1118,10 +1346,16 @@ const Compose = (() => {
         // itself, so it's recoverable exactly like a normal autosave would
         // be. Either way, no separate client-side draft cleanup needed
         // anymore — dropped the old post-send deleteMsgs call here.
-        await API.send({ ...p, previousUid: draftUid }, currentIdentity().accountId || state.accounts[0]?.id);
+        const r = await API.send({ ...p, previousUid: draftUid }, currentIdentity().accountId || state.accounts[0]?.id);
         dirty = false;
         close();
-        toast('Sending…');
+        // With an undo window configured the server has QUEUED the message
+        // rather than sent it (server/index.js's undo branch), and hands back
+        // the queue record. The offer runs for exactly as long as the server
+        // said it would hold the message, so the toast can never outlast the
+        // window and promise a recall that will be refused.
+        if (r?.undo?.id) offerUndoSend(r.undo, r.undoSeconds);
+        else toast(I18n.t('Sending…'));
         loadFolders();
       } catch (e) {
         // Only reachable for the fast synchronous validation now (bad
@@ -1132,6 +1366,15 @@ const Compose = (() => {
       } finally {
         btn.disabled = false;
       }
+    });
+
+    // mousedown+preventDefault, like the formatting buttons above: clicking a
+    // toolbar button must not take the selection out of the editor first, or an
+    // insert-at-the-caret lands nowhere.
+    document.getElementById('c-template')?.addEventListener('mousedown', (e) => e.preventDefault());
+    document.getElementById('c-template')?.addEventListener('click', (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      showTemplateMenu(r.left, r.bottom);
     });
 
     document.getElementById('btn-send-later').addEventListener('click', (e) => {
@@ -1190,5 +1433,5 @@ const Compose = (() => {
     });
   }
 
-  return { init, open, reopen, reply, forward, editDraft, setIdentities, requestClose, isOpen, pickSendTime, fonts: () => [...FONTS] };
+  return { init, open, reopen, reply, forward, editDraft, setIdentities, setTemplates, requestClose, isOpen, pickSendTime, fonts: () => [...FONTS] };
 })();

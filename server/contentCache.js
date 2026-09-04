@@ -7,15 +7,73 @@
 // untouched by this — matches this codebase's existing convention of
 // keeping cache orchestration in callers (index.js, sync.js), not inside
 // the protocol clients themselves.
+import sanitizeHtml from 'sanitize-html';
 import { config } from './config.js';
 import { store } from './store.js';
 import * as cache from './cache.js';
+import * as accounts from './accounts.js';
 import * as mailClient from './mailClient.js';
 import { log } from './log.js';
 import { receiptAddressOf } from './readReceipt.js';
 import { repairQuotedPrintable } from './transferEncoding.js';
 
 const slog = log.scope('contentCache');
+
+/* ---------------- full-text index (cache.js#message_fts) ----------------
+ *
+ * Indexing lives here rather than in cache.js because this is where a parsed
+ * message actually exists: cache.js stores JSON and knows nothing about which
+ * of its fields are words a person would search for. It is also where the
+ * per-account opt-in is checked, once, for both the on-write and backfill
+ * paths.
+ */
+
+/** How much of one message's body to index. A newsletter can be hundreds of
+ *  kilobytes of boilerplate, and nobody searches page nine of a marketing mail
+ *  — but they do search the first screen of a long thread. Generous enough to
+ *  cover any real correspondence, and it keeps one outlier from dominating the
+ *  index the way it would otherwise dominate the content cache. */
+const MAX_INDEX_CHARS = 64 * 1024;
+
+/** How many already-cached-but-unindexed messages to index per folder per tick.
+ *  Much larger than BACKFILL_BUDGET_PER_TICK below because this costs no
+ *  network at all — the text is already in SQLite, and this is only tokenising
+ *  it. Turning the flag on for an account with a warm cache should be a matter
+ *  of a minute or two, not an afternoon. */
+const INDEX_BUDGET_PER_TICK = 200;
+
+const flatten = (html) => sanitizeHtml(html, {
+  allowedTags: [], allowedAttributes: {},
+  // Same list as the notification preview (server/sync.js) and for the same
+  // reason: without it a message's <title> and its <style> sheet get indexed
+  // as if they were body text, and every HTML mail matches on its CSS.
+  nonTextTags: ['script', 'style', 'textarea', 'option', 'xmp', 'title', 'xml'],
+});
+
+const addrText = (list) => (list || []).map((a) => `${a.name || ''} ${a.address || ''}`).join(' ').trim();
+
+/** The four indexable fields of a parsed message. Prefers the text/plain part
+ *  and falls back to the HTML with its tags stripped — the same order the
+ *  reading pane and the notification preview both use. */
+function indexFieldsFor(msg) {
+  const body = (msg?.text || (msg?.html ? flatten(msg.html) : '') || '').slice(0, MAX_INDEX_CHARS);
+  return {
+    body,
+    subject: msg?.subject || '',
+    sender: addrText(msg?.from),
+    recipients: `${addrText(msg?.to)} ${addrText(msg?.cc)}`.trim(),
+  };
+}
+
+/** Index one just-cached message, if its account asked for that. `rowid` is
+ *  saveMessageContent()'s return. Never fatal: an index write that fails leaves
+ *  indexed_at NULL, so the backfill pass below simply picks it up again. */
+function indexIfEnabled(uKey, accountId, rowid, msg) {
+  if (!rowid || !accounts.isSearchIndexed(uKey, accountId)) return;
+  if (cache.searchIndexOverBudget(store.getSettingsFor(uKey).searchIndexMaxMb)) return;
+  try { cache.indexMessageContent(rowid, indexFieldsFor(msg)); }
+  catch (e) { slog.warn(`Could not index ${accountId}/${rowid}:`, e.message); }
+}
 
 // Not a user-facing setting (contentCacheLimit — "how many" — is; see
 // store.js) — a fixed safety valve so one unusually large HTML newsletter
@@ -35,7 +93,13 @@ const MAX_CACHE_BYTES = 2 * 1024 * 1024; // 2MB of parsed JSON
 // of its text/calendar part. Nothing can synthesise that from an already-cached
 // object the way normalize() repairs a shape, so this is the case the stamp
 // exists for: every message re-parses once, on its next open.
-const CONTENT_VERSION = 2;
+// 3 (2026-09-03): messages gained `headers.auth` — the Authentication-Results
+// reading (server/authResults.js). Nothing can synthesise it from an
+// already-cached object the way normalize() repairs a shape: the evidence is in
+// the raw headers, which the cache does not keep. So every message re-parses
+// once, on its next open, rather than the trust badge being silently absent on
+// exactly the messages read most often.
+const CONTENT_VERSION = 3;
 
 /**
  * Cache-first parsed-message read. Returns the exact same shape
@@ -59,7 +123,16 @@ export async function getMessage(uKey, accountId, folder, uid) {
     try {
       const json = JSON.stringify(msg);
       const tooBig = json.length > MAX_CACHE_BYTES;
-      cache.saveMessageContent(uKey, accountId, folder, uid, tooBig ? null : msg, json.length);
+      const rowid = cache.saveMessageContent(uKey, accountId, folder, uid, tooBig ? null : msg, json.length);
+      // Deliberately NOT indexed when it was too big to cache. The text is in
+      // hand right here so it could be, but the row that would carry it has a
+      // NULL content_json — nothing the backfill pass could ever re-read. It
+      // would index once, on whichever open happened to fetch it, and then be
+      // unreproducible: drop and rebuild the index and that one message
+      // silently stops matching. An index that covers exactly what
+      // message_content holds is one anybody can reason about; this would make
+      // it "that, plus whatever was opened while the flag was on".
+      if (!tooBig) indexIfEnabled(uKey, accountId, rowid, msg);
       if (tooBig) slog.debug(`${folder}/${uid}: parsed content is ${(json.length / 1024 / 1024).toFixed(1)}MB, over the cache cap — will stay live on every open`);
     } catch (e) {
       slog.warn(`Could not cache content for ${folder}/${uid}:`, e.message); // never let a caching failure break the actual read
@@ -168,4 +241,52 @@ export async function backfillAndPrune(uKey, accountId, folder) {
     }
   }
   cache.pruneMessageContent(uKey, accountId, folder, recentUids);
+  indexBackfill(uKey, accountId, folder);
+}
+
+/**
+ * Indexes whatever content is cached for this ACCOUNT but not yet in the
+ * full-text index. Runs last in the tick, after the prune, so it never spends
+ * its budget on rows that are about to be thrown away.
+ *
+ * Account-wide, not folder-wide: see cache.js#unindexedContent. Called once per
+ * polled folder, which is redundant only until the backlog drains — after that
+ * it is one indexed query returning nothing.
+ *
+ * This is what makes turning the flag on retroactive: the bodies are already in
+ * message_content for the newest contentCacheLimit messages of every synced
+ * folder, so enabling the setting does not need to re-fetch anything from the
+ * mail server — it just has to tokenise what is already on disk. A cache warmed
+ * over normal use is therefore searchable within a couple of poll ticks.
+ *
+ * Synchronous and unawaited-looking on purpose: there is no I/O here beyond
+ * SQLite, so there is nothing to await, and the whole budget is a few tens of
+ * milliseconds of tokenising.
+ */
+function indexBackfill(uKey, accountId, folder) {
+  if (!accounts.isSearchIndexed(uKey, accountId)) return;
+  if (cache.searchIndexOverBudget(store.getSettingsFor(uKey).searchIndexMaxMb)) {
+    slog.debug(`${folder}: search index is at its size limit — not indexing further for now`);
+    return;
+  }
+  let pending;
+  try { pending = cache.unindexedContent(uKey, accountId, INDEX_BUDGET_PER_TICK); }
+  catch (e) { slog.warn(`Could not read the index worklist for ${folder}:`, e.message); return; }
+  if (!pending.length) return;
+  let done = 0;
+  for (const row of pending) {
+    try {
+      // The stored JSON, not a re-fetch — that is the whole point of this pass.
+      // A row that will not parse is corrupt rather than merely stale, so mark
+      // it indexed-as-empty instead of leaving it to be retried every tick
+      // forever; the next re-cache of that message replaces it properly.
+      let msg = null;
+      try { msg = JSON.parse(row.contentJson); } catch { msg = null; }
+      cache.indexMessageContent(row.rowid, msg ? indexFieldsFor(msg) : {});
+      done++;
+    } catch (e) {
+      slog.warn(`Could not index ${row.folder}/${row.uid}:`, e.message);
+    }
+  }
+  if (done) slog.debug(`${folder}: indexed ${done} cached message(s) for search`);
 }

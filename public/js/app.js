@@ -9,6 +9,22 @@ const state = {
   lastAccount: null, // last specific (non-'all') account visited — Compose's default context
   identities: [],
   contacts: [],
+  // Searches pinned to the sidebar (server/store.js#getSavedSearches). Loaded
+  // once at startup and re-read after every edit; each one is re-RUN on open,
+  // so nothing here is a cached result.
+  savedSearches: [],
+  // Which saved search the list is currently showing, if any. Deliberately NOT
+  // folded into currentFolder: a saved search runs against a REAL folder (or the
+  // unified view), and everything from the message fetch to "Move to…" reads
+  // currentFolder expecting a path a server will answer for. This is only the
+  // sidebar's notion of which row is lit.
+  savedSearchId: null,
+  // Messages waiting to come back (server/snooze.js). Pointers, not mail: the
+  // messages themselves are in the account's snooze folder on the server.
+  snoozed: [],
+  // The row the keyboard is ON, which is not the same as the row that is OPEN
+  // (openUid). Only public/js/shortcuts.js sets it; rowClassName draws it.
+  cursorUid: null,
   folders: [],
   currentFolder: 'INBOX',
   page: 1,
@@ -24,6 +40,14 @@ const state = {
   // message bodies too. Reset by any new search and by leaving the folder, so
   // it is never a mode you get stuck in (see searchScopeRow).
   searchScope: 'folder',
+  // What the SERVER says actually answered the last search — 'cache', 'index',
+  // 'folder', 'inboxes', 'account' or 'starred' (see server/index.js's two list
+  // routes). 'index' is 'cache' plus the message bodies, on an account whose
+  // full-text index is on.
+  // searchScope above is what was ASKED for; this is what was done, and the two
+  // genuinely differ: a body: term is answered live even at 'folder' scope. Only
+  // this one is safe to describe to the user (searchScopeRow).
+  searchScopeUsed: null,
   unreadOnly: false,
   // Toolbar's ★ (#btn-starred-only). Per-tab like unreadOnly, not a stored setting:
   // it narrows the list only, so unlike showMuted below there's nothing computed
@@ -64,6 +88,13 @@ const state = {
   // expanded at its own moment, and each waits out its own delay (see
   // scheduleMarkRead). Leaving the pane clears all of them.
   markReadTimers: new Map(),
+  // The row a Shift+click range extends FROM — the last row clicked without
+  // Shift, whether that click opened it, Ctrl-picked it, or ticked it in select
+  // mode. A uid, so it must be cleared on folder/account navigation: uids are
+  // only unique WITHIN a folder, and a leftover 5 from one folder would
+  // otherwise happily match a different message 5 in the next. Not found in the
+  // current list = no anchor, which selectRangeTo handles.
+  selectAnchorUid: null,
   // Authoritative total unread across every account, from GET /api/unread
   // (and kept live by the SSE payload + optimistic nudges). null until the
   // first fetch lands, which is when unreadTotal() falls back to the local
@@ -311,6 +342,27 @@ function refreshOpenMessageTheme() {
     slot.innerHTML = '';
     slot.appendChild(MessageFrame.create({ ...card.__frameOpts, ...themeColorsForFrame() }));
   }
+}
+
+/**
+ * Re-renders every open message body with the CURRENT font settings.
+ *
+ * refreshOpenMessageTheme above rebuilds from each card's parked
+ * `__frameOpts`, which were captured when the card was built — so on their own
+ * they carry the font that was in force then, and changing the font in Settings
+ * left whatever was already open looking exactly as before. Which reads as the
+ * setting not working, since the message you are staring at is the one you
+ * changed it for.
+ */
+function refreshOpenMessageFonts() {
+  if ($('#message-view')?.hidden) return;
+  const fontFamily = migrateFontValue(state.settings.messageFont);
+  const fontSize = state.settings.messageFontSize || 15;
+  const fontOverride = !!state.settings.messageFontOverride;
+  for (const card of $$('#message-view .mv-card')) {
+    if (card.__frameOpts) Object.assign(card.__frameOpts, { fontFamily, fontSize, fontOverride, fonts: state.customFonts });
+  }
+  refreshOpenMessageTheme();
 }
 
 /* ---------- theme picker dialog ---------- */
@@ -990,8 +1042,14 @@ async function loadFolders() {
   // (which turned this into a toast every 90 seconds, not just the one the
   // report mentioned), the reconnect handler, and every post-action refresh.
   if (hasNoAccounts()) {
-    $('#folder-list').innerHTML = '';
+    const ul = $('#folder-list');
+    ul.innerHTML = '';
     state.folders = [];
+    // Except the calendar, which needs no mailbox — a CalDAV server has nothing
+    // to do with mail, and somebody who only ever added one would otherwise
+    // have no way to reach it. app.css keeps this one row visible while
+    // body.no-accounts hides the rest of the list.
+    appendCalendarRow(ul);
     return;
   }
   const ul = $('#folder-list');
@@ -1018,7 +1076,10 @@ async function loadFolders() {
       li.addEventListener('click', () => openFolder(key));
       ul.appendChild(li);
     }
+    appendSavedSearchRows(ul);
+    appendSnoozedRow(ul);
     appendScheduledRow(ul);
+    appendCalendarRow(ul);
     // total unread badge per account is refreshed alongside
     refreshUnread();
     return;
@@ -1061,8 +1122,12 @@ async function loadFolders() {
     bindLongPress(li, (x, y) => showFolderMenu(f.path, x, y));
     ul.appendChild(li);
   }
-  // Last, below the real mailboxes: it isn't one. See appendScheduledRow.
+  // Last, below the real mailboxes: none of these is one. See
+  // appendSavedSearchRows, appendScheduledRow and appendCalendarRow.
+  appendSavedSearchRows(ul);
+  appendSnoozedRow(ul);
   appendScheduledRow(ul);
+  appendCalendarRow(ul);
   updateSilenceMarkers();
 }
 
@@ -1733,8 +1798,183 @@ function showMessageMenu(m, x, y) {
     // and each of them says which way it goes, since the same entry moves a
     // message out again when you are already looking at that folder.
     ...refileMenuItems(m),
+    ...snoozeMenuItems(m, x, y),
     { label: 'Delete', danger: true, onClick: () => quickDelete(m) },
   ], x, y);
+}
+
+/* ---------- snooze (see server/snooze.js) ----------
+ * Take a message out of the Inbox now and have it come back at a chosen time.
+ * The message really moves, into the account's snooze folder — so it is out of
+ * the way on the phone and in every other client too, not only here.
+ */
+const SNOOZED_FOLDER = '__SNOOZED__';
+
+/** "Snooze", or "Un-snooze" when the row already is one. Nothing at all in the
+ *  places where the idea makes no sense: a message already in Drafts or Trash,
+ *  and the pseudo-folders, which hold no real mail. */
+function snoozeMenuItems(m, x, y) {
+  if (state.currentFolder.startsWith('__')) return [];
+  const { folder, accountId } = msgCtx(m);
+  const acct = accountId || (state.currentAccount !== 'all' ? state.currentAccount : null);
+  const snoozeFolder = state.accounts.find((a) => a.id === acct)?.snoozeFolder;
+  if (snoozeFolder && folder === snoozeFolder) {
+    return [{ label: 'Un-snooze', onClick: () => unsnoozeRow(m) }];
+  }
+  return [{ label: 'Snooze…', onClick: () => snoozeRow(m, x, y) }];
+}
+
+async function snoozeRow(m, x, y) {
+  // The same picker the composer uses for Send later — one list of presets and
+  // one custom date/time dialog, so the two can never drift apart.
+  const at = await Compose.pickSendTime(x, y, { mode: 'snooze' });
+  if (!at) return;
+  let addCalendar = false;
+  // Only asked when there is somewhere to put it: a question with one possible
+  // answer is not a question. Cancelling the dialog abandons the whole snooze,
+  // which is why neither button is "no" — both of them snooze.
+  if (hasWritableCalendar()) {
+    const answer = await Dialog.choose(I18n.t('Put a reminder in your calendar for that time as well?'), {
+      title: I18n.t('Snooze'),
+      buttons: [
+        { label: I18n.t('Just snooze'), value: 'plain' },
+        { label: I18n.t('Snooze and remind me'), value: 'calendar', primary: true },
+      ],
+    });
+    if (!answer) return; // cancelled
+    addCalendar = answer === 'calendar';
+  }
+  const uids = rowUids(m);
+  // The ROW's own folder and account, not the view's. In "All inboxes" there is
+  // no ambient account and each row can belong to a different one — the same
+  // resolution every other row action goes through (see quickRefile).
+  const { folder, accountId } = msgCtx(m);
+  try {
+    await API.snooze(folder, uids, at, addCalendar, accountId);
+    toast(I18n.t('Snoozed until {when}').replace('{when}', fmtDate(at, { long: true })));
+    await loadMessages();
+    loadFolders();
+  } catch (e) {
+    toast(I18n.t('Could not snooze that') + ': ' + e.message, 6000);
+  }
+}
+
+async function unsnoozeRow(m) {
+  const { folder, accountId } = msgCtx(m);
+  const rec = (state.snoozed || []).find((s) => String(s.uid) === String(m.uid)
+    && s.folder === folder && (!accountId || s.accountId === accountId));
+  if (!rec) return toast(I18n.t('That message is not snoozed — move it yourself'), 5000);
+  try {
+    await API.wakeSnoozed(rec.id);
+    toast(I18n.t('Back in your inbox'));
+    await refreshSnoozed();
+    await loadMessages();
+    loadFolders();
+  } catch (e) {
+    toast(I18n.t('Could not bring that back') + ': ' + e.message, 6000);
+  }
+}
+
+async function refreshSnoozed() {
+  // Non-fatal: without it the sidebar badge is stale, which is not a reason to
+  // break whatever else the caller was doing.
+  state.snoozed = await API.snoozed().catch(() => []);
+  paintSnoozedBadge();
+}
+
+function appendSnoozedRow(ul) {
+  const n = (state.snoozed || []).length;
+  if (!n && state.currentFolder !== SNOOZED_FOLDER) return; // nothing snoozed: no row at all
+  const li = document.createElement('li');
+  li.dataset.path = SNOOZED_FOLDER;
+  if (state.currentFolder === SNOOZED_FOLDER) li.classList.add('active');
+  li.innerHTML = '<span class="f-icon">🕰️</span><span>Snoozed</span>';
+  if (n) li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
+  li.addEventListener('click', () => openFolder(SNOOZED_FOLDER));
+  ul.appendChild(li);
+}
+
+function paintSnoozedBadge() {
+  const li = $(`#folder-list li[data-path="${SNOOZED_FOLDER}"]`);
+  if (!li) return; // sidebar not built yet — appendSnoozedRow paints it from state
+  const span = $('.f-count', li);
+  const n = (state.snoozed || []).length;
+  if (n) {
+    if (span) span.textContent = n;
+    else li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
+  } else span?.remove();
+}
+
+/**
+ * The Snoozed view. Like the Scheduled one it is not backed by state.messages —
+ * these are pointers to mail sitting in a folder on the server, listed by when
+ * they come back rather than by when they arrived.
+ */
+function paintSnoozed() {
+  const ul = $('#msg-list');
+  const list = state.snoozed || [];
+  state.total = list.length;
+  renderPager({ total: list.length, page: 1, pageSize: Math.max(list.length, 1) });
+  if (!list.length) {
+    ul.innerHTML = `<li class="msg-list-loading">${esc(I18n.t('Nothing snoozed. Right-click a message to snooze it.'))}</li>`;
+    return;
+  }
+  ul.innerHTML = '';
+  for (const item of list) ul.appendChild(snoozedRow(item));
+}
+
+function snoozedRow(item) {
+  const li = document.createElement('li');
+  li.className = 'msg-row';
+  li.dataset.uid = item.id;
+  // Overdue means the runner is working on it (or is about to). Only a repeated
+  // failure is worth colouring differently, which lastError is what shows.
+  const late = item.wakeAt < Date.now() - 60e3;
+  const when = late ? I18n.t('Coming back…') : fmtDate(item.wakeAt, { long: true });
+  const a = state.accounts.find((x) => x.id === item.accountId);
+  const chip = a
+    ? `<span class="acct-chip acct-chip-static" style="--chip:${escAttr(a.color)}" title="${escAttr(a.label)}">${esc(acctInitials(a.label))}</span>`
+    : '';
+  li.innerHTML = `
+    ${chip}<span class="m-from">${esc(item.fromName || item.fromAddr || '—')}</span>
+    <span class="m-subject" data-no-i18n>${esc(item.subject || '(no subject)')}</span>
+    ${item.calendarUid ? `<span class="m-attach" title="${escAttr(I18n.t('Has a calendar reminder'))}">📅</span>` : ''}
+    <span class="m-date m-when${late ? ' late' : ''}" title="${escAttr(when)}">${esc(when)}</span>`;
+  const menu = (x, y) => showSnoozedMenu(item, x, y);
+  li.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e.clientX, e.clientY); });
+  bindLongPress(li, menu);
+  // A plain click is the obvious "I want it now" gesture on a list whose rows
+  // cannot be opened — the message is not in a folder this view can read.
+  li.addEventListener('click', () => wakeSnoozedNow(item));
+  return li;
+}
+
+function showSnoozedMenu(item, x, y) {
+  openCtxMenu([
+    { label: 'Bring it back now', onClick: () => wakeSnoozedNow(item) },
+    { label: 'Snooze until…', onClick: async () => {
+      const at = await Compose.pickSendTime(x, y, { mode: 'snooze', current: item.wakeAt });
+      if (!at) return;
+      try {
+        await API.resnooze(item.id, at);
+        await refreshSnoozed();
+        if (state.currentFolder === SNOOZED_FOLDER) paintSnoozed();
+        toast(I18n.t('Snoozed until {when}').replace('{when}', fmtDate(at, { long: true })));
+      } catch (e) { toast(I18n.t('Could not change that') + ': ' + e.message, 6000); }
+    } },
+  ], x, y);
+}
+
+async function wakeSnoozedNow(item) {
+  try {
+    await API.wakeSnoozed(item.id);
+    await refreshSnoozed();
+    toast(I18n.t('Back in your inbox'));
+    if (state.currentFolder === SNOOZED_FOLDER) paintSnoozed();
+    loadFolders();
+  } catch (e) {
+    toast(I18n.t('Could not bring that back') + ': ' + e.message, 6000);
+  }
 }
 
 /** Swipe-to-act on mobile: drag a row left/right past a threshold to fire one
@@ -1928,16 +2168,37 @@ async function openFolder(path, page = 1) {
   // than relying on every call site to remember to.
   state.query = '';
   state.searchScope = 'folder';
+  state.searchScopeUsed = null;
+  state.savedSearchId = null;
   const searchInput = $('#search-input');
   if (searchInput) searchInput.value = '';
   updateSearchClearBtn();
   state.currentFolder = path;
   state.page = page;
   if (state.selectMode) setSelectMode(false); else state.selected.clear();
+  state.selectAnchorUid = null; // see the field's comment: uids repeat across folders
   state.openUid = null;
   $$('#folder-list li').forEach((li) => li.classList.toggle('active', li.dataset.path === path));
   closeMessage();
   closeSidebarIfMobile();
+  if (path === CALENDAR_FOLDER) { Calendar.open(); return; }
+  if (path === SNOOZED_FOLDER) {
+    Calendar.close();
+    await refreshSnoozed();
+    applyScheduledChrome(true); // same chrome as the Scheduled view: nothing here is searchable or sortable
+    paintSnoozed();
+    return;
+  }
+  // Unconditional, and idempotent when the calendar was never open.
+  //
+  // This used to ask "am I leaving the calendar?" by reading state.currentFolder
+  // — which switchAccount() has ALREADY set to 'INBOX' by the time it calls
+  // here. So switching account while the calendar was open answered "no",
+  // Calendar.close() never ran, `body.calendar-mode` stayed on, and the message
+  // list and reading pane remained hidden with no way back. Inferring the
+  // transition from mutable state was the mistake; the destination is the only
+  // thing that actually decides it.
+  Calendar.close();
   await loadMessages();
 }
 
@@ -1950,6 +2211,130 @@ async function openFolder(path, page = 1) {
  * Per PERSON, not per mailbox — so the row appears in the unified sidebar and in
  * every account's own folder list, belonging to neither. */
 const SCHEDULED_FOLDER = '__SCHEDULED__';
+
+/* ---------- the calendar (see public/js/calendar.js) ----------
+ *
+ * A peer of the mailbox, not a folder: opening it replaces the message list and
+ * reading pane with the calendar surface. Listed here because that is where a
+ * person looks for "the other things this app can show me", and next to
+ * Scheduled because both are per-PERSON rather than per-mailbox.
+ *
+ * Deliberately NOT gated by requireAccount(): a CalDAV calendar has nothing to
+ * do with mail, and somebody who uses Hmelj only for their calendar is a real
+ * (if unusual) user. It is the one row that stays reachable with no mailbox at
+ * all — which is also why it lives in its own <ul>, since #folder-list is
+ * hidden outright in that state.
+ */
+const CALENDAR_FOLDER = '__CALENDAR__';
+
+const inCalendar = () => state.currentFolder === CALENDAR_FOLDER;
+
+function appendCalendarRow(ul) {
+  const li = document.createElement('li');
+  li.dataset.path = CALENDAR_FOLDER;
+  if (inCalendar()) li.classList.add('active');
+  li.innerHTML = '<span class="f-icon">📅</span><span>Calendar</span>';
+  li.addEventListener('click', () => openFolder(CALENDAR_FOLDER));
+  ul.appendChild(li);
+}
+
+/* ---------- saved searches ----------
+ * A pinned QUESTION, not a folder: the query is re-run live every time the row
+ * is opened, and nothing is filed anywhere. Same pseudo-path convention as the
+ * Scheduled and Calendar rows (`__`-prefixed, see listedFolderFor), so every
+ * "is this a real mailbox?" test in the app already answers correctly for them.
+ */
+const SAVED_PREFIX = '__SAVED__';
+const savedSearchPath = (id) => SAVED_PREFIX + id;
+
+function appendSavedSearchRows(ul) {
+  for (const s of state.savedSearches || []) {
+    const li = document.createElement('li');
+    li.dataset.path = savedSearchPath(s.id);
+    if (state.savedSearchId === s.id) li.classList.add('active');
+    // data-no-i18n on the name for the same reason the subject cell carries it
+    // (see buildRow): this is the user's own words, not part of the interface.
+    li.innerHTML = `<span class="f-icon">🔎</span><span data-no-i18n>${esc(s.name)}</span>`;
+    li.title = s.query;
+    li.addEventListener('click', () => openSavedSearch(s));
+    bindLongPress(li, (x, y) => showSavedSearchMenu(s, x, y));
+    li.addEventListener('contextmenu', (e) => { e.preventDefault(); showSavedSearchMenu(s, e.clientX, e.clientY); });
+    ul.appendChild(li);
+  }
+}
+
+/**
+ * Navigate, then ask. openFolder() deliberately clears any active query — it is
+ * the "done with those results" signal — so the query has to be applied AFTER
+ * the navigation rather than before it, or opening a saved search would land on
+ * the right folder showing everything in it.
+ */
+async function openSavedSearch(s) {
+  const wantAccount = s.accountId || 'all';
+  // A saved search for an account that has since been removed (or un-shared)
+  // would otherwise switch to an id nothing answers for and leave the list
+  // stuck on an error toast.
+  if (s.accountId && !state.accounts.some((a) => a.id === s.accountId)) {
+    toast(I18n.t('That account is no longer available — edit this saved search in Settings.'), 6000);
+    return;
+  }
+  if (state.currentAccount !== wantAccount) await switchAccount(wantAccount);
+  await openFolder(s.folder || 'INBOX');
+  state.savedSearchId = s.id;
+  state.query = s.query;
+  state.searchScope = 'folder';
+  state.searchScopeUsed = null;
+  state.unreadOnly = !!s.unreadOnly;
+  state.starredOnly = !!s.flaggedOnly;
+  state.page = 1;
+  const input = $('#search-input');
+  if (input) input.value = s.query;
+  updateSearchClearBtn();
+  // openFolder above lit the underlying folder's row; the saved search is the
+  // truer answer to "where am I", so it takes the highlight.
+  $$('#folder-list li').forEach((li) => li.classList.toggle('active', li.dataset.path === savedSearchPath(s.id)));
+  await loadMessages();
+}
+
+function showSavedSearchMenu(s, x, y) {
+  openCtxMenu([
+    { label: 'Rename', onClick: async () => {
+      const name = await Dialog.prompt(I18n.t('Name for this saved search'), { value: s.name });
+      if (!name || !name.trim()) return;
+      s.name = name.trim();
+      state.savedSearches = await API.saveSavedSearches(state.savedSearches);
+      loadFolders();
+    } },
+    { label: 'Remove', danger: true, onClick: async () => {
+      state.savedSearches = await API.saveSavedSearches((state.savedSearches || []).filter((x) => x.id !== s.id));
+      // Leaving the row we are standing on would show its results under a
+      // sidebar entry that no longer exists.
+      if (state.savedSearchId === s.id) await openFolder('INBOX');
+      loadFolders();
+    } },
+  ], x, y);
+}
+
+/** "Save this search" — offered under the results, next to the scope line. */
+async function saveCurrentSearch() {
+  if (!state.query) return;
+  const name = await Dialog.prompt(I18n.t('Save this search'), { label: I18n.t('Name for this saved search'), value: state.query.slice(0, 60) });
+  if (!name || !name.trim()) return;
+  const entry = {
+    id: String(Date.now()),
+    name: name.trim(),
+    query: state.query,
+    // Where it is being asked right now, so reopening it asks the same
+    // question rather than a differently-scoped one that happens to share text.
+    accountId: state.currentAccount === 'all' ? null : state.currentAccount,
+    folder: state.currentAccount === 'all' ? null : state.currentFolder,
+    unreadOnly: !!state.unreadOnly,
+    flaggedOnly: !!state.starredOnly,
+  };
+  state.savedSearches = await API.saveSavedSearches([...(state.savedSearches || []), entry]);
+  await loadFolders();
+  toast(I18n.t('Saved to the sidebar'));
+}
 
 function appendScheduledRow(ul) {
   const li = document.createElement('li');
@@ -2167,6 +2552,7 @@ async function openScheduledPreview(item) {
 function renderScheduledPreview(view, data, item) {
   const fontFamily = migrateFontValue(state.settings.messageFont);
   const fontSize = state.settings.messageFontSize || 15;
+  const fontOverride = !!state.settings.messageFontOverride;
   const a = scheduledAccount(item);
   const ident = (state.identities || []).find((i) => i.id === data.identityId);
   const late = data.sendAt < Date.now() - 60e3;
@@ -2210,7 +2596,7 @@ function renderScheduledPreview(view, data, item) {
     </article>`;
 
   const card = $('.mv-card', view);
-  card.__frameOpts = { html: data.html || undefined, text: data.text, fontFamily, fontSize, fonts: state.customFonts };
+  card.__frameOpts = { html: data.html || undefined, text: data.text, fontFamily, fontSize, fontOverride, fonts: state.customFonts };
   $('.mv-body-slot', view).appendChild(MessageFrame.create({ ...card.__frameOpts, ...themeColorsForFrame() }));
   $('#mv-more', view).addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2316,6 +2702,17 @@ function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
 let loadMessagesSeq = 0;
 
 async function loadMessages() {
+  // The calendar owns the whole content area and fetches its own data. Checked
+  // before the no-mailbox guard below, deliberately: a calendar does not need a
+  // mail account, and returning early there would leave the grid blank for
+  // somebody who has only ever added a CalDAV server.
+  if (inCalendar()) return;
+  // And if we are NOT in it but it is still on screen, something reached the
+  // mail list without going through openFolder. Painting a list into a pane
+  // `body.calendar-mode` is hiding produces a window that looks frozen, so the
+  // last word on which view is showing belongs here, next to the code that
+  // fills it.
+  if (Calendar.isOpen()) Calendar.close();
   // No mailbox: there is nothing to list, and asking would only produce
   // "No mail account selected" from the server. The empty state stays put.
   if (hasNoAccounts()) { renderNoAccountState(); return; }
@@ -2352,6 +2749,7 @@ async function loadMessages() {
   if (seq !== loadMessagesSeq) return; // superseded while this fetch was in flight — discard, don't paint stale data over newer
   state.messages = data.messages;
   state.total = data.total;
+  state.searchScopeUsed = data.scope || null;
   renderList();
   renderPager(data);
   scrollListToTopOnNavigation();
@@ -2480,10 +2878,17 @@ async function reconcileMessages() {
   // a reconcile run here would fetch a folder the server has never heard of and
   // then patch the list down to the empty array it compared against.
   if (state.currentFolder === SCHEDULED_FOLDER) return refreshScheduled();
+  // Same reasoning: the calendar is not backed by state.messages, and a
+  // reconcile here would fetch a folder the server has never heard of.
+  if (inCalendar()) return Calendar.refresh();
   if (pendingMutations) { reconcileWants |= 1; return; }
   // Silent refreshes sit a live sweep out. Everything explicit — the refresh button,
   // re-running the search, navigating anywhere — still goes through loadMessages().
-  if (queryIsLiveSweep(state.query)) return;
+  // An escalated search ("Search everywhere") is the same case for a second reason:
+  // this call deliberately omits searchScopeParam(), so re-running it would answer
+  // the NARROW question and quietly patch the whole-account results back down to
+  // the cached folder ones — under a footer still saying the account was searched.
+  if (queryIsLiveSweep(state.query) || state.searchScope === 'account') return;
   const seq = ++reconcileMessagesSeq;
   const load = loadMessagesSeq; // a full (re)load owns the view outright; never paint over one
   let data;
@@ -3121,6 +3526,10 @@ if ('serviceWorker' in navigator) {
       scheduleReconcile();
     } else if (e.data?.type === 'hmelj-open-message') {
       openMessageDeepLink(e.data.accountId, e.data.folder, e.data.uid);
+    } else if (e.data?.type === 'hmelj-open-calendar') {
+      // A tapped calendar reminder. The calendar is a view rather than a
+      // folder, so this is a navigation and not a message open.
+      openFolder(CALENDAR_FOLDER);
     }
   });
 }
@@ -3322,7 +3731,16 @@ function buildRow(m) {
     <label class="cb" title="Select"><input type="checkbox" ${state.selected.has(m.uid) ? 'checked' : ''}></label>
     <button class="m-star ${rowStarred(m) ? 'on' : ''}" title="Star">${rowStarred(m) ? '★' : '☆'}</button>
     ${chip}<span class="m-from">${esc(fromLabel)}</span>
-    <span class="m-subject">${answerMarkHtml(m)}${threadMarkHtml(m)}${esc(m.subject)}</span>
+    <!-- data-no-i18n: this span holds the user's MAIL, not the app's own words
+         — a subject (or a shortened one, see below) that happened to match a
+         catalogue entry would otherwise come back translated. The ↩/↪/count
+         marks inside are already translated where they're built, and a language
+         change reloads the page anyway.
+         title: subjectOriginal is set by the server only on a row whose
+         subject was rewritten by a Settings > Subject rule
+         (server/subjectRules.js), so hovering a shortened row still shows what
+         the sender actually wrote. -->
+    <span class="m-subject" data-no-i18n title="${escAttr(m.subjectOriginal || m.subject || '')}">${answerMarkHtml(m)}${threadMarkHtml(m)}${esc(m.subject)}</span>
     ${m.hasAttachment ? '<span class="m-attach" title="Has attachment">📎</span>' : ''}
     <span class="m-date" title="${escAttr(fmtDate(m.date, { long: true }))}">${esc(fmtDate(m.date))}</span>`;
   li.querySelector('.m-star').addEventListener('click', async (e) => {
@@ -3357,6 +3775,34 @@ function buildRow(m) {
   // (batch action on whatever's selected) — there's no more per-row icon
   // for it, see #select-toolbar's #sel-read/#sel-unread.
   li.addEventListener('click', (e) => {
+    // Shift+click takes everything between the last row clicked and this one —
+    // click a message, hold Shift, click five below it, and all six are picked.
+    // Checked BEFORE Ctrl so Ctrl+Shift+click means "extend", the way it does
+    // everywhere else. Desktop only, for the same reason as Ctrl below.
+    //
+    // Unlike Ctrl+click this also works once select mode is already ON: that is
+    // the whole point of it, extending a selection you have started rather than
+    // ticking twenty rows one at a time.
+    if (e.shiftKey && !isMobileViewport()) {
+      // No anchor in this list (first click after a folder switch, or one left
+      // behind on another page) — nothing to draw a range from, so fall back to
+      // exactly what Ctrl+click would have done with this row.
+      if (!selectRangeTo(m)) {
+        for (const u of rowUids(m)) state.selected.add(u);
+        state.selectAnchorUid = m.uid;
+      }
+      // setSelectMode re-renders (and never clears the set on the way IN), so
+      // the newly-picked rows come back already ticked; once it is already on,
+      // a plain renderList does the same job. Either way the "X selected" count
+      // follows, since renderList ends by updating it.
+      if (state.selectMode) renderList(); else setSelectMode(true);
+      return;
+    }
+    // Any click WITHOUT Shift is where the next range will start from — whether
+    // it opens the message, Ctrl-picks it, or ticks it in select mode. That is
+    // what makes "click one, Shift+click another" work without a separate
+    // gesture to place the anchor.
+    state.selectAnchorUid = m.uid;
     // Ctrl+click (Cmd on a Mac) picks rows out of the list without going to the
     // toolbar's ☑ first — the desktop convention, and what the drag-to-select
     // gesture's space is now free for (see .msg-list's user-select in app.css).
@@ -3391,6 +3837,53 @@ function buildRow(m) {
 }
 
 /**
+ * Every message row currently ON SCREEN, in the order it is shown.
+ *
+ * Read back out of the DOM rather than re-deriving it from state.messages and
+ * sortMessages(): a range means "everything between these two AS DISPLAYED",
+ * and the list on screen is the only thing that knows that for certain — a
+ * second opinion computed from the array would silently disagree the moment the
+ * two ever drifted (a sort change, a row the list chose not to draw).
+ */
+function renderedRows() {
+  const byUid = new Map(state.messages.map((m) => [String(m.uid), m]));
+  return [...$('#msg-list').querySelectorAll('.msg-row')]
+    .map((li) => byUid.get(li.dataset.uid))
+    .filter(Boolean);
+}
+
+/**
+ * Shift+click: add every row between the anchor (see state.selectAnchorUid) and
+ * `m` to the selection, both ends included.
+ *
+ * Additive, and the anchor deliberately does NOT move: a second Shift+click
+ * extends the same range further instead of replacing it, so the gesture can
+ * only ever grow a selection. File-manager behaviour would re-cut the range
+ * from the anchor and drop whatever fell outside it — which, in a mailbox, is
+ * one mis-aimed click away from silently unpicking messages you had already
+ * chosen to delete.
+ *
+ * Whole conversations go in together (rowUids), exactly as a plain select-mode
+ * click does — state.selected is a flat uid set and nothing downstream knows
+ * threads exist.
+ *
+ * @returns {boolean} false if there is no usable anchor in the current list,
+ *   which is the caller's cue to treat the click as an ordinary Ctrl+click.
+ */
+function selectRangeTo(m) {
+  if (state.selectAnchorUid == null) return false;
+  const rows = renderedRows();
+  const to = rows.findIndex((r) => String(r.uid) === String(m.uid));
+  const from = rows.findIndex((r) => String(r.uid) === String(state.selectAnchorUid));
+  // An anchor left over from another folder or an earlier page simply isn't
+  // here any more — no range to draw, rather than a wrong one.
+  if (to < 0 || from < 0) return false;
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  for (let i = a; i <= b; i++) for (const u of rowUids(rows[i])) state.selected.add(u);
+  return true;
+}
+
+/**
  * Is this click the "add to a selection" gesture?
  *
  * Ctrl everywhere except a Mac, where Ctrl+click IS the right-click gesture and
@@ -3403,8 +3896,12 @@ function multiSelectClick(e) {
 }
 
 function rowClassName(m) {
+  // The keyboard cursor rides on top of every other row state — it says where
+  // the next j/k/Del will land, which matters most precisely when the row is
+  // also selected or open.
+  const cursor = state.cursorUid != null && String(state.cursorUid) === String(m.uid) ? ' cursor' : '';
   return 'msg-row' + (rowUnread(m) ? ' unread' : '') + (m.uid === state.openUid ? ' selected' : '') + (m.deleted ? ' deleted' : '') +
-    (state.selectMode && state.selected.has(m.uid) ? ' picked' : '');
+    (state.selectMode && state.selected.has(m.uid) ? ' picked' : '') + cursor;
 }
 
 /**
@@ -3445,17 +3942,45 @@ function searchScopeParam() {
  * results" can look like the whole truth. The link asks the SERVER instead:
  * every folder of the account — All Mail where the provider has one, which is
  * the only place archived Gmail lives — matching message bodies too.
+ *
+ * It says what the server reports it actually DID (state.searchScopeUsed), not
+ * what was asked for, because those come apart in the case that matters most: a
+ * `body:` term is answered live over the folder's entire history even at the
+ * default scope. Claiming "only recently cached mail was searched" there sent a
+ * real investigation off after the cache when the thing actually missing was a
+ * message sitting one folder over, filed there by a rule. Whatever was searched,
+ * the line now names the boundary the results stop at.
  */
+const SEARCH_SCOPE_TEXT = {
+  account: 'Searched the whole account on the server.',
+  starred: 'Searched every folder on the server for starred mail.',
+  folder: 'Searched this whole folder on the server, not just cached mail.',
+  inboxes: "Searched each account's inbox on the server, not just cached mail.",
+  cache: 'Only recently cached mail was searched, by subject and sender.',
+  // The index covers whole messages, but only the ones whose content is cached
+  // — a shallower window than the envelope cache above, not a deeper one. So
+  // this says what was read rather than implying the whole mailbox, and keeps
+  // the escalation link for the mail that sits behind that window.
+  index: 'Searched inside recently cached messages, including their text.',
+};
+
 function searchScopeRow() {
   if (!state.query) return null;
   const li = document.createElement('li');
   li.className = 'search-scope-row';
-  if (state.searchScope === 'account') {
-    li.innerHTML = `<span>${esc(I18n.t('Searched the whole account on the server.'))}</span>`;
+  // 'account' and 'starred' already span every folder there is to span — there
+  // is nothing left to escalate to, so they get the line without the button.
+  const used = state.searchScopeUsed || 'cache';
+  if (used === 'account' || used === 'starred') {
+    li.innerHTML = `<span>${esc(I18n.t(SEARCH_SCOPE_TEXT[used]))}</span>
+      <button type="button" class="link-btn" id="search-save">${esc(I18n.t('Save this search'))}</button>`;
+    $('#search-save', li).addEventListener('click', saveCurrentSearch);
     return li;
   }
-  li.innerHTML = `<span>${esc(I18n.t('Only recently cached mail was searched, by subject and sender.'))}</span>
-    <button type="button" class="link-btn" id="search-everywhere">${esc(I18n.t('Search everywhere'))}</button>`;
+  li.innerHTML = `<span>${esc(I18n.t(SEARCH_SCOPE_TEXT[used] || SEARCH_SCOPE_TEXT.cache))}</span>
+    <button type="button" class="link-btn" id="search-everywhere">${esc(I18n.t('Search everywhere'))}</button>
+    <button type="button" class="link-btn" id="search-save">${esc(I18n.t('Save this search'))}</button>`;
+  $('#search-save', li).addEventListener('click', saveCurrentSearch);
   $('#search-everywhere', li).addEventListener('click', () => {
     state.searchScope = 'account';
     state.page = 1;
@@ -3474,6 +3999,9 @@ function renderList() {
   // without this the queue would be replaced by "No messages here" the moment
   // a queued message was opened.
   if (state.currentFolder === SCHEDULED_FOLDER) return paintScheduled();
+  if (state.currentFolder === SNOOZED_FOLDER) return paintSnoozed();
+  // The calendar draws itself into its own pane; renderList has nothing to do.
+  if (inCalendar()) return;
   const ul = $('#msg-list');
   ul.innerHTML = '';
   $('#lh-chip').hidden = !state.messages.some((m) => rowAccount(m));
@@ -3492,6 +4020,9 @@ function renderList() {
   const scopeRow = searchScopeRow();
   if (scopeRow) ul.appendChild(scopeRow);
   updateSelectToolbar();
+  // The keyboard cursor is a class on a row and the list is rebuilt often —
+  // shortcuts.js listens for this rather than renderList knowing about it.
+  document.dispatchEvent(new CustomEvent('hmelj:list-rendered'));
 }
 
 /** Applies the chosen row-density layout (table/small/compact/comfort/wide)
@@ -3714,6 +4245,32 @@ window.addEventListener('popstate', () => {
   if (!navCollapseOneLevel()) navPush();
 });
 
+/**
+ * Escape dismisses the topmost overlay — the keyboard's version of the back
+ * key, and the same front-to-back order navCollapseOneLevel documents.
+ *
+ * Only the OVERLAY levels, deliberately: Escape stops at the last dialog and
+ * does not carry on into in-page navigation the way back does. Closing the
+ * message you are reading is arguable; switching account back to All inboxes,
+ * which is where that chain ends, plainly is not what Escape means.
+ *
+ * Everything above Settings owns its own Escape already (Dialog, the theme
+ * picker, the attachment viewer, compose — each with its own close semantics,
+ * compose's being a save/discard prompt rather than a dismissal). This checks
+ * for them and stands aside rather than closing two layers on one press. The
+ * dialog case is also guarded at the source now — see dialog.js — since its
+ * backdrop is gone by the time a bubbled event reaches here.
+ */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if ($('.dialog-backdrop') || $('#theme-picker-backdrop')) return;
+  if (AttachmentViewer.isOpen() || Compose.isOpen()) return;
+  //  Settings collapses its inner levels first (the Filters tab's editor back
+  //  to the filter list), exactly as the back key does.
+  if (Settings.isOpen()) { if (!Settings.collapseOneLevel()) Settings.close(); return; }
+  if (Analytics.isOpen()) { Analytics.close(); }
+});
+
 /** Native Android app shell's hardware back button hook (a separate project —
  * see its own MainActivity.kt's onBackCallback). isStandalonePwa() (display-mode:
  * standalone / navigator.standalone) never matches inside that app's own plain
@@ -3869,6 +4426,9 @@ async function showSingleMessage(view, m, { allowImages = false } = {}) {
   view.classList.remove('mv-placeholder');
   msg.__folder = msgFolder;
   msg.__account = msgAccount;
+  // Kept for the keyboard shortcuts: r/a/f need the FETCHED message (body,
+  // headers, attachments), not the envelope the list row carries.
+  state.openMessage = msg;
   renderMessage(view, msg, m);
   scheduleMarkRead(m);
 }
@@ -4194,6 +4754,124 @@ function addrChip(p) {
 const addrList = (people) => (people || []).map(addrChip).filter(Boolean).join(', ');
 
 /** What one address offers: copying it, and writing to it. */
+/* ---------- sender authentication (server/authResults.js) ----------
+ * Whether the message really came from where its From line claims. This is the
+ * one piece of evidence that speaks to the thing most mail actually gets used
+ * to do harm with — impersonation — and unlike a signature it is already in
+ * essentially every message, because the receiving server put it there.
+ */
+
+/** The chip beside the sender. Structurally the same as the priority span next
+ *  to it: one inline element, no layout of its own, and it folds away with the
+ *  header for free. Nothing at all for the ordinary cases, because a badge on
+ *  every message is a badge nobody reads — only a pass worth stating and a
+ *  failure worth stopping at. */
+function authChip(msg) {
+  if (state.settings.senderAuthBadge === false) return '';
+  const a = msg?.headers?.auth;
+  if (!a) return '';
+  const detail = [
+    a.spf ? `SPF: ${a.spf}` : '', a.dkim ? `DKIM: ${a.dkim}` : '', a.dmarc ? `DMARC: ${a.dmarc}` : '',
+    a.dkimDomain ? I18n.t('signed by') + ' ' + a.dkimDomain : '',
+  ].filter(Boolean).join(' · ');
+  if (a.verdict === 'fail') {
+    return `<span class="mv-auth mv-auth-fail" title="${escAttr(detail)}">⚠ ${esc(I18n.t('Failed sender checks'))}</span>`;
+  }
+  if (a.verdict === 'pass') {
+    return `<span class="mv-auth mv-auth-pass" title="${escAttr(detail)}">🔒 ${esc(I18n.t('Verified sender'))}</span>`;
+  }
+  // 'partial' and 'none' get nothing. A mailing list breaks SPF by design and a
+  // server that checks nothing is the default on plenty of small hosts; marking
+  // either as suspect would put a warning on ordinary mail, which is how people
+  // learn to ignore warnings.
+  return '';
+}
+
+/**
+ * The banner, for the two cases worth interrupting a reader over.
+ *
+ * A DMARC failure means the message claims a From domain it is not authorised
+ * to use. A spoofed display name means it wears the name of someone in the
+ * address book over an address that is not theirs — which passes every
+ * authentication check there is, because the domain it really came from did
+ * authorise it. The second is the one that actually catches people.
+ */
+function authBanner(msg) {
+  if (state.settings.senderAuthBadge === false) return '';
+  const a = msg?.headers?.auth;
+  const from = msg?.from?.[0];
+  let out = '';
+  if (a?.verdict === 'fail') {
+    out += `<div class="mv-banner mv-banner-danger">⚠ <b>${esc(I18n.t('This message failed its sender checks.'))}</b>
+      ${esc(I18n.t('It claims to be from a domain it is not authorised to send for. Treat links and attachments in it as untrusted.'))}</div>`;
+  }
+  const impersonated = from && authSpoofCheck(from);
+  if (impersonated) {
+    out += `<div class="mv-banner mv-banner-danger">⚠ <b>${esc(I18n.t('The sender\'s name does not match their address.'))}</b>
+      ${esc(I18n.t('You know this name as {addr} — this message came from somewhere else.').replace('{addr}', impersonated))}</div>`;
+  }
+  return out;
+}
+
+/** Client-side twin of authResults.js#spoofedDisplayName, over the contacts
+ *  already loaded here. Kept deliberately conservative in the same way: a name
+ *  under four characters, or one that is itself an address, is skipped, because
+ *  a false alarm is what teaches people to click past the real one. */
+function authSpoofCheck(from) {
+  const shown = String(from.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const addr = String(from.address || '').trim().toLowerCase();
+  if (shown.length < 4 || !addr || shown.includes('@')) return null;
+  for (const c of state.contacts || []) {
+    const cname = String(c?.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const cmail = String(c?.email || '').trim().toLowerCase();
+    if (!cname || !cmail || cname !== shown) continue;
+    if (cmail !== addr) return cmail;
+  }
+  return null;
+}
+
+/* ---------- turning a message into an event ---------- */
+
+/** Whether anything could receive one. Refreshed by the calendar view whenever
+ *  it loads, so the menu entry appears as soon as a calendar is added rather
+ *  than at the next reload. */
+let writableCalendarCount = 0;
+const hasWritableCalendar = () => writableCalendarCount > 0;
+window.__hmeljSetWritableCalendars = (n) => { writableCalendarCount = n; };
+
+/**
+ * Opens the event editor prefilled from a message.
+ *
+ * The subject becomes the title and the body becomes the notes, both trimmed —
+ * a whole newsletter pasted into an event's description is not what anybody
+ * meant by "add this to my calendar". Everyone the message was addressed to is
+ * offered as an attendee, since a meeting proposed by mail usually involves
+ * exactly those people; they are only prefilled, and are removable before Save.
+ */
+function eventFromMessage(msg) {
+  const text = String(msg.text || '').replace(/\r/g, '').trim();
+  const people = [
+    ...(msg.from ? [msg.from] : []),
+    ...(msg.to || []),
+  ].map((p) => ({ name: p.name || '', address: p.address || '' }))
+    .filter((p) => p.address && !isOwnAddress(p.address));
+  Calendar.createFrom({
+    summary: msg.subject || '',
+    // 2000 characters is a long note and a short email. Past that it is being
+    // stored rather than read.
+    description: text.length > 2000 ? text.slice(0, 2000) + '…' : text,
+    attendees: people,
+  });
+}
+
+/** Is this one of the user's own addresses? Inviting yourself to your own
+ *  meeting is the sort of thing that looks like a bug to everyone who sees it. */
+function isOwnAddress(address) {
+  const a = String(address).toLowerCase();
+  return (state.identities || []).some((i) => String(i.email || '').toLowerCase() === a)
+    || (state.accounts || []).some((x) => String(x.email || '').toLowerCase() === a);
+}
+
 function showAddressMenu(el, x, y) {
   const address = el.dataset.address;
   if (!address) return;
@@ -4251,10 +4929,14 @@ function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
   const from = msg.from?.[0] || {};
   const fontFamily = migrateFontValue(state.settings.messageFont);
   const fontSize = state.settings.messageFontSize || 15;
+  // Whether those two are FORCED over the message's own fonts — see
+  // messageFrame.js#buildDoc and the setting's note in server/store.js.
+  const fontOverride = !!state.settings.messageFontOverride;
   const prio = msg.priority && msg.priority !== 'normal'
     ? `<span class="${msg.priority === 'high' ? 'mv-priority-high' : ''}" title="Priority">${msg.priority === 'high' ? '❗ High priority' : '⬇ Low priority'}</span>` : '';
+  const authed = authChip(msg);
 
-  let banner = '';
+  let banner = authBanner(msg);
   if (msg.blockedRemote > 0) {
     banner = `<div class="mv-banner">🖼 ${msg.blockedRemote} external image(s) blocked.
       <button class="link-btn mv-show-images">Show images</button>
@@ -4343,7 +5025,7 @@ function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
         </div>
       </div>
       <div class="mv-head-brief">${brief}</div>
-      <div class="mv-from-line">${fromLine} ${prio}</div>
+      <div class="mv-from-line">${fromLine} ${prio} ${authed}</div>
       <div class="mv-date">${esc(fmtDate(msg.date, { long: true }))}</div>
       <div class="mv-to-line">${toLine}</div>
       ${answerNoteHtml(listEntry, msg)}
@@ -4352,11 +5034,18 @@ function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
     ${invitationHtml(msg)}
     <div class="mv-body mv-body-slot"></div>
     ${attach.length ? `<div class="mv-attachments">${attach.map((a) =>
-      `<a class="attach-chip" href="${escAttr(API.attachmentUrl(msg.__folder, msg.uid, a.index, msg.__account))}" data-filename="${escAttr(a.filename)}" data-content-type="${escAttr(a.contentType || '')}">📎 ${esc(a.filename)} <small>(${Math.round(a.size / 1024)} KB)</small></a>`).join('')}</div>` : ''}`;
+      `<a class="attach-chip" href="${escAttr(API.attachmentUrl(msg.__folder, msg.uid, a.index, msg.__account))}" data-filename="${escAttr(a.filename)}" data-content-type="${escAttr(a.contentType || '')}">📎 ${esc(a.filename)} <small>(${Math.round(a.size / 1024)} KB)</small></a>`).join('')}${
+      // Only from two up: offering to bundle a single file is a longer way of
+      // doing what the chip beside it already does. `download` and a plain
+      // href, so this is the browser's own download rather than something this
+      // app has to hold in memory and hand over.
+      attach.length > 1 ? `<a class="attach-chip attach-chip-all" download href="${escAttr(API.attachmentsZipUrl(msg.__folder, msg.uid, msg.__account))}"
+        title="${escAttr(I18n.t('Download every attachment on this message as one .zip'))}">⤓ ${esc(I18n.t('Download all'))} <small>(${attach.length}, ${Math.round(attach.reduce((n, a) => n + (a.size || 0), 0) / 1024)} KB)</small></a>` : ''
+    }</div>` : ''}`;
 
   // Everything a rebuild of just the iframe needs (theme change) and everything
   // a reload of the whole card needs (the user allowing this message's images).
-  card.__frameOpts = { html: msg.html, text: msg.text, fontFamily, fontSize, fonts: state.customFonts };
+  card.__frameOpts = { html: msg.html, text: msg.text, fontFamily, fontSize, fontOverride, fonts: state.customFonts };
   card.__msg = msg;
   card.__listEntry = listEntry;
   $('.mv-body-slot', card).appendChild(MessageFrame.create({ ...card.__frameOpts, ...themeColorsForFrame() }));
@@ -4364,7 +5053,10 @@ function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
   bindAddressMenu(card);
   bindInvitation(card, listEntry);
 
-  $$('.attach-chip', card).forEach((a) => a.addEventListener('click', (e) => {
+  // :not(.attach-chip-all) — the bundle chip is a plain download and must keep
+  // its default action. Without this it is swallowed like every other chip and
+  // handed to the attachment VIEWER, which would try to preview a .zip.
+  $$('.attach-chip:not(.attach-chip-all)', card).forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     AttachmentViewer.open({ url: a.href, filename: a.dataset.filename, contentType: a.dataset.contentType });
   }));
@@ -4506,6 +5198,11 @@ function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
       // the pane holds several, and "search in message" means the one whose
       // menu was opened.
       { label: 'Search in message', onClick: () => MessageFind.open($('iframe.mv-body-frame', card)) },
+      // "This needs to be in my calendar" is a thing people do with a message
+      // several times a week, and the alternative is retyping the subject into
+      // a form. Offered only where there is somewhere to put it — a read-only
+      // calendar cannot take one, and neither can no calendar at all.
+      ...(hasWritableCalendar() ? [{ label: 'Add to calendar', onClick: () => eventFromMessage(msg) }] : []),
       { label: 'View headers', onClick: () => showHeadersDialog(msg) },
       { label: 'Print', onClick: () => printMessage(msg) },
       // Opening a whole new tab is an awkward, cramped gesture on a phone
@@ -5125,7 +5822,9 @@ function bindToolbar() {
     btn.classList.add('spinning');
     try {
       state.query = $('#search-input').value.trim();
+      state.savedSearchId = null;   // typed over: this is a new question, not the pinned one
       state.searchScope = 'folder'; // a new search always starts cheap; the footer offers the rest
+      state.searchScopeUsed = null;   // unknown until this search's own answer lands
       state.page = 1;
       await loadMessages();
     } finally {
@@ -5223,6 +5922,20 @@ function bindToolbar() {
  * default at all. */
 let searchSuggestTimer = null;
 
+/* The scope prefix of one search term — an optional +/- sign, an optional
+ * recognized `field:`, an optional opening quote — stripped off before the
+ * word index is asked to complete it. Without this, typing `from:ali` asked
+ * for a completion of the literal string "from:ali", which the index (plain
+ * lowercase words, see cache.js#tokenizeWords) can never match, so scoping a
+ * search silently turned autocomplete off.
+ *
+ * The field list is kept in sync BY HAND with server/searchQuery.js's
+ * FIELD_NAMES, exactly as queryIsLiveSweep is with STARRED_TERM_RE — and, like
+ * that parser, an UNRECOGNIZED prefix is deliberately left whole (a URL, a
+ * literal 10:30), since there it is plain text and completing past the colon
+ * would suggest a word the search will never look for. */
+const SEARCH_TERM_PREFIX_RE = /^[+-]?(?:(?:from|to|subject|body):)?"?/i;
+
 /** Shows/hides the ✕ button at the end of the search field — visible
  * exactly when there's anything to clear. Called on every keystroke and
  * everywhere else the field's value changes programmatically (clearing it
@@ -5240,20 +5953,24 @@ function onSearchInput(e) {
   // already-typed text should never trigger a stray completion there.
   if (input.selectionStart !== val.length || input.selectionEnd !== val.length) return;
   const lastWord = val.slice(val.lastIndexOf(' ') + 1); // no space found -> lastIndexOf is -1, +1 -> whole value
-  if (lastWord.length < 2) return;
-  searchSuggestTimer = setTimeout(() => applySearchSuggestion(input, val, lastWord), 100);
+  // Only the WORD part is looked up; the `from:`/`-subject:"` in front of it is
+  // typed text the completion is appended after, untouched (see the regex above).
+  const stem = lastWord.replace(SEARCH_TERM_PREFIX_RE, '');
+  if (stem.length < 2) return;
+  searchSuggestTimer = setTimeout(() => applySearchSuggestion(input, val, stem), 100);
 }
 
-async function applySearchSuggestion(input, val, lastWord) {
+async function applySearchSuggestion(input, val, stem) {
   if (input.value !== val) return; // stale — typing continued before this fired
   let completion;
-  try { ({ completion } = await API.searchSuggest(lastWord)); } catch { return; }
+  try { ({ completion } = await API.searchSuggest(stem)); } catch { return; }
   // completion (if any) is a plain lowercase word from the index; slicing
   // off just the extra tail and appending it to `val` verbatim — rather
   // than replacing the whole typed prefix with the (lowercase) completion
-  // — preserves whatever casing was actually typed.
-  if (!completion || completion.length <= lastWord.length || input.value !== val) return;
-  const fullValue = val + completion.slice(lastWord.length);
+  // — preserves whatever casing was actually typed, and keeps any field
+  // scope in front of it intact (`stem` is always a suffix of `val`).
+  if (!completion || completion.length <= stem.length || input.value !== val) return;
+  const fullValue = val + completion.slice(stem.length);
   input.value = fullValue;
   input.setSelectionRange(val.length, fullValue.length);
 }
@@ -5365,6 +6082,10 @@ async function boot() {
   Compose.init();
   Settings.init();
   Analytics.init();
+  Calendar.init();
+  // Last of the four, and deliberately: every shortcut calls into one of the
+  // modules above, and its guard asks each of them whether it is open.
+  Shortcuts.init();
   Settings.setAdmin(!!session.isAdmin);
   // Sidebar starts closed (overlay) on mobile, open on desktop; keep it sane
   // across viewport changes (e.g. rotating a tablet past the breakpoint).
@@ -5386,6 +6107,11 @@ async function boot() {
 
   state.identities = await API.identities();
   state.contacts = await API.contacts();
+  // Non-fatal: a failure here costs the sidebar its saved-search rows, which
+  // is not a reason to stop the app from loading mail.
+  state.savedSearches = await API.savedSearches().catch(() => []);
+  Compose.setTemplates(await API.templates().catch(() => []));
+  await refreshSnoozed();
 
   state.accounts = await API.accounts();
   applyAccountGate();
@@ -5506,12 +6232,16 @@ window.onCodexaPushToken = async (token) => {
   } catch (e) { console.warn('Re-registering rotated FCM token failed:', e); }
 };
 
-/** Tapping a native notification hands the message here (accountId/folder/uid,
- * the same payload sw.js gets) — the browser equivalent of the ?msgAccount=
- * deep link handled at the bottom of this file. */
+/** Tapping a native notification hands its routing data here (the same payload
+ * sw.js gets) — the browser equivalent of the ?msgAccount= deep link handled at
+ * the bottom of this file. */
 window.onCodexaPushTapped = (data) => {
   const d = typeof data === 'string' ? (() => { try { return JSON.parse(data); } catch { return null; } })() : data;
-  if (!d?.folder || d.uid === undefined) return;
+  if (!d) return;
+  // A calendar reminder carries no folder at all, so the mail check below would
+  // silently swallow it — the tap would do nothing and nothing would say why.
+  if (d.kind === 'calendar') { openFolder(CALENDAR_FOLDER); return; }
+  if (!d.folder || d.uid === undefined) return;
   openMessageDeepLink(d.accountId, d.folder, d.uid);
 };
 
@@ -5616,6 +6346,11 @@ if (new URLSearchParams(location.search).get('compose')) {
   const msgAccount = qs.get('msgAccount'), msgFolder = qs.get('msgFolder'), msgUid = qs.get('msgUid');
   if (msgAccount && msgFolder && msgUid !== null) {
     addEventListener('load', () => setTimeout(() => openMessageDeepLink(msgAccount, msgFolder, msgUid), 300));
+  }
+  // The same thing for a tapped calendar reminder, which sw.js opens as
+  // /?view=calendar when it found no tab to hand the event to instead.
+  if (qs.get('view') === 'calendar') {
+    addEventListener('load', () => setTimeout(() => openFolder(CALENDAR_FOLDER), 300));
   }
 }
 

@@ -183,6 +183,11 @@
       <div class="sidebar-scroll">
         <ul class="account-list" id="account-list"></ul>
         <ul class="folder-list" id="folder-list"></ul>
+        <!-- Which calendars are drawn. Its own list rather than rows inside
+             #folder-list: these are not folders, they toggle visibility rather
+             than navigating, and #folder-list is hidden outright when there is
+             no mail account — which a calendar does not need. -->
+        <ul class="folder-list calendar-list" id="calendar-list" hidden></ul>
       </div>
       <div class="sidebar-footer">
         <button class="user-menu-trigger" id="btn-user-menu">
@@ -253,6 +258,32 @@
         <ul class="msg-list" id="msg-list"></ul>
       </section>
 
+      <!-- Calendar (see js/calendar.js). A peer of the mailbox rather than a
+           modal: a month grid needs the full content area, and none of the
+           message list's chrome — sort columns, pager, select toolbar — means
+           anything over it. Opening it hides the two panes beside it and shows
+           this one; the sidebar stays, so switching accounts and calendars
+           works the same way it does everywhere else. -->
+      <section class="calendar-pane" id="calendar-view" hidden>
+        <div class="cal-bar">
+          <button class="icon-btn" id="btn-cal-menu" title="Toggle sidebar">☰</button>
+          <button type="button" class="btn-sm" id="cal-today">Today</button>
+          <button type="button" class="icon-btn" id="cal-prev" title="Previous">‹</button>
+          <button type="button" class="icon-btn" id="cal-next" title="Next">›</button>
+          <button type="button" class="cal-period" id="cal-period"></button>
+          <span class="spacer"></span>
+          <div class="cal-views" id="cal-views">
+            <button type="button" data-view="month">Month</button>
+            <button type="button" data-view="week">Week</button>
+            <button type="button" data-view="day">Day</button>
+            <button type="button" data-view="agenda">Agenda</button>
+          </div>
+          <button type="button" class="icon-btn" id="cal-new" title="New event">＋</button>
+          <button type="button" class="icon-btn" id="cal-refresh" title="Refresh">⟳</button>
+        </div>
+        <div class="cal-body" id="cal-body"></div>
+      </section>
+
       <div class="col-resizer" id="resizer-list" title="Drag to resize"></div>
       <section class="reading-pane" id="reading-pane">
         <button class="mv-back-btn" id="btn-mv-back" title="Back">← <span>Back</span></button>
@@ -318,6 +349,9 @@
              it's pinned; hidden entirely when spell checking is off or the
              browser has no Custom Highlight API. See public/js/proofread.js. -->
         <button id="c-lang" class="pf-lang pf-lang-auto" title="Spell-check language" tabindex="-1" hidden>AUTO</button>
+        <!-- Insert a saved template at the caret. Hidden until there is at
+             least one to insert (see compose.js#refreshTemplates). -->
+        <button id="c-template" type="button" title="Insert a template" tabindex="-1" hidden>📋</button>
         <span class="spacer"></span>
         <label class="mini-toggle" title="Plain text mode"><input type="checkbox" id="c-plain" tabindex="-1"> Plain</label>
       </div>
@@ -367,9 +401,13 @@
           <button data-tab="compose"><span class="tab-icon">✏️</span><span>Compose</span></button>
           <button data-tab="identities"><span class="tab-icon">👤</span><span>Identities</span></button>
           <button data-tab="filters"><span class="tab-icon">🧹</span><span>Filters</span></button>
+          <button data-tab="subject"><span class="tab-icon">✂️</span><span>Subject</span></button>
+          <button data-tab="saved"><span class="tab-icon">🔎</span><span>Saved searches</span></button>
+          <button data-tab="templates"><span class="tab-icon">📋</span><span>Templates</span></button>
           <button data-tab="folders"><span class="tab-icon">📁</span><span>Folders</span></button>
           <button data-tab="scheduler"><span class="tab-icon">🔔</span><span>Scheduler</span></button>
           <button data-tab="contacts"><span class="tab-icon">👥</span><span>Contacts</span></button>
+          <button data-tab="calendars"><span class="tab-icon">📅</span><span>Calendars</span></button>
           <button data-tab="accounts"><span class="tab-icon">✉️</span><span>Accounts</span></button>
           <button data-tab="security"><span class="tab-icon">🔑</span><span>Login</span></button>
           <button data-tab="admin" id="tab-admin" hidden><span class="tab-icon">🛡️</span><span>Admin</span></button>
@@ -470,7 +508,10 @@
 <script src="/js/settings.js"></script>
 <script src="/js/analytics.js"></script>
 <script src="/js/proofread.js"></script>
+<script src="/js/composeGuards.js"></script>
 <script src="/js/compose.js"></script>
+<script src="/js/calendar.js"></script>
+<script src="/js/shortcuts.js"></script>
 <script src="/js/app.js"></script>
 <script>
 if ('serviceWorker' in navigator) {

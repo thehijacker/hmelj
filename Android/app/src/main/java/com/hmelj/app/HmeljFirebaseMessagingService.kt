@@ -77,6 +77,13 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
         var folder: String? = null
         var uid: String? = null
         var actions: org.json.JSONArray? = null
+        // Calendar reminders travel the same FCM path as mail and are told
+        // apart by `kind` — see server/calendarReminders.js#payloadFor. They
+        // need a different channel, a different action button and, above all,
+        // they must not touch the unread badge.
+        var kind: String? = null
+        var calendarId: String? = null
+        var occurrenceStart: String? = null
 
         message.data["payload"]?.let { raw ->
             try {
@@ -84,12 +91,15 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
                 obj.optString("title").takeIf { it.isNotEmpty() }?.let { title = it }
                 obj.optString("body").takeIf { it.isNotEmpty() }?.let { body = it }
                 obj.optString("tag").takeIf { it.isNotEmpty() }?.let { tag = it }
+                kind = obj.optString("kind").takeIf { it.isNotEmpty() }
                 obj.optJSONObject("data")?.let { d ->
                     routeDataJson = d.toString()
                     accountId = d.optString("accountId").takeIf { it.isNotEmpty() }
                     folder = d.optString("folder").takeIf { it.isNotEmpty() }
                     // uid is a number in the payload; every use of it here is as text.
                     uid = if (d.has("uid") && !d.isNull("uid")) d.get("uid").toString() else null
+                    calendarId = d.optString("calendarId").takeIf { it.isNotEmpty() }
+                    occurrenceStart = if (d.has("start") && !d.isNull("start")) d.get("start").toString() else null
                 }
                 actions = obj.optJSONArray("actions")
                 if (obj.has("unreadTotal") && !obj.isNull("unreadTotal")) unreadTotal = obj.optInt("unreadTotal", -1)
@@ -103,7 +113,11 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
         // is correct even though this process may have been dead for hours and nothing
         // here could have worked it out. Applied BEFORE the enabled-check below: a badge
         // is not a notification, and it should track reality regardless.
-        if (unreadTotal >= 0) MailNotifications.setBadge(this, unreadTotal)
+        val isCalendar = kind == "calendar"
+        // A calendar reminder carries no unread count and must never move the
+        // badge — that number is the unread MAIL total, and a reminder blanking
+        // or inflating it would make it stop matching what the app shows.
+        if (!isCalendar && unreadTotal >= 0) MailNotifications.setBadge(this, unreadTotal)
 
         // A badge-only push carries no title/body and exists purely to correct the
         // number above — sent when the total goes DOWN (mail read on another device),
@@ -136,30 +150,47 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
         val id = tag?.hashCode() ?: System.currentTimeMillis().toInt()
         val pendingIntent = PendingIntent.getActivity(this, id, tapIntent, pendingFlags)
 
-        val builder = NotificationCompat.Builder(this, MailNotifications.CHANNEL_MAIL)
+        val builder = NotificationCompat.Builder(
+            this,
+            if (isCalendar) MailNotifications.CHANNEL_CALENDAR else MailNotifications.CHANNEL_MAIL,
+        )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(finalTitle)
             .setContentText(finalBody)
             .setStyle(NotificationCompat.BigTextStyle().bigText(finalBody))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            // PRIORITY_HIGH + CATEGORY_MESSAGE are what get a heads-up popup on pre-O
-            // devices and correct ranking on newer ones.
+            // PRIORITY_HIGH is what gets a heads-up popup on pre-O devices and
+            // correct ranking on newer ones. The CATEGORY differs: EVENT tells
+            // the system (and Do Not Disturb, and Auto) that this is a calendar
+            // reminder rather than a message, which is how a user who allows
+            // "events" through DND but not "messages" gets what they asked for.
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            // Same group as the badge summary. Without this, badge-summing launchers
-            // add +1 for this notification ON TOP of the summary's setNumber(total) —
-            // the exact double-count the grouping was introduced to prevent, which this
-            // push path was never actually part of.
-            .setGroup(MailNotifications.GROUP)
+            .setCategory(if (isCalendar) NotificationCompat.CATEGORY_EVENT else NotificationCompat.CATEGORY_MESSAGE)
 
-        // "Mark as read" / "Delete", handled without opening the app — see
-        // NotificationActionReceiver. Only for a notification that stands for
-        // ONE message: the server's "N more new messages" summary carries no
-        // uid, and there'd be nothing for a button to act on.
+        // Only mail joins the badge group. Without this, badge-summing launchers
+        // add +1 for the notification ON TOP of the summary's setNumber(total) —
+        // and a calendar reminder joining it would inflate the unread MAIL count
+        // by one for as long as it sat in the tray.
+        if (!isCalendar) builder.setGroup(MailNotifications.GROUP)
+
         val f = folder
         val u = uid
-        if (f != null && u != null) {
+        val c = calendarId
+        val startAt = occurrenceStart
+        if (isCalendar) {
+            // "Snooze", handled without opening the app — the same gesture
+            // public/sw.js offers a browser, for the shell that has no Service
+            // Worker at all. Needs the occurrence's own identity: a series has
+            // one reminder per occurrence and snoozing must move exactly one.
+            if (c != null && u != null && startAt != null) {
+                addSnoozeAction(builder, actions, id, c, u, startAt)
+            }
+        } else if (f != null && u != null) {
+            // "Mark as read" / "Delete" — see NotificationActionReceiver. Only
+            // for a notification that stands for ONE message: the server's
+            // "N more new messages" summary carries no uid, and there'd be
+            // nothing for a button to act on.
             addTrayActions(builder, actions, id, accountId, f, u)
         }
 
@@ -198,6 +229,31 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
                 NotificationActionReceiver.pendingIntent(this, name, notificationId, accountId, folder, uid),
             )
         }
+    }
+
+    /**
+     * The "Snooze" button on a calendar reminder.
+     *
+     * One button, not two: dismissing is what closing the notification already
+     * does, and a button whose only effect is to close it is one people press
+     * expecting more. Title comes from the payload when it has one, so it is in
+     * the language the user reads Hmelj in (server/calendarReminders.js
+     * localises it per recipient).
+     */
+    private fun addSnoozeAction(
+        builder: NotificationCompat.Builder,
+        actions: org.json.JSONArray?,
+        notificationId: Int,
+        calendarId: String,
+        uid: String,
+        occurrenceStart: String,
+    ) {
+        builder.addAction(
+            R.drawable.ic_notif_snooze,
+            titleFor(actions, NotificationActionReceiver.ACTION_SNOOZE)
+                ?: getString(R.string.notification_action_snooze),
+            NotificationActionReceiver.snoozeIntent(this, notificationId, calendarId, uid, occurrenceStart),
+        )
     }
 
     /** The payload's title for one action id, or null if it doesn't offer one. */

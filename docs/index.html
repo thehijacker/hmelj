@@ -97,6 +97,7 @@
 <li><a data-scroll="list-views" data-section="list" href="#list-views">All inboxes vs one account</a></li>
 <li><a data-scroll="list-menu" data-section="list" href="#list-menu">Right-click / long-press</a></li>
 <li><a data-scroll="list-select" data-section="list" href="#list-select">Select mode</a></li>
+<li><a data-scroll="list-escape" data-section="list" href="#list-escape">Escape</a></li>
 <li><a data-scroll="list-swipe" data-section="list" href="#list-swipe">Swipe gestures</a></li>
 <li><a data-scroll="list-spam" data-section="list" href="#list-spam">Spam and Archive</a></li>
 </ul>
@@ -133,6 +134,19 @@
 </li>
 <li><a data-section="filters" href="#filters">Filters</a></li>
 <li><a data-section="contacts" href="#contacts">Contacts</a></li>
+<li>
+<a data-section="calendar" href="#calendar">Calendar</a>
+<ul class="nav-sub">
+<li><a data-scroll="cal-sources" data-section="calendar" href="#cal-sources">Adding a calendar</a></li>
+<li><a data-scroll="cal-new" data-section="calendar" href="#cal-new">Making a new calendar</a></li>
+<li><a data-scroll="cal-renamed" data-section="calendar" href="#cal-renamed">If you rename a calendar</a></li>
+<li><a data-scroll="cal-colors" data-section="calendar" href="#cal-colors">Colours</a></li>
+<li><a data-scroll="cal-views" data-section="calendar" href="#cal-views">The views</a></li>
+<li><a data-scroll="cal-editing" data-section="calendar" href="#cal-editing">Creating and editing</a></li>
+<li><a data-scroll="cal-reminders" data-section="calendar" href="#cal-reminders">Reminders</a></li>
+<li><a data-scroll="dav-server" data-section="calendar" href="#dav-server">Sharing from Hmelj</a></li>
+</ul>
+</li>
 <li><a data-section="analytics" href="#analytics">Mailbox Analytics</a></li>
 <li>
 <a data-section="notifications" href="#notifications">Notifications</a>
@@ -356,7 +370,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Full folder tree</strong> — create, rename, delete, empty, hide, per-folder unread counts</li>
 <li><strong>Filters</strong> — conditions on subject/from/to/content/size/date; move, copy, redirect, auto-reply, delete, mark read/unread, star</li>
 <li><strong>Spam and Archive</strong> — one gesture each way, with the return trip remembered</li>
-<li><strong>Select mode</strong> — Ctrl+click or the checkbox, then act on everything at once</li>
+<li><strong>Select mode</strong> — Ctrl+click, Shift+click for a whole run, or the checkbox, then act on everything at once</li>
 <li><strong>Swipe gestures</strong> on mobile, with a configurable direction</li>
 <li><strong>Search</strong> — Gmail-style syntax, cached-first with a one-click "search everywhere"</li>
 <li><strong>Mailbox analytics</strong> — where the quota went, who sends the most, what is safe to delete</li>
@@ -1310,6 +1324,26 @@ locked off rather than offered as a false choice.
   long-press already means something on these rows.
 </p>
 <p>
+  <strong>Shift+click</strong> takes a whole run at once: click a message, hold Shift, click
+  one further down, and everything between them is ticked, both ends included. It works
+  before select mode is on and after, and it only ever adds — a second Shift+click extends
+  the run rather than re-cutting it, so a mis-aimed click cannot quietly unpick messages you
+  had already chosen.
+</p>
+
+<h2 id="list-escape">Escape</h2>
+<p>
+  <b>Escape</b> dismisses whatever is on top — a dialog, the theme picker, the attachment
+  preview, compose (through its usual save-or-discard prompt), Settings, mailbox analytics —
+  one layer per press, in the order they are stacked on screen. It is the keyboard's version
+  of the phone's back key, which walks the same list.
+</p>
+<p>
+  It stops at the last overlay, deliberately. The back key carries on into the page itself —
+  closing the message you are reading, then returning to All inboxes — and Escape doing that
+  would be a surprise rather than a convenience.
+</p>
+<p>
   Ticking a <a data-section="conversation" href="#conversation">conversation</a> row selects
   every message in it — but never the copies in Sent, so deleting an inbox thread never
   deletes your own replies.
@@ -1440,7 +1474,18 @@ address is read — not always what you want on mail you never asked for.
 <li>Video streams rather than buffering, so a large file starts playing immediately.</li>
 <li>Once fetched, an attachment is remembered by the browser <em>and</em> by the server, so a second look is instant.</li>
 <li>In the Android app, a non-previewable attachment is handed to whichever app can open it.</li>
+<li>From two attachments up, a <strong>Download all</strong> chip appears beside them and hands
+  over the lot as a single <code>.zip</code>, named after the message.</li>
 </ul>
+<p>
+  The archive is built on the server, because that is where the parts are — each one is its own
+  fetch from the mail server, through the same cache a single download uses, so bundling a
+  message whose attachments you have already opened costs nothing extra. Embedded images (a
+  newsletter's logo and spacers) are left out: they are part of the body, and the chips do not
+  list them either. Two attachments that happen to share a filename both come out, numbered
+  the way a file manager would — a <code>.zip</code> tolerates duplicate names and most
+  unpackers silently keep only the last.
+</p>
 <div class="callout">
 Extracting one attachment costs far more than its size suggests: every backend answers by
 pulling the <em>whole</em> message down and parsing all of it to cut out one part. That is
@@ -1775,6 +1820,352 @@ Receiving mail is not consent to be in someone's address book.</li>
 <a class="back-top" href="#about">↑ Top</a>
 </section>
 
+<!-- ══════════════════════════════════════════════════════ Calendar ════ -->
+<section id="calendar">
+<h1>Calendar</h1>
+<p class="section-subtitle">Your calendars, in one place — and shared back out again</p>
+
+<p>
+  Hmelj shows calendars from CalDAV servers, Google, Microsoft&nbsp;365 and Exchange, all
+  together, in month, week, day and agenda views. It can create and change events on the
+  ones that allow it, remind you before an event starts, and publish calendars of its own
+  for a phone or another app to subscribe to.
+</p>
+
+<figure><img alt="The month view" data-src="screenshots/calendar-month.png"></figure>
+<figcaption>Month view, with each calendar in its own colour</figcaption>
+
+<h2 id="cal-sources">Adding a calendar</h2>
+<p>
+  <b>Settings → Calendars → + </b>, then pick where it comes from.
+</p>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>What you need</th><th>Can Hmelj change events?</th></tr>
+<tr><td><b>Hmelj calendar</b></td><td>Nothing. It lives in Hmelj itself.</td><td>Yes</td></tr>
+<tr><td><b>CalDAV</b></td><td>The server address, a username and a password</td><td>Yes</td></tr>
+<tr><td><b>Google Calendar</b></td><td>A Gmail account already signed in with Google</td><td>Yes</td></tr>
+<tr><td><b>Microsoft 365</b></td><td>A Microsoft account already added</td><td>Yes</td></tr>
+<tr><td><b>Exchange</b></td><td>An Exchange account already added</td><td>Yes</td></tr>
+</table></div>
+
+<div class="callout">
+  <p>
+    <b>If your provider uses two-factor authentication</b> — iCloud, Fastmail, a Nextcloud
+    with 2FA switched on — the account password will always be refused. Those need an
+    app-specific password, generated in that provider's own settings.
+  </p>
+</div>
+
+<h2 id="cal-new">Making a new calendar</h2>
+<p>
+  <b>Settings → Calendars → New calendar</b>, on the source you want it in. It is created on
+  that provider's own server, so it turns up in their apps too — a calendar made in a Gmail
+  source is a real Google calendar, on your phone as well.
+</p>
+<p>
+  Everywhere except Exchange. Exchange can do it, but Hmelj has no folder-management code for
+  EWS yet, so the button is not offered there.
+</p>
+
+<h2 id="cal-renamed">If you rename a calendar on the server</h2>
+<p>
+  Syncing a calendar reads its <i>events</i>, not its name — so a calendar renamed in Google
+  Calendar, Outlook or any other client keeps its old name in Hmelj until the calendar list
+  itself is re-read. That happens on <b>Sync now</b> (Settings → Calendars) straight away, and
+  by itself about once an hour otherwise. The same goes for a calendar's colour and for a
+  calendar that has become read-only. It works the same way for every kind of calendar —
+  CalDAV, Google, Microsoft&nbsp;365 and Exchange.
+</p>
+<p>
+  A calendar you have given a colour of your own keeps it — the server's colour does not
+  overwrite your choice. Calendars that are <i>new</i> on the server still need the source's
+  <b>Edit</b> → discover step, deliberately: a work server routinely shares a dozen nobody
+  asked for.
+</p>
+
+<h2 id="cal-colors">Colours</h2>
+<p>
+  Every calendar has one, and every event takes its calendar's — until you give the event a
+  colour of its own, which then wins. That is what lets one <i>Bins</i> calendar carry paper in
+  blue, plastic in yellow and everything else in brown, instead of needing three calendars to
+  say the same thing.
+</p>
+<ul>
+  <li><b>A calendar's colour</b> — the little square beside it in Settings → Calendars. Your
+    choice sticks: it is not overwritten the next time the calendar list is re-read from the
+    server. Double-click the square to hand it back to the server's own colour.</li>
+  <li><b>An event's colour</b> — the swatch strip in the event form. Set it once on a repeating
+    event and every occurrence follows. The first swatch (✕) means "same as the calendar".</li>
+</ul>
+<div class="callout">
+  <p>
+    <b>An event's colour is Hmelj's own, and Hmelj keeps it.</b> It is not written into the
+    event on the calendar server, and that is deliberate rather than a limitation: it was, as
+    the standard iCalendar <code>COLOR</code> property, and Google's CalDAV silently discarded
+    it — an event saved with a colour came back minutes later as Google's own copy with the
+    colour gone. Microsoft and Exchange never stored iCalendar to begin with. So the colour is
+    stored beside your other settings, which also means it works on <i>every</i> kind of
+    calendar. The trade is that it stays here: it does not travel to Google Calendar or Outlook,
+    and it will not follow the event to another device unless that device is also Hmelj.
+  </p>
+</div>
+
+<div class="callout">
+  <p>
+    <b>A repeat Microsoft cannot express is refused, not approximated.</b> iCalendar states a
+    recurrence as one rule with independent parts; Microsoft states it as one of six named
+    patterns. Most rules map exactly, the last day of the month included — that one goes out as
+    the relative pattern Outlook itself uses for it. A few do not: two dates in the same month,
+    a day counted from the end other than the last, weekdays at different positions ("the first
+    Monday and the third Friday"). Those have no Microsoft pattern, and Hmelj declines to save
+    them there rather
+    than storing something close. Saving an approximation would produce an event that is wrong
+    on almost every occurrence and looks like it saved fine. Keep those on a CalDAV or Hmelj
+    calendar.
+  </p>
+</div>
+
+<div class="callout warning">
+  <p>
+    <b>Microsoft 365 and Exchange calendars reach only so far into the future.</b> Those
+    two work out repeating events themselves rather than handing Hmelj the rules, so Hmelj
+    asks them for a window — by default 120 days back and 550 ahead. Scroll past that and
+    they look empty. CalDAV and Google calendars store the rules and are known for all
+    time. The window is adjustable with <code>CALENDAR_WINDOW_PAST_DAYS</code> and
+    <code>CALENDAR_WINDOW_FUTURE_DAYS</code>.
+  </p>
+</div>
+
+<p>
+  Turning calendar sync on for a Google or Microsoft account asks you to sign in once more.
+  That is not a bug: the sign-in you already have covers mail, and reading a calendar needs
+  permission you have not granted yet. Only the account you switch it on for is affected.
+</p>
+
+<div class="callout warning">
+  <p>
+    <b>Google Calendar needs the CalDAV API switched on in your own Google Cloud project</b> —
+    the same project your <code>GOOGLE_CLIENT_ID</code> comes from. It is off by default, and
+    without it Google answers every request with
+    <code>accessNotConfigured</code> no matter how correct the sign-in is.
+  </p>
+  <p>
+    Open <a href="https://console.cloud.google.com/apis/library/caldav.googleapis.com" rel="noopener" target="_blank">console.cloud.google.com/apis/library/caldav.googleapis.com</a>,
+    pick the right project, press <b>Enable</b>, give it a minute, then add the calendar again.
+    This is a one-off per Hmelj installation, not per account.
+  </p>
+</div>
+
+<figure><img alt="The week view" data-src="screenshots/calendar-week.png"></figure>
+<figcaption>Week view — the time grid</figcaption>
+
+<h2 id="cal-views">The views</h2>
+<p>
+  <b>Month</b>, <b>Week</b>, <b>Day</b> and <b>Agenda</b>, with <code>‹</code>&nbsp;
+  <b>Today</b>&nbsp;<code>›</code> to move. On a keyboard, <kbd>←</kbd> and <kbd>→</kbd>
+  page, <kbd>t</kbd> jumps to today, and <kbd>m</kbd>&nbsp;<kbd>w</kbd>&nbsp;<kbd>d</kbd>&nbsp;<kbd>a</kbd>
+  switch views. On a phone, swipe left and right.
+</p>
+<p>
+  A phone gets two deliberate differences. Agenda is what opens by default, and the month
+  grid shows a coloured dot per event rather than a title — seven columns at 380&nbsp;pixels
+  leaves about 45 each, which is not enough to read. Tap a day to open it. Week shows three
+  days at a time rather than seven.
+</p>
+<p>
+  Each calendar in the sidebar can be switched off to hide it without unsubscribing.
+  <b>Settings → Calendars</b> is where you choose which ones are synced at all.
+</p>
+<p>
+  <b>Time zones.</b> An event that carries one is shown at the moment that zone names,
+  whoever is looking. An all-day event is on the same date everywhere. Anything written
+  with no zone at all follows yours, which you can set in
+  <b>Settings → Calendars → Time zone</b> (empty means "follow this device").
+</p>
+
+<h2 id="cal-editing">Creating and editing</h2>
+<p>
+  <code>＋</code> in the calendar toolbar, or <b>Add to calendar</b> in a message's
+  <code>⋯</code> menu, which fills in the subject and offers everyone the message was
+  addressed to as attendees.
+</p>
+<p>
+  Anyone you list as an attendee is emailed an invitation when you save — <em>unless</em>
+  the calendar is on Google, Microsoft or Exchange, which send their own. Hmelj deliberately
+  does not send a second one; two invitations from two addresses is how replies end up going
+  to the wrong place.
+</p>
+<h3>Repeats</h3>
+<p>
+  The <b>Repeats</b> dropdown has the usual ones — daily, weekly, fortnightly, monthly,
+  yearly — plus two worth knowing about:
+</p>
+<ul>
+  <li><b>The last day of the month</b> lands on the 28th, 30th or 31st as that month requires.
+    Not the same as "every month on the 30th", which silently skips February.</li>
+  <li><b>Custom…</b> reveals <i>Every [n] [days / weeks / months / years]</i>, for any interval
+    at all. Two events four days apart, each repeating every four days, is how you get one
+    thing on Monday-Friday-Tuesday and another on Wednesday-Sunday-Thursday.</li>
+</ul>
+<p>
+  An event whose rule says more than these controls can — a rule written by another client,
+  with several weekdays or an end date — is left alone: the dropdown offers
+  <i>Keep the existing repeat rule</i> rather than quietly simplifying it on the next save.
+</p>
+
+<h3>Which repeats each kind of calendar can hold</h3>
+<p>
+  <b>Hmelj, CalDAV and Google</b> store the repeat rule exactly as written and work the dates
+  out locally, so they hold anything the iCalendar standard allows — including rules Hmelj's
+  own dropdown cannot express, which is why "Keep the existing repeat rule" exists.
+</p>
+<p>
+  <b>Microsoft&nbsp;365 and Exchange</b> do not store a rule. They store one of six named
+  patterns, and Hmelj translates. Most things map exactly; a few have no pattern at all and are
+  <i>refused rather than approximated</i> — saving a near-miss would produce an event that is
+  wrong on almost every occurrence and looks like it saved fine.
+</p>
+<div class="table-wrap"><table>
+<tr><th>Repeat</th><th>Hmelj · CalDAV · Google</th><th>Microsoft&nbsp;365 · Exchange</th></tr>
+<tr><td>Every N days</td><td>yes</td><td>yes</td></tr>
+<tr><td>Every N weeks, on chosen weekdays</td><td>yes</td><td>yes</td></tr>
+<tr><td>Every N months on a date</td><td>yes</td><td>yes</td></tr>
+<tr><td>Every N months on the last day</td><td>yes</td><td>yes</td></tr>
+<tr><td>The 1st–4th or last &lt;weekday&gt; of the month</td><td>yes</td><td>yes</td></tr>
+<tr><td>Every N years, on a date or an Nth weekday</td><td>yes</td><td>yes</td></tr>
+<tr><td>Ends never / after N times / on a date</td><td>yes</td><td>yes</td></tr>
+<tr><td>Two or more dates in the same month <span class="set-hint">(the 1st and the 15th)</span></td><td>yes</td><td><b>no</b></td></tr>
+<tr><td>A day counted from the end other than the last <span class="set-hint">(second-to-last)</span></td><td>yes</td><td><b>no</b></td></tr>
+<tr><td>Weekdays at different positions <span class="set-hint">(first Monday and third Friday)</span></td><td>yes</td><td><b>no</b></td></tr>
+<tr><td>The 5th &lt;weekday&gt; of a month</td><td>yes</td><td><b>no</b> — it counts four and "last"</td></tr>
+<tr><td>Stated by week or day of the year</td><td>yes</td><td><b>no</b></td></tr>
+<tr><td>More often than daily <span class="set-hint">(hourly)</span></td><td>yes</td><td><b>no</b></td></tr>
+</table></div>
+<p>
+  A refusal names what it could not express and leaves the event unsaved, so nothing is lost.
+  If you need one of those, keep the event on a Hmelj, CalDAV or Google calendar.
+</p>
+<p class="set-hint">
+  One more difference worth knowing: Microsoft and Exchange also only know their calendars over
+  a rolling window of dates (see the environment settings), while the other three know a
+  repeating event for all time — so scrolling to 2031 works on a Google calendar and may show
+  nothing on an Exchange one.
+</p>
+
+<div class="callout">
+  <p>
+    <b>Changing a repeating event asks which occurrences you mean.</b>
+  </p>
+  <ul>
+    <li><b>This event</b> — only the one you opened. The rest of the series is untouched.</li>
+    <li><b>This and following</b> — the old series is given an end date and a new one carries
+      the change onward. You will see the old one visibly stop rather than disappear.</li>
+    <li><b>All events</b> — the whole series.</li>
+  </ul>
+  <p>
+    Deleting works the same way. Deleting one occurrence leaves a hole in the series rather
+    than removing anything else.
+  </p>
+</div>
+<p>
+  If somebody else changes an event while you have it open, saving gives you a conflict
+  rather than quietly overwriting them. Reopen the event to see their version.
+</p>
+
+<figure><img alt="The event form" data-src="screenshots/calendar-event.png"></figure>
+<figcaption>Creating an event</figcaption>
+
+<h2 id="cal-reminders">Reminders</h2>
+<p>
+  Set per calendar in <b>Settings → Calendars</b>, and per event in the event form. An
+  event that carries its own reminder always wins over the calendar's default — if you set
+  45 minutes on one meeting, that is what you get.
+</p>
+<p>
+  Reminders arrive through the same notification channel as new mail, so they work with
+  Hmelj closed as long as notifications are set up
+  (<a data-section="notifications" href="#notifications">Notifications</a>). They do
+  <em>not</em> follow your mail quiet hours by default: a 07:00 meeting reminder is usually
+  wanted even when mail is silent until 08:00. There is a per-calendar switch if you disagree.
+</p>
+<p>
+  A reminder that came due while the server was off is not delivered late. Starting Hmelj in
+  the morning does not replay the night.
+</p>
+
+<h2 id="dav-server">Sharing from Hmelj</h2>
+<p>
+  Hmelj can act as a CalDAV and CardDAV <em>server</em>, so a phone, Thunderbird or Apple
+  Calendar can subscribe to a calendar or address book it holds. Two steps.
+</p>
+
+<div class="steps">
+<ol>
+<li>
+  <b>Publish something.</b> <b>Settings → Calendars → Share from Hmelj</b>, then
+  <code>+ Calendar</code> or <code>+ Contacts</code>. Tick one source to publish it as
+  itself, or several to merge them into one shared collection.
+</li>
+<li>
+  <b>Create an app password.</b> <b>Settings → Login → App passwords → New app password</b>.
+  Give it a name you will recognise and tick only what that device needs. The password is
+  shown <em>once</em> — copy it then, because it is not stored in a form that can be shown
+  again.
+</li>
+<li>
+  <b>Add the account on the device</b>, using the server address shown under
+  <b>Settings → Calendars</b>, your Hmelj username, and the app password. Most clients find
+  the rest themselves.
+</li>
+</ol>
+</div>
+
+<figure><img alt="Publishing a calendar" data-src="screenshots/calendar-share.png"></figure>
+<figcaption>Settings › Calendars › Share from Hmelj</figcaption>
+
+<figure><img alt="App passwords" data-src="screenshots/app-passwords.png"></figure>
+<figcaption>Settings › Login › App passwords</figcaption>
+
+<div class="callout warning">
+  <p>
+    <b>Your Hmelj password is never accepted there.</b> A calendar client stores what you
+    give it in plain form and sends it on every request; if that were your account password,
+    one calendar subscription would be handing over your mail, your settings and every
+    mailbox credential the account can reach. An app password can be revoked from Settings
+    without changing anything else, and cannot be used to sign in to Hmelj itself.
+  </p>
+</div>
+
+<p>
+  <b>"Busy only"</b> is the useful one for sharing with somebody else. A source set to busy
+  contributes the <em>time</em> and nothing else — the title becomes "Busy", and the place,
+  the notes and the attendees are gone. A household calendar can then show that Thursday
+  afternoon is taken without showing what for.
+</p>
+<p>
+  A <b>merged</b> collection is always read-only. There is no honest answer to which of its
+  calendars a change would belong to, so it refuses rather than guessing. A single
+  <b>Hmelj calendar</b> published on its own is read-write: events added on your phone appear
+  in Hmelj straight away.
+</p>
+<p>
+  Anything published from another server — a mirror of your work calendar, say — is
+  read-only too. Change it where it lives.
+</p>
+
+<div class="callout">
+  <p>
+    Clients poll for changes rather than being pushed to, and Hmelj does not implement
+    <code>sync-collection</code>: serving it wrongly would let a client keep showing a
+    cancelled meeting forever, so it is left out and clients fall back to the (correct, just
+    chattier) approach of comparing a collection tag. Expect a subscriber to notice a change
+    within its own polling interval, typically a few minutes.
+  </p>
+</div>
+
+<a class="back-top" href="#about">↑ Top</a>
+</section>
+
 <!-- ═════════════════════════════════════════════════════ Analytics ════ -->
 <section id="analytics">
 <h1>Mailbox Analytics</h1>
@@ -1986,8 +2377,30 @@ holiday list will not be yours.
 <tr><td>Show deleted messages</td><td>Messages flagged <code>\Deleted</code> appear struck through</td></tr>
 <tr><td>Unsubscribe button</td><td>And whether its banner is shown compact</td></tr>
 <tr><td>Message font / size</td><td>The reading pane only</td></tr>
+<tr><td>Also use them for formatted mail</td><td>Makes those two win over the sender's own fonts</td></tr>
 </tbody>
 </table>
+</div>
+<div class="callout">
+  <p>
+    <b>Why the font picker may look like it does nothing.</b> On its own it is a
+    <i>fallback</i>: it styles the message body, and formatted mail almost never falls back to
+    it, because it states its own fonts directly on the elements — in inline styles, its own
+    stylesheet, <code>&lt;font&gt;</code> tags and table attributes, all of which outrank a
+    plain body rule. Plain-text mail follows the setting; a designed newsletter does not.
+  </p>
+  <p>
+    <b>Also use them for formatted mail</b> is the switch that changes that. Your font is then
+    forced everywhere, and every size in the message is scaled by the same amount rather than
+    flattened to one — a heading stays bigger than the body text under it, and fine print
+    stays smaller, everything simply larger. Set the size to 18 and a message built at 15
+    comes out 20% bigger throughout.
+  </p>
+  <p>
+    The cost, and the reason it is off by default: a newsletter designed around its own
+    typeface stops looking the way its sender built it. A message that uses an icon font will
+    show letters where the icons were.
+  </p>
 </div>
 
 <h2 id="set-compose">Compose</h2>
@@ -2148,6 +2561,11 @@ holiday list will not be yours.
 <thead><tr><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
 <tbody>
 <tr><td><code>SYNC_INTERVAL_MS</code></td><td><code>120000</code></td><td>Default poll interval for the background sync, minimum 30000. Each account can override it, or opt out entirely — see <a data-scroll="acc-monitor" data-section="accounts" href="#acc-monitor">Checking for new mail</a>.</td></tr>
+<tr><td><code>CONTACT_SYNC_INTERVAL_MS</code></td><td><code>300000</code></td><td>How often each synced address book is checked for changes, minimum 60000. A check that finds nothing costs one request per address book and transfers no contacts.</td></tr>
+<tr><td><code>CALENDAR_SYNC_INTERVAL_MS</code></td><td><code>300000</code></td><td>How often each synced calendar is checked for changes, minimum 60000.</td></tr>
+<tr><td><code>CALENDAR_WINDOW_PAST_DAYS</code></td><td><code>120</code></td><td>How far back Microsoft 365 and Exchange calendars are kept. Those two expand repeating events themselves rather than handing over the rules, so their calendars reach exactly this far and no further. CalDAV and Google calendars are unaffected — they store the rules and are known for all time.</td></tr>
+<tr><td><code>CALENDAR_WINDOW_FUTURE_DAYS</code></td><td><code>550</code></td><td>The same, ahead.</td></tr>
+<tr><td colspan="3"><strong>The CalDAV/CardDAV server has no settings of its own.</strong> It is always mounted at <code>/dav/</code> and is unreachable until you publish something and create an app password — see <a data-scroll="dav-server" data-section="calendar" href="#dav-server">Sharing calendars and contacts</a>.</td></tr>
 <tr><td><code>CACHE_ENABLED</code></td><td><code>true</code></td><td>Kill switch for the background poller <em>and</em> the SQLite cache. <code>false</code> runs Hmelj fully live: unified views are fetched fresh from the mail server on every request. Slower, but nothing can go stale. Conversation view and cached search need the cache and switch off with it.</td></tr>
 <tr><td><code>ATTACHMENT_CACHE_MB</code></td><td><code>32</code></td><td>RAM — never disk — held aside for attachment bytes already extracted once. Emptied on restart; <code>0</code> disables it.</td></tr>
 </tbody>

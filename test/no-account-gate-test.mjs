@@ -49,8 +49,18 @@ ok(searchKeydown !== -1 && app.slice(searchKeydown, searchKeydown + 300).include
    'pressing Enter in the search box is guarded too, not just the button');
 
 console.log('nothing repaints over the empty state');
-ok(/async function loadMessages\(\)\s*\{[\s\S]{0,400}?hasNoAccounts\(\)/.test(app),
-   'loadMessages() returns early when there is no mailbox');
+// What matters is that the guard runs BEFORE any work, not that it sits within
+// some number of characters of the opening brace — a comment added above it
+// broke this assertion once without changing the behaviour at all. So: the
+// guard has to appear before the first thing loadMessages() actually does,
+// which is taking a sequence number.
+{
+  const fn = app.slice(app.indexOf('async function loadMessages()'));
+  const guard = fn.indexOf('hasNoAccounts()');
+  const firstWork = fn.indexOf('++loadMessagesSeq');
+  ok(guard !== -1 && firstWork !== -1 && guard < firstWork,
+    'loadMessages() returns early when there is no mailbox, before it does anything else');
+}
 ok(/if \(!state\.messages\.length\) \{\s*\n\s*if \(hasNoAccounts\(\)\)/.test(app),
    "renderList()'s empty branch defers to the empty state");
 // Reported: pressing Save in Settings with no account toasted "Cannot load
@@ -58,6 +68,28 @@ ok(/if \(!state\.messages\.length\) \{\s*\n\s*if \(hasNoAccounts\(\)\)/.test(app
 // callers — the 90-second refresh is another, which made it recur on its own.
 ok(/async function loadFolders\(\)\s*\{[\s\S]{0,700}?hasNoAccounts\(\)/.test(app),
    'loadFolders() returns early when there is no mailbox, covering every caller');
+
+console.log('leaving the calendar');
+// Reported: opening the calendar and then switching account left the app stuck
+// on the calendar with no way back to mail. openFolder used to work out whether
+// it was LEAVING the calendar by reading state.currentFolder — which
+// switchAccount() has already overwritten with 'INBOX' before it calls in. The
+// close has to depend on the DESTINATION, not on state that a caller may have
+// changed first.
+{
+  const fn = app.slice(app.indexOf('async function openFolder('), app.indexOf('async function openFolder(') + 2000);
+  ok(/if \(path === CALENDAR_FOLDER\) \{ Calendar\.open\(\); return; \}/.test(fn),
+    'openFolder opens the calendar when that is the destination');
+  ok(/Calendar\.close\(\);/.test(fn) && !/leavingCalendar/.test(app),
+    'and closes it for ANY other destination, unconditionally — never by inferring the transition from state');
+  // switchAccount is the caller that made this visible, and the ordering that
+  // broke it is still there (and is fine, now that nothing depends on it).
+  const sw = app.slice(app.indexOf('async function switchAccount('), app.indexOf('async function switchAccount(') + 800);
+  ok(/state\.currentFolder = 'INBOX'/.test(sw) && /openFolder\('INBOX'\)/.test(sw),
+    'switchAccount still sets the folder before navigating, which is exactly why the check cannot read it');
+}
+ok(/if \(Calendar\.isOpen\(\)\) Calendar\.close\(\);/.test(app),
+  'and loadMessages closes it too, so a path that never reaches openFolder cannot strand the view either');
 
 console.log('Settings tabs that create account-bound records refuse too');
 // Reported: with no account, Settings > Identities still offered "+ Add identity",

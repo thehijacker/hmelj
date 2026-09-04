@@ -336,6 +336,10 @@ async function withMailbox(path, fn, readOnly = false) {
 
 // ---------- folders ----------
 
+/** How many folders are worth an individual STATUS when LIST did not carry
+ *  one. In practice this is 1 — the selected mailbox. */
+const MAX_STATUS_FILL = 5;
+
 export async function listFolders() {
   const c = await getClient();
   const t0 = Date.now();
@@ -354,9 +358,39 @@ export async function listFolders() {
       total: f.status?.messages ?? null,
       unseen: f.status?.unseen ?? null,
     })));
+
+  // LIST's statusQuery does not answer for the mailbox that is currently
+  // SELECTED — RFC 3501 discourages STATUS on it, so the client leaves it out
+  // — and the selected mailbox is INBOX almost all of the time. That left
+  // exactly the one folder anybody looks at with no counts at all, so its
+  // unread badge did not render; a manual refresh put it back because
+  // syncFolderNow ends with its own folderStatus() call, and the next
+  // background poll wiped it again.
+  //
+  // Asked for explicitly here. Normally that is one extra round trip (the
+  // selected mailbox); the cap is there for a server that answers no STATUS in
+  // LIST at all, where doing this for a hundred folders would be worse than
+  // the missing counts.
+  const missing = result.filter((f) => f.total == null || f.unseen == null);
+  if (missing.length && missing.length <= MAX_STATUS_FILL) {
+    for (const f of missing) {
+      try {
+        const st = await c.status(f.path, { messages: true, unseen: true });
+        if (st) { f.total = st.messages ?? f.total; f.unseen = st.unseen ?? f.unseen; }
+      } catch (e) {
+        // Left null rather than zeroed — cache.js#upsertFolders keeps whatever
+        // it already knew, which beats claiming the folder has nothing unread.
+        ilog.debug(`listFolders: no STATUS for ${f.path} (${e.message})`);
+      }
+    }
+  } else if (missing.length) {
+    ilog.debug(`listFolders: ${missing.length} folders reported no STATUS — too many to fill in individually`);
+  }
+
   ilog.debug(`listFolders: ${result.length} folders (${Date.now() - t0}ms)`);
   return result;
 }
+
 
 /**
  * Real total/unseen for a single folder, straight from the server — no
@@ -883,7 +917,9 @@ export async function getMessageHeaders(path, uid) {
 
 export async function getMessage(path, uid) {
   const { source, flags } = await getMessageSource(path, uid);
-  return { uid, ...(await parseMessage(source, flags)) };
+  // The account's own authserv-id, so the Authentication-Results reading knows
+  // which server's verdict is the trustworthy one (server/authResults.js).
+  return { uid, ...(await parseMessage(source, flags, { authservId: currentAccount()?.authservId })) };
 }
 
 export async function getAttachment(path, uid, index) {

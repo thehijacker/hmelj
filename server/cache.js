@@ -4,10 +4,11 @@
 // cache, not a source of truth: IMAP is always authoritative, and any
 // account/folder can be re-synced from scratch just by polling again.
 //
-// Scope, deliberately kept simple for a first pass: envelope fields only (no
-// message bodies, no full-text search — that's a possible future addition).
-// Populated only for folders the poller decided to sync (see sync.js) — the
-// most recent BACKFILL_LIMIT messages per folder, not full history.
+// Scope: envelope fields for every synced message, plus — for accounts that
+// opt in — a full-text index over the bodies already held in message_content
+// (see the message_fts table below). Populated only for folders the poller
+// decided to sync (see sync.js) — the most recent BACKFILL_LIMIT messages per
+// folder, not full history.
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -188,6 +189,40 @@ CREATE TABLE IF NOT EXISTS search_words (
   last_seen INTEGER,
   PRIMARY KEY (user_key, word)
 );
+
+-- Full-text index over message BODIES, for the accounts whose 'searchIndex'
+-- flag is on (Settings > Accounts). Opt-in per account on purpose: this is the
+-- one structure here whose size is driven by how much text a mailbox holds
+-- rather than by how many messages it has, and most people want it on the one
+-- or two mailboxes they actually search.
+--
+-- It indexes exactly what message_content already holds — never more. That is
+-- what bounds it: contentCacheLimit (Settings > General) caps that table at the
+-- newest N per folder, so the index inherits the same ceiling for free and
+-- there is no second retention policy to keep in step with the first.
+--
+-- content='' makes this CONTENTLESS: FTS5 stores the term index and no second
+-- copy of the text, which is roughly a third of the size of an ordinary FTS5
+-- table and the reason enabling this on a big mailbox is affordable. The text
+-- itself is already in message_content, so nothing is lost — but it does mean
+-- snippet()/highlight() are unavailable here, and that a row must be DELETEd
+-- before it is re-INSERTed: writing the same rowid twice leaves BOTH sets of
+-- terms in the index, and the stale one goes on matching forever. Always go
+-- through indexMessageContent() below, which does the delete.
+-- contentless_delete=1 (SQLite 3.43+) is what makes DELETE possible at all.
+--
+-- rowid IS message_content.rowid. That table is an ordinary rowid table and
+-- saveMessageContent() upserts rather than delete-inserting, so the rowid is
+-- stable across a re-cache and needs no mapping table of its own.
+--
+-- remove_diacritics 2 folds accents both ways, so "racun" finds "račun" and
+-- vice versa — which is the whole ballgame for Slovene mail typed on a
+-- keyboard that happened not to have šumniki that day.
+CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+  body, subject, sender, recipients,
+  content='', contentless_delete=1,
+  tokenize='unicode61 remove_diacritics 2'
+);
 `);
 
 /**
@@ -220,6 +255,13 @@ addColumn('messages', 'forwarded', 'INTEGER');
 addColumn('messages', 'message_id', 'TEXT');
 addColumn('messages', 'thread_id', 'TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (user_key, account_id, thread_id)');
+// When this row's body was written into message_fts — NULL means "not indexed
+// yet", which is both the initial state and what saveMessageContent() resets it
+// to whenever the content changes. That makes "what still needs indexing?" a
+// plain indexed query instead of an attempt to enumerate a contentless FTS
+// table's rowids, which is not something FTS5 will do cheaply.
+addColumn('message_content', 'indexed_at', 'INTEGER');
+db.exec('CREATE INDEX IF NOT EXISTS idx_content_unindexed ON message_content (user_key, account_id, folder, indexed_at)');
 
 /**
  * Canonical JS-side form of a message id, for BOTH binding into a query and
@@ -519,22 +561,123 @@ function termToLikeClause({ field, text }) {
  *  query to a live IMAP/EWS fetch instead (message bodies are never cached at all).
  *  Failing loudly here catches a routing mistake at the source instead of silently
  *  returning results that are missing whatever the body: term would have matched. */
-function buildCacheSearchClause(q) {
-  if (queryNeedsBodySearch(q)) throw new Error('cache: query needs body search, not servable from cache');
+/* ---- the full-text half of a search, for accounts that have an index ----
+ *
+ * One parsed term becomes one FTS5 MATCH expression. The text is always wrapped
+ * in double quotes (doubling any it contains), which turns it into a phrase and
+ * so neutralises every FTS5 operator a person might type into a mail search box
+ * — `AND`, `*`, `:`, `^`, `-` and parentheses are all just words here. The
+ * trailing `*` then makes the LAST token of that phrase a prefix, so "contract"
+ * finds "contracts" and "prilog" finds "prilogi", which is what a search box is
+ * expected to do and what the LIKE path gives for free.
+ */
+function ftsMatchExpr({ field, text }, { bodyOnly = false } = {}) {
+  const phrase = `"${String(text).replace(/"/g, '""')}"*`;
+  if (bodyOnly) return `body : ${phrase}`;
+  if (field === 'subject') return `subject : ${phrase}`;
+  if (field === 'from') return `sender : ${phrase}`;
+  if (field === 'to') return `recipients : ${phrase}`;
+  if (field === 'body') return `body : ${phrase}`;
+  return phrase; // unscoped — every column
+}
+
+/**
+ * Membership of the FTS result set, as a WHERE fragment over `messages`.
+ *
+ * Written as a row-value IN over a NON-correlated subquery on purpose. The
+ * obvious alternative — `EXISTS (… WHERE mc.uid = messages.uid AND … MATCH ?)`
+ * — reads better and is a trap: correlating it runs one full-text lookup per
+ * candidate row. This form is evaluated once, materialised, and then each
+ * message row is probed against it through its own primary key (verified with
+ * EXPLAIN QUERY PLAN: `LIST SUBQUERY` + `SEARCH messages USING INDEX
+ * sqlite_autoindex_messages_1`).
+ *
+ * Nothing here filters by account. It doesn't need to: only accounts with the
+ * flag on ever get rows written into message_fts, so an account without an
+ * index simply contributes nothing — which is exactly why a `body:` term has to
+ * be routed live for those accounts rather than answered from here. See
+ * bodySearchServable() below.
+ */
+function ftsInClause(userKey, matchExpr) {
+  return {
+    sql: `(account_id, folder, uid) IN (
+      SELECT mc.account_id, mc.folder, mc.uid FROM message_fts f
+      JOIN message_content mc ON mc.rowid = f.rowid
+      WHERE mc.user_key = ? AND f.message_fts MATCH ?)`,
+    params: [userKey, matchExpr],
+  };
+}
+
+/**
+ * Builds the WHERE-fragment + bound params for a parsed search query — required
+ *  terms ANDed together, excluded terms NOT-wrapped. Plain SQL AND/NOT/OR composes
+ *  directly here (no De Morgan trick needed, unlike imapClient.js's andAll — a SQL
+ *  text fragment has no JS-object-key-collision problem to work around).
+ *
+ *  `indexed` (with `userKey`) says at least one account in scope has a full-text
+ *  index; `bodyOk` says they ALL do (bodySearchServable()). The two differ only
+ *  in a mixed unified view, and the difference matters: widening an unscoped
+ *  term to the body is safe there (an un-indexed account simply matches nothing
+ *  extra), while answering a `body:` term is not — it would silently return the
+ *  indexed half of the mailbox and look complete. So `indexed` enables the FTS
+ *  clauses and `bodyOk` alone lifts the refusal below.
+ *
+ *  With `indexed` set it changes two things and nothing else:
+ *
+ *    - a `body:` term becomes an FTS membership test instead of being refused
+ *    - an UNSCOPED term additionally matches the body, as
+ *      `(subject/from/to LIKE … OR body MATCHES …)`
+ *
+ *  That second one is a deliberate widening: an unscoped search on an indexed
+ *  account searches the whole message, which is the entire point of having
+ *  turned the index on. Scoped subject:/from:/to: terms are left on the LIKE
+ *  path, which is a substring match and so strictly more permissive than the
+ *  token-prefix match FTS would add.
+ *
+ *  Without `indexed`, throws if the query needs body search (server/searchQuery.js's
+ *  queryNeedsBodySearch) — callers MUST check that first and route a body-needing
+ *  query to a live IMAP/EWS fetch instead (those bodies are not indexed at all).
+ *  Failing loudly here catches a routing mistake at the source instead of silently
+ *  returning results that are missing whatever the body: term would have matched. */
+function buildCacheSearchClause(q, { indexed = false, bodyOk = indexed, userKey = null } = {}) {
+  if (!bodyOk && queryNeedsBodySearch(q)) throw new Error('cache: query needs body search, not servable from cache');
   const { required, excluded } = parseSearchQuery(q);
   const parts = [];
   const params = [];
+  const clauseFor = (t) => {
+    if (!indexed) return termToLikeClause(t);
+    if (t.field === 'body') return ftsInClause(userKey, ftsMatchExpr(t));
+    const like = termToLikeClause(t);
+    if (t.field) return like; // subject:/from:/to: — LIKE already covers these more broadly
+    const fts = ftsInClause(userKey, ftsMatchExpr(t, { bodyOnly: true }));
+    return { sql: `(${like.sql} OR ${fts.sql})`, params: [...like.params, ...fts.params] };
+  };
   for (const t of required) {
-    const { sql, params: p } = termToLikeClause(t);
+    const { sql, params: p } = clauseFor(t);
     parts.push(sql);
     params.push(...p);
   }
   for (const t of excluded) {
-    const { sql, params: p } = termToLikeClause(t);
+    const { sql, params: p } = clauseFor(t);
     parts.push(`NOT ${sql}`);
     params.push(...p);
   }
   return { sql: parts.length ? parts.join(' AND ') : '1=1', params };
+}
+
+/**
+ * Can this query's body terms be answered from the index for ALL of these
+ * accounts? The routing question, asked once per request by server/index.js.
+ *
+ * A query with no body term never needs the index (`true` — the envelope cache
+ * already serves it). A query with one needs every account in scope to be
+ * indexed, because a search that quietly skipped the un-indexed half of a
+ * unified view would look like an answer and be a lie. When this is false for a
+ * mixed set, the caller sweeps the un-indexed accounts live and merges.
+ */
+export function bodySearchServable(q, accounts) {
+  if (!q || !queryNeedsBodySearch(q)) return true;
+  return (accounts || []).length > 0 && accounts.every((a) => !!a.searchIndex);
 }
 
 /** Every UID currently cached for a folder — used to drive the flags-only
@@ -695,6 +838,21 @@ CREATE TABLE IF NOT EXISTS filter_sends (
   sent_at INTEGER NOT NULL,
   PRIMARY KEY (user_key, account_id, message_key, filter_id)
 );
+
+-- "This filter has already been applied to this message." Same shape and same
+-- claim idiom as filter_sends above, asking the broader question: not only
+-- "has this been forwarded", but "has this been moved/deleted/marked". It is
+-- what lets a filter run be repeated safely, which is what lets Hmelj catch up
+-- on mail that arrived while it was not running (see server/filterState.js).
+CREATE TABLE IF NOT EXISTS filter_applied (
+  user_key TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  message_key TEXT NOT NULL,
+  filter_id TEXT NOT NULL,
+  applied_at INTEGER NOT NULL,
+  PRIMARY KEY (user_key, account_id, message_key, filter_id)
+);
+CREATE INDEX IF NOT EXISTS idx_filter_applied_at ON filter_applied (applied_at);
 `);
 
 const claimSendStmt = db.prepare(
@@ -717,6 +875,47 @@ let lastSendSweep = 0;
  * @param messageKey the message's Message-ID, or a folder/uid fallback for the
  *   rare message that has none — see filters.js.
  */
+/**
+ * "Has this filter already been applied to this message?" — true exactly once.
+ *
+ * The sibling of claimFilterSend above, and the same claim idiom, but a
+ * broader question: that one exists so a `redirect` cannot forward twice, this
+ * one so a message cannot be MOVED, deleted or marked twice by the same rule.
+ *
+ * It is what makes filters safe to re-run, which is what makes catching up
+ * after downtime possible at all. Without it the only thing standing between a
+ * restart and a second pass over the same mail was a two-day window, and a
+ * two-day window is also what made an outage longer than two days leave mail
+ * unfiltered forever.
+ *
+ * Keyed on Message-ID for the reason spelled out on filter_sends: a uid is
+ * per-folder and a MOVE mints a new one, while a Message-ID survives folders,
+ * servers and restarts — which is exactly the identity "once per delivered
+ * message" is about.
+ *
+ * In the disposable cache rather than DATA_DIR, deliberately: losing it costs
+ * at most one repeated filter run, which is bounded by the high-water mark in
+ * DATA_DIR (server/filterState.js) that decides how far back a run may reach.
+ * The two are belt and braces, and only the cheap one is in the cache.
+ */
+export function claimFilterApplied(userKey, accountId, messageKey, filterId) {
+  const now = Date.now();
+  if (now - lastAppliedSweep > 3600e3) {
+    lastAppliedSweep = now;
+    db.prepare('DELETE FROM filter_applied WHERE applied_at < ?').run(now - FILTER_SEND_TTL_MS);
+  }
+  return db.prepare(`INSERT OR IGNORE INTO filter_applied (user_key, account_id, message_key, filter_id, applied_at)
+    VALUES (?, ?, ?, ?, ?)`).run(userKey, accountId || '', String(messageKey), String(filterId), now).changes > 0;
+}
+let lastAppliedSweep = 0;
+
+/** Undoes a claim whose actions then failed, so a later run can retry it —
+ *  same reasoning as releaseFilterSend. */
+export function releaseFilterApplied(userKey, accountId, messageKey, filterId) {
+  db.prepare('DELETE FROM filter_applied WHERE user_key=? AND account_id=? AND message_key=? AND filter_id=?')
+    .run(userKey, accountId || '', String(messageKey), String(filterId));
+}
+
 export function claimFilterSend(userKey, accountId, messageKey, filterId) {
   const now = Date.now();
   if (now - lastSendSweep > 3600e3) {
@@ -747,22 +946,33 @@ export function getMessageContent(userKey, accountId, folder, uid) {
   try { return JSON.parse(row.content_json); } catch { return null; } // corrupt row — treat as a miss, next open just re-fetches live
 }
 
-/** `msg` null means "fetched, but over the size cap" — see the table comment above. */
+/** `msg` null means "fetched, but over the size cap" — see the table comment above.
+ *  Returns the row's rowid, which is also its message_fts rowid (see that table's
+ *  comment) — indexMessageContent() below needs it and this is the one moment it
+ *  is free. `indexed_at` is reset on every write: the body just changed, so
+ *  whatever is in the index for it is now stale. */
 export function saveMessageContent(userKey, accountId, folder, uid, msg, size) {
-  db.prepare(`
-    INSERT INTO message_content (user_key, account_id, folder, uid, content_json, size, cached_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+  const row = db.prepare(`
+    INSERT INTO message_content (user_key, account_id, folder, uid, content_json, size, cached_at, indexed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT (user_key, account_id, folder, uid) DO UPDATE SET
-      content_json=excluded.content_json, size=excluded.size, cached_at=excluded.cached_at
-  `).run(userKey, accountId, folder, uidKey(uid), msg == null ? null : JSON.stringify(msg), size, Date.now());
+      content_json=excluded.content_json, size=excluded.size, cached_at=excluded.cached_at, indexed_at=NULL
+    RETURNING rowid
+  `).get(userKey, accountId, folder, uidKey(uid), msg == null ? null : JSON.stringify(msg), size, Date.now());
+  return row?.rowid ?? null;
 }
 
 /** Drops one message's cached content — for a write that made it stale on its
  *  own (answering a meeting invitation: Exchange rewrites the item and usually
  *  files it elsewhere). The envelope row is left to the folder re-sync. */
 export function removeMessageContent(userKey, accountId, folder, uid) {
-  db.prepare('DELETE FROM message_content WHERE user_key=? AND account_id=? AND folder=? AND uid=?')
-    .run(userKey, accountId, folder, uidKey(uid));
+  const where = 'user_key=? AND account_id=? AND folder=? AND uid=?';
+  const args = [userKey, accountId, folder, uidKey(uid)];
+  // Index first, while the message_content row that carries its rowid still
+  // exists — the other order orphans the FTS entry, and an orphan in a
+  // contentless table cannot be found again to delete.
+  db.prepare(`DELETE FROM message_fts WHERE rowid IN (SELECT rowid FROM message_content WHERE ${where})`).run(...args);
+  db.prepare(`DELETE FROM message_content WHERE ${where}`).run(...args);
 }
 
 /** The newest `limit` cached envelopes' uids for a folder, by date — the
@@ -788,14 +998,138 @@ export function getCachedContentUids(userKey, accountId, folder, uids) {
  * growing forever. `keepUids` is the folder's current recent-window list
  * (getRecentUids's own return), so this is safe to call every tick. */
 export function pruneMessageContent(userKey, accountId, folder, keepUids) {
+  // Both branches drop the FTS rows first, for the reason in removeMessageContent:
+  // the rowid that identifies an index entry only exists on the content row.
   if (!keepUids.length) {
-    db.prepare('DELETE FROM message_content WHERE user_key=? AND account_id=? AND folder=?').run(userKey, accountId, folder);
+    const where = 'user_key=? AND account_id=? AND folder=?';
+    db.prepare(`DELETE FROM message_fts WHERE rowid IN (SELECT rowid FROM message_content WHERE ${where})`).run(userKey, accountId, folder);
+    db.prepare(`DELETE FROM message_content WHERE ${where}`).run(userKey, accountId, folder);
     return;
   }
   const keys = keepUids.map(uidKey);
   const placeholders = keys.map(() => '?').join(',');
-  db.prepare(`DELETE FROM message_content WHERE user_key=? AND account_id=? AND folder=? AND uid NOT IN (${placeholders})`)
+  const where = `user_key=? AND account_id=? AND folder=? AND uid NOT IN (${placeholders})`;
+  db.prepare(`DELETE FROM message_fts WHERE rowid IN (SELECT rowid FROM message_content WHERE ${where})`)
     .run(userKey, accountId, folder, ...keys);
+  db.prepare(`DELETE FROM message_content WHERE ${where}`).run(userKey, accountId, folder, ...keys);
+}
+
+/* ---------------- full-text index (see the message_fts table comment) ----------------
+ *
+ * Writing the index is deliberately split from writing message_content: the
+ * content cache is unconditional, the index is per-account opt-in, and the text
+ * that goes into it (HTML flattened to words) is shaped by the caller, which is
+ * the one holding the parsed message. server/contentCache.js is that caller.
+ *
+ * Deleting is the opposite — always unconditional, wherever content rows go
+ * away, so that turning the flag off, emptying a folder or dropping an account
+ * can never leave entries behind that go on matching searches. */
+
+/** Puts one message's text into the index, replacing whatever was there for it.
+ *  `rowid` is saveMessageContent()'s return value. The DELETE is not optional —
+ *  see the table comment on why a double INSERT leaves stale terms behind. */
+export function indexMessageContent(rowid, { body = '', subject = '', sender = '', recipients = '' } = {}) {
+  if (!rowid) return;
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM message_fts WHERE rowid=?').run(rowid);
+    db.prepare('INSERT INTO message_fts (rowid, body, subject, sender, recipients) VALUES (?, ?, ?, ?, ?)')
+      .run(rowid, body || '', subject || '', sender || '', recipients || '');
+    db.prepare('UPDATE message_content SET indexed_at=? WHERE rowid=?').run(Date.now(), rowid);
+  });
+  tx();
+}
+
+/**
+ * Cached-but-not-yet-indexed rows for an ACCOUNT, oldest content first.
+ *
+ * Account-wide rather than per-folder, deliberately. Content is cached for any
+ * folder a message is OPENED in, including ones the poller never visits —
+ * Trash, All Mail, anything out of sync scope. A per-folder worklist is only
+ * ever consulted for folders that are polled, so rows cached in those other
+ * folders (typically: everything opened before the setting was switched on)
+ * would sit unindexed forever, showing a "waiting" count that never drains.
+ *
+ * Skips the "too big to cache" marker rows (content_json NULL): there is no
+ * text to index and they would otherwise be picked up on every single tick.
+ */
+export function unindexedContent(userKey, accountId, limit) {
+  return db.prepare(`
+    SELECT rowid, uid, folder, content_json FROM message_content
+    WHERE user_key=? AND account_id=? AND indexed_at IS NULL AND content_json IS NOT NULL
+    ORDER BY cached_at ASC LIMIT ?
+  `).all(userKey, accountId, limit)
+    .map((r) => ({ rowid: r.rowid, uid: uidOut(r.uid), folder: r.folder, contentJson: r.content_json }));
+}
+
+/** Drops an account's whole index — what turning `searchIndex` off does. The
+ *  cached CONTENT is left alone: it is what makes opening a message fast, and
+ *  it is governed by its own setting. Only the index goes. */
+export function dropSearchIndex(userKey, accountId) {
+  const sub = 'SELECT rowid FROM message_content WHERE user_key=? AND account_id=?';
+  const n = db.prepare(`DELETE FROM message_fts WHERE rowid IN (${sub})`).run(userKey, accountId).changes;
+  db.prepare('UPDATE message_content SET indexed_at=NULL WHERE user_key=? AND account_id=?').run(userKey, accountId);
+  // A delete from an FTS5 table writes a tombstone rather than reclaiming the
+  // space, so without this the reported size barely moves and someone who just
+  // turned the feature off to get their disk back would reasonably conclude it
+  // did nothing. Merging the segments is the part worth doing here; the file
+  // itself still won't shrink (SQLite reuses the freed pages instead), and a
+  // VACUUM to force that is not worth locking the database on a slow disk for.
+  try { db.prepare("INSERT INTO message_fts(message_fts) VALUES('optimize')").run(); }
+  catch (e) { clog.warn('Could not compact the search index after dropping it:', e.message); }
+  return n;
+}
+
+/** What Settings shows: how many messages are indexed for this account, and
+ *  what the index costs on disk.
+ *
+ *  The byte figure is the whole file's index — FTS5 keeps one shadow table for
+ *  every message_fts row regardless of which account it came from, and there is
+ *  no per-account attribution to be had short of dbstat, which is not compiled
+ *  in. So `indexedBytes` is reported once for the database, alongside a
+ *  per-account share estimated from row counts. Approximate, and labelled that
+ *  way in the UI rather than dressed up as exact. */
+/* The index's own size, cached briefly. Asked before every single indexing
+ * write (see searchIndexOverBudget), which is often enough that summing the
+ * shadow table on every call would be silly, and the number only ever moves by
+ * kilobytes between ticks. */
+let sizeCache = { at: 0, bytes: 0 };
+const SIZE_TTL_MS = 30e3;
+function indexBytes() {
+  const now = Date.now();
+  if (now - sizeCache.at < SIZE_TTL_MS) return sizeCache.bytes;
+  const b = db.prepare('SELECT COALESCE(SUM(LENGTH(block)), 0) AS b FROM message_fts_data').get().b;
+  sizeCache = { at: now, bytes: b };
+  return b;
+}
+
+/**
+ * Is the index at its configured size ceiling (Settings > General)?
+ *
+ * Deliberately a STOP, not an evictor. The obvious design — drop the oldest
+ * entries when the budget is hit — cannot work here: the backfill pass's job is
+ * to index every cached body that isn't indexed yet, so anything evicted would
+ * be re-indexed on the very next tick, forever, burning the disk to stay in
+ * exactly the same place. Refusing new writes instead is stable, and the index
+ * still shrinks on its own as old content ages out of message_content and takes
+ * its entries with it — at which point indexing simply resumes.
+ *
+ * 0 means no limit.
+ */
+export function searchIndexOverBudget(maxMb) {
+  const max = Number(maxMb) || 0;
+  if (max <= 0) return false;
+  return indexBytes() > max * 1024 * 1024;
+}
+
+export function searchIndexStats(userKey, accountId = null) {
+  const total = db.prepare('SELECT COUNT(*) AS n FROM message_content WHERE indexed_at IS NOT NULL').get().n;
+  const bytes = db.prepare('SELECT COALESCE(SUM(LENGTH(block)), 0) AS b FROM message_fts_data').get().b;
+  if (!accountId) return { messages: total, bytes, share: bytes };
+  const mine = db.prepare('SELECT COUNT(*) AS n FROM message_content WHERE user_key=? AND account_id=? AND indexed_at IS NOT NULL')
+    .get(userKey, accountId).n;
+  const pending = db.prepare('SELECT COUNT(*) AS n FROM message_content WHERE user_key=? AND account_id=? AND indexed_at IS NULL AND content_json IS NOT NULL')
+    .get(userKey, accountId).n;
+  return { messages: mine, pending, bytes, share: total ? Math.round((bytes * mine) / total) : 0 };
 }
 
 /** Highest cached UID for a folder — the boundary for the poller's cheap incremental "anything newer?" check. */
@@ -858,6 +1192,43 @@ export function applyFlags(userKey, accountId, folder, uids, { add = [], remove 
   return { unseenDelta };
 }
 
+/**
+ * Cached envelopes for specific uids in one folder, in the shape every other
+ * read here returns.
+ *
+ * For code that has to know something about a message it is ABOUT to move —
+ * snoozing reads the subject and Message-ID here, because a moment later those
+ * uids name nothing and the record it writes would have nothing to show in a
+ * list or to find the message by afterwards.
+ */
+export function getMessagesByUids(userKey, accountId, folder, uids) {
+  if (!uids?.length) return [];
+  const keys = uids.map(uidKey);
+  const placeholders = keys.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM messages WHERE user_key=? AND account_id=? AND folder=? AND uid IN (${placeholders})`)
+    .all(userKey, accountId, folder, ...keys).map(rowToMessage);
+}
+
+/**
+ * One message in a folder, found by its Message-ID.
+ *
+ * The way back when a uid has stopped being trustworthy: a uid is per-folder and
+ * a MOVE mints a new one, while a Message-ID is stable across folders, servers
+ * and restarts. Snoozing uses it when the uid it wrote down months ago is no
+ * longer in the folder — see server/snooze.js.
+ *
+ * Newest first, because a Message-ID is only unique in practice, not by
+ * guarantee: a message forwarded back to itself, or a server that filed two
+ * copies, can leave duplicates, and the most recent one is the better guess.
+ */
+export function findByMessageId(userKey, accountId, folder, messageId) {
+  if (!messageId) return null;
+  const row = db.prepare(
+    'SELECT * FROM messages WHERE user_key=? AND account_id=? AND folder=? AND message_id=? AND deleted=0 ORDER BY date DESC LIMIT 1'
+  ).get(userKey, accountId, folder, messageId);
+  return row ? rowToMessage(row) : null;
+}
+
 /** Drop cached rows for messages that moved away or were expunged through
  * Hmelj (move/delete routes). Returns the same {unseenDelta, totalDelta}
  * shape applyFlags does, for the same reason — how much of this folder's
@@ -882,6 +1253,11 @@ export function removeMessages(userKey, accountId, folder, uids) {
  * instead of only after the next background sync tick. */
 export function clearFolder(userKey, accountId, folder) {
   db.prepare('DELETE FROM messages WHERE user_key=? AND account_id=? AND folder=?').run(userKey, accountId, folder);
+  // The cached bodies and their index rows go too. Emptying a folder used to
+  // leave both behind: harmless while nothing read bodies without an envelope
+  // row to reach them by, but a full-text hit is found by matching TEXT, so a
+  // stale index entry surfaces a message that is no longer there.
+  pruneMessageContent(userKey, accountId, folder, []);
   // Emptying a folder is the one mutation whose resulting counts are known
   // exactly without measuring anything: nothing is left in it.
   db.prepare('UPDATE folders SET total=0, unseen=0 WHERE user_key=? AND account_id=? AND path=?')
@@ -893,7 +1269,7 @@ export function clearFolder(userKey, accountId, folder) {
  * entry in the sidebar/settings until the next background sync tick. */
 export function removeFolder(userKey, accountId, path) {
   db.prepare('DELETE FROM messages WHERE user_key=? AND account_id=? AND folder=?').run(userKey, accountId, path);
-  db.prepare('DELETE FROM message_content WHERE user_key=? AND account_id=? AND folder=?').run(userKey, accountId, path);
+  pruneMessageContent(userKey, accountId, path, []); // content AND its index rows, in that order
   db.prepare('DELETE FROM sync_state WHERE user_key=? AND account_id=? AND folder=?').run(userKey, accountId, path);
   db.prepare('DELETE FROM folders WHERE user_key=? AND account_id=? AND path=?').run(userKey, accountId, path);
 }
@@ -1091,7 +1467,15 @@ const upsertFolderStmt = db.prepare(`
   VALUES (@userKey, @accountId, @path, @name, @delimiter, @parent, @specialUse, @subscribed, @hidden, @total, @unseen, @sortRank)
   ON CONFLICT (user_key, account_id, path) DO UPDATE SET
     name=excluded.name, delimiter=excluded.delimiter, parent=excluded.parent, special_use=excluded.special_use,
-    subscribed=excluded.subscribed, hidden=excluded.hidden, total=excluded.total, unseen=excluded.unseen, sort_rank=excluded.sort_rank
+    subscribed=excluded.subscribed, hidden=excluded.hidden, sort_rank=excluded.sort_rank,
+    -- COALESCE, so a listing that could not obtain a count leaves the last
+    -- known one alone. A missing count is "I did not find out", never "zero":
+    -- writing NULL over a real number is how INBOX's unread badge disappeared
+    -- a minute after every manual refresh put it back (see
+    -- imapClient.js#listFolders — STATUS is skipped for the SELECTED mailbox,
+    -- which is INBOX almost all of the time).
+    total=COALESCE(excluded.total, folders.total),
+    unseen=COALESCE(excluded.unseen, folders.unseen)
 `);
 
 /**
@@ -1368,7 +1752,14 @@ export function queryUnified(userKey, accounts, { box, page = 1, pageSize = 50, 
   // of asking for it from here rather than folder by folder.
   if (flaggedOnly) where += ' AND flagged=1';
   if (q) {
-    const built = buildCacheSearchClause(q);
+    // `some` enables the FTS clauses, `every` permits a body: term — see
+    // buildCacheSearchClause's own note on why a mixed unified view treats
+    // those two differently.
+    const built = buildCacheSearchClause(q, {
+      indexed: accounts.some((a) => a.searchIndex),
+      bodyOk: accounts.every((a) => a.searchIndex),
+      userKey,
+    });
     where += ` AND (${built.sql})`;
     params.push(...built.params);
   }
@@ -1425,7 +1816,7 @@ export function queryUnified(userKey, accounts, { box, page = 1, pageSize = 50, 
  * every open — the poller already pays that cost once in the background,
  * on its own schedule, instead of blocking whoever's waiting on a click.
  */
-export function queryFolder(userKey, accountId, folder, { page = 1, pageSize = 50, q = '', unreadOnly = false, flaggedOnly = false, subtreeDelimiter = null, showDeleted = false, threaded = false, threadFolders = [], convoFolders = [] } = {}) {
+export function queryFolder(userKey, accountId, folder, { page = 1, pageSize = 50, q = '', unreadOnly = false, flaggedOnly = false, subtreeDelimiter = null, showDeleted = false, threaded = false, threadFolders = [], convoFolders = [], indexed = false } = {}) {
   // `subtreeDelimiter` widens the read to this folder AND everything nested under
   // it — what the starred view (flaggedOnly, from /api/messages/:folder's
   // `flagged=1`) means by "starred in Work": the whole Work tree, not just its top
@@ -1451,7 +1842,8 @@ export function queryFolder(userKey, accountId, folder, { page = 1, pageSize = 5
   if (unreadOnly) where += ' AND seen=0';
   if (flaggedOnly) where += ' AND flagged=1';
   if (q) {
-    const built = buildCacheSearchClause(q);
+    // One account here, so "some" and "every" are the same question.
+    const built = buildCacheSearchClause(q, { indexed, userKey });
     where += ` AND (${built.sql})`;
     params.push(...built.params);
   }
@@ -1555,7 +1947,312 @@ export function getThread(userKey, accountId, threadId, folders) {
   return rows.map(rowToMessage);
 }
 
+/**
+ * Everything cached for one removed mail account.
+ *
+ * This used to drop only `messages` and `sync_state`, leaving the account's
+ * cached bodies and folder rows behind for good — invisible, since every read
+ * is scoped by an account id that no longer exists, but never reclaimed either.
+ * A full-text index makes that leak visible rather than merely untidy: its
+ * entries are found by matching text, not by account, so a deleted account's
+ * mail would keep turning up in searches. All four tables now go together.
+ *
+ * `search_words` is deliberately NOT touched: it is a per-USER vocabulary for
+ * the search box's autocomplete, already documented as growth-only, and it has
+ * no account column to filter by in the first place.
+ */
 export function deleteAccountCache(userKey, accountId) {
   db.prepare('DELETE FROM messages WHERE user_key=? AND account_id=?').run(userKey, accountId);
+  dropSearchIndex(userKey, accountId);
+  db.prepare('DELETE FROM message_content WHERE user_key=? AND account_id=?').run(userKey, accountId);
+  db.prepare('DELETE FROM folders WHERE user_key=? AND account_id=?').run(userKey, accountId);
   db.prepare('DELETE FROM sync_state WHERE user_key=? AND account_id=?').run(userKey, accountId);
+}
+
+/* ---------------- calendar events ---------------- */
+//
+// Cached, like everything else in this file: every row here can be rebuilt by
+// asking the calendar server again, which is why it lives in cache.sqlite and
+// not in DATA_DIR. Events AUTHORED in Hmelj's own local calendars do not — they
+// exist nowhere else — and are stored as .ics files beside the scheduled-send
+// queue, for the reason that file's header spells out.
+//
+// ── One row per COMPONENT, not per occurrence ───────────────────────────────
+// A weekly meeting running for three years is ONE row carrying its RRULE, not
+// 156 rows. Occurrences are expanded at query time (server/rrule.js) over the
+// window actually being looked at. Pre-expanding would mean deciding how far
+// into the future to materialise, re-materialising whenever a rule changed, and
+// storing tens of thousands of rows for a calendar with a handful of events.
+//
+// An edited occurrence of a series is its own row, told apart from the master by
+// `recurrence_id` — '' for the master, the occurrence's own start for an
+// exception. That pair is what makes (uid, recurrence_id) a stable identity
+// across syncs even though both share a UID.
+//
+// ── Why `until_ms` is stored ────────────────────────────────────────────────
+// So a window query can rule out a finished series WITHOUT expanding it. A rule
+// bounded by COUNT rather than UNTIL cannot be resolved without expanding, so it
+// stores NULL and is expanded — which is cheap, because expansion stops as soon
+// as the count is spent.
+db.exec(`
+CREATE TABLE IF NOT EXISTS calendar_events (
+  user_key TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  calendar_id TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  -- '' for the master component; the replaced occurrence's start for an
+  -- exception. Part of the key, so a series and its edited occurrences coexist.
+  recurrence_id TEXT NOT NULL DEFAULT '',
+  href TEXT,
+  etag TEXT,
+  -- The FIRST occurrence, for a recurring event. Everything after it comes from
+  -- expanding the rule, so this is the only start that needs indexing.
+  dtstart_ms INTEGER,
+  dtend_ms INTEGER,
+  all_day INTEGER NOT NULL DEFAULT 0,
+  -- The last instant the series can possibly reach, or NULL for "endless, or
+  -- bounded by a COUNT we would have to expand to resolve".
+  until_ms INTEGER,
+  rrule TEXT,
+  summary TEXT,
+  -- The parsed event, so a window query does not re-parse iCalendar for every
+  -- row it touches, and the raw component, so nothing the source carries is
+  -- lost on the way to a write-back or a DAV subscriber.
+  json TEXT,
+  ical TEXT,
+  updated_at INTEGER,
+  PRIMARY KEY (user_key, source_id, calendar_id, uid, recurrence_id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_window ON calendar_events (user_key, calendar_id, dtstart_ms);
+`);
+
+const upsertEventStmt = db.prepare(`
+  INSERT INTO calendar_events
+    (user_key, source_id, calendar_id, uid, recurrence_id, href, etag,
+     dtstart_ms, dtend_ms, all_day, until_ms, rrule, summary, json, ical, updated_at)
+  VALUES (@user_key, @source_id, @calendar_id, @uid, @recurrence_id, @href, @etag,
+          @dtstart_ms, @dtend_ms, @all_day, @until_ms, @rrule, @summary, @json, @ical, @updated_at)
+  ON CONFLICT (user_key, source_id, calendar_id, uid, recurrence_id) DO UPDATE SET
+    href=excluded.href, etag=excluded.etag,
+    dtstart_ms=excluded.dtstart_ms, dtend_ms=excluded.dtend_ms, all_day=excluded.all_day,
+    until_ms=excluded.until_ms, rrule=excluded.rrule, summary=excluded.summary,
+    json=excluded.json, ical=excluded.ical, updated_at=excluded.updated_at
+`);
+
+/** Writes a batch of components. One transaction, because a sync that replaces
+ *  a whole calendar is hundreds of statements and better-sqlite3's writes are
+ *  synchronous — see this file's header on what that costs on slow storage. */
+export const upsertCalendarEvents = db.transaction((rows) => {
+  for (const r of rows) upsertEventStmt.run(r);
+  return rows.length;
+});
+
+/** Everything one href stood for. A single .ics resource holds a master AND its
+ *  exceptions, so replacing it means removing every row that came from it — a
+ *  per-uid delete would leave an exception behind after the occurrence it
+ *  edited had been deleted upstream. */
+export function deleteCalendarHref(userKey, sourceId, calendarId, href) {
+  return db.prepare(
+    'DELETE FROM calendar_events WHERE user_key=? AND source_id=? AND calendar_id=? AND href=?',
+  ).run(userKey, sourceId, calendarId, href).changes;
+}
+
+export function deleteCalendar(userKey, sourceId, calendarId) {
+  return db.prepare(
+    'DELETE FROM calendar_events WHERE user_key=? AND source_id=? AND calendar_id=?',
+  ).run(userKey, sourceId, calendarId).changes;
+}
+
+export function deleteCalendarSource(userKey, sourceId) {
+  return db.prepare('DELETE FROM calendar_events WHERE user_key=? AND source_id=?').run(userKey, sourceId).changes;
+}
+
+/** href → etag for one calendar, which is what the ETag-diff sync path compares
+ *  against. Only the master row's href is needed, but every row carries it, so
+ *  DISTINCT does the collapsing. */
+export function calendarEtags(userKey, sourceId, calendarId) {
+  const rows = db.prepare(
+    'SELECT DISTINCT href, etag FROM calendar_events WHERE user_key=? AND source_id=? AND calendar_id=?',
+  ).all(userKey, sourceId, calendarId);
+  return new Map(rows.filter((r) => r.href).map((r) => [r.href, r.etag || '']));
+}
+
+/**
+ * How many EVENTS one calendar holds — the number Settings shows beside it.
+ *
+ * Distinct uid, not row count: a recurring series is one event however many
+ * occurrences it has, and on Microsoft and Exchange (which store expanded
+ * occurrences rather than rules) that is the difference between "3 collections"
+ * and "275 rows". Exceptions to a series share its uid too, and are likewise
+ * part of the same event rather than extra ones.
+ */
+export function calendarEventCount(userKey, sourceId, calendarId) {
+  return db.prepare(
+    'SELECT COUNT(DISTINCT uid) AS n FROM calendar_events WHERE user_key=? AND source_id=? AND calendar_id=?',
+  ).get(userKey, sourceId, calendarId).n;
+}
+
+/**
+ * Components that COULD have an occurrence in `[from, to)`.
+ *
+ * Deliberately a candidate filter, not an answer: whether a recurring event
+ * actually falls in the window is a question only expansion can settle, and
+ * doing that in SQL is not possible. What this does is cheaply exclude the two
+ * large groups that certainly cannot — anything starting after the window, and
+ * any series that had already finished before it — so the expander only ever
+ * runs over a handful of rows.
+ */
+export function calendarCandidates(userKey, calendarIds, from, to) {
+  if (!calendarIds?.length) return [];
+  const marks = calendarIds.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT * FROM calendar_events
+     WHERE user_key = ?
+       AND calendar_id IN (${marks})
+       AND dtstart_ms IS NOT NULL
+       AND dtstart_ms < ?
+       AND (
+         -- one-off: it just has to overlap the window
+         (rrule IS NULL AND (dtend_ms IS NULL OR dtend_ms > ? OR dtstart_ms >= ?))
+         -- recurring: unbounded, or not yet finished when the window opens
+         OR (rrule IS NOT NULL AND (until_ms IS NULL OR until_ms >= ?))
+       )
+     ORDER BY dtstart_ms
+  `).all(userKey, ...calendarIds, to, from, from, from);
+}
+
+/**
+ * The hrefs a calendar holds whose first occurrence falls inside a window.
+ *
+ * For the backends whose server expands recurrence for them (Graph, EWS): what
+ * comes back from those is the complete truth for ONE RANGE, so reconciling
+ * means deleting what is stored inside that range and was not returned — and
+ * leaving everything outside it strictly alone. A plain "delete what was not
+ * returned" would wipe every event beyond the window on the first sync.
+ */
+export function calendarHrefsInWindow(userKey, sourceId, calendarId, from, to) {
+  const rows = db.prepare(`
+    SELECT DISTINCT href FROM calendar_events
+     WHERE user_key=? AND source_id=? AND calendar_id=?
+       AND dtstart_ms >= ? AND dtstart_ms < ? AND href IS NOT NULL
+  `).all(userKey, sourceId, calendarId, from, to);
+  return new Set(rows.map((r) => r.href));
+}
+
+/** Several hrefs at once, in one transaction — a window refresh routinely
+ *  removes dozens. */
+export const deleteCalendarHrefs = db.transaction((userKey, sourceId, calendarId, hrefs) => {
+  const stmt = db.prepare('DELETE FROM calendar_events WHERE user_key=? AND source_id=? AND calendar_id=? AND href=?');
+  let n = 0;
+  for (const href of hrefs) n += stmt.run(userKey, sourceId, calendarId, href).changes;
+  return n;
+});
+
+/** One component by its identity, for opening a single event. */
+export function calendarEvent(userKey, calendarId, uid, recurrenceId = '') {
+  return db.prepare(
+    'SELECT * FROM calendar_events WHERE user_key=? AND calendar_id=? AND uid=? AND recurrence_id=?',
+  ).get(userKey, calendarId, uid, recurrenceId) || null;
+}
+
+/** Every exception belonging to a series, so an expansion can replace the
+ *  occurrences they override. */
+export function calendarExceptions(userKey, calendarId, uid) {
+  return db.prepare(
+    "SELECT * FROM calendar_events WHERE user_key=? AND calendar_id=? AND uid=? AND recurrence_id<>''",
+  ).all(userKey, calendarId, uid);
+}
+
+/* ---------------- calendar reminders ---------------- */
+//
+// Two small ledgers, both derived data and both rebuildable — which is why they
+// are here and not in DATA_DIR. Losing them costs at most one duplicate
+// reminder and one forgotten snooze, and the first tick after a restart primes
+// the ledger rather than replaying a night's worth (see
+// server/calendarReminders.js#tick).
+//
+// Keyed on the OCCURRENCE, not the event: a weekly meeting reminds you every
+// week, and a key that stopped at the uid would fire once and then never again.
+db.exec(`
+CREATE TABLE IF NOT EXISTS calendar_reminders_fired (
+  user_key TEXT NOT NULL,
+  calendar_id TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  occurrence_start INTEGER NOT NULL,
+  -- Several reminders on one occurrence are independent: "1 day before" firing
+  -- must not suppress "10 minutes before".
+  minutes_before INTEGER NOT NULL,
+  fired_at INTEGER NOT NULL,
+  PRIMARY KEY (user_key, calendar_id, uid, occurrence_start, minutes_before)
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_fired_at ON calendar_reminders_fired (fired_at);
+
+CREATE TABLE IF NOT EXISTS calendar_snoozes (
+  user_key TEXT NOT NULL,
+  calendar_id TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  occurrence_start INTEGER NOT NULL,
+  fire_at INTEGER NOT NULL,
+  PRIMARY KEY (user_key, calendar_id, uid, occurrence_start)
+);
+CREATE INDEX IF NOT EXISTS idx_snoozes_fire_at ON calendar_snoozes (fire_at);
+`);
+
+const markFiredStmt = db.prepare(`
+  INSERT INTO calendar_reminders_fired (user_key, calendar_id, uid, occurrence_start, minutes_before, fired_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT DO NOTHING
+`);
+
+/**
+ * Records a reminder as sent, and says whether it had already been.
+ *
+ * The check and the write are one statement on purpose: two ticks overlapping
+ * (a slow send, a manual sync running alongside the timer) would otherwise both
+ * read "not fired" and both send. `changes` is 1 only for the insert that won.
+ */
+export function claimReminder(userKey, calendarId, uid, occurrenceStart, minutesBefore, now = Date.now()) {
+  return markFiredStmt.run(userKey, calendarId, uid, occurrenceStart, minutesBefore, now).changes === 1;
+}
+
+/** Marks reminders as already sent WITHOUT sending them — how the first tick
+ *  after a restart avoids replaying everything that came due while the process
+ *  was down. */
+export const primeReminders = db.transaction((rows, now) => {
+  for (const r of rows) markFiredStmt.run(r.userKey, r.calendarId, r.uid, r.occurrenceStart, r.minutesBefore, now);
+  return rows.length;
+});
+
+/** Old rows are of no further use: an occurrence in the past cannot come round
+ *  again, and the ledger would otherwise grow forever. */
+export function pruneReminders(olderThanMs) {
+  return db.prepare('DELETE FROM calendar_reminders_fired WHERE fired_at < ?').run(olderThanMs).changes;
+}
+
+export function snoozeReminder(userKey, calendarId, uid, occurrenceStart, fireAt) {
+  db.prepare(`
+    INSERT INTO calendar_snoozes (user_key, calendar_id, uid, occurrence_start, fire_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (user_key, calendar_id, uid, occurrence_start) DO UPDATE SET fire_at=excluded.fire_at
+  `).run(userKey, calendarId, uid, occurrenceStart, fireAt);
+  return true;
+}
+
+/** Snoozes that have come due, and are therefore this tick's to send. */
+export function dueSnoozes(userKey, now = Date.now()) {
+  return db.prepare(
+    'SELECT * FROM calendar_snoozes WHERE user_key=? AND fire_at <= ? ORDER BY fire_at',
+  ).all(userKey, now);
+}
+
+export function clearSnooze(userKey, calendarId, uid, occurrenceStart) {
+  return db.prepare(
+    'DELETE FROM calendar_snoozes WHERE user_key=? AND calendar_id=? AND uid=? AND occurrence_start=?',
+  ).run(userKey, calendarId, uid, occurrenceStart).changes;
+}
+
+/** A snooze for an occurrence that has since been deleted, or one left over
+ *  from an event long past, is swept with everything else. */
+export function pruneSnoozes(olderThanMs) {
+  return db.prepare('DELETE FROM calendar_snoozes WHERE occurrence_start < ?').run(olderThanMs).changes;
 }

@@ -66,8 +66,34 @@ const Settings = (() => {
     activeBtn?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
+  /**
+   * One row of a settings grid: a label, its control, and — when there is
+   * something to explain — a `?` beside the label that opens the explanation.
+   *
+   * The explanations used to sit under the control as a paragraph each. With
+   * three or four settings on a tab that reads as helpful; with thirty it is a
+   * wall of prose you have to scan past to find the switch you came for, and
+   * the switches themselves stop being findable. They are one tap away now
+   * instead of always on screen.
+   *
+   * I18n.t() on both, explicitly, and that is not optional: a hint used to be a
+   * text node, which the language walker translates on its own (see i18n.js).
+   * In an ATTRIBUTE it only ever looks at title/placeholder/aria-label — so
+   * moving these without translating them here would have quietly reverted
+   * every one of them to English for a Slovenian reader.
+   */
   function field(label, inputHtml, hint = '') {
-    return `<label>${label}</label><div>${inputHtml}</div>` + (hint ? `<div></div><div class="set-hint">${hint}</div>` : '');
+    return `<label>${label}${hint ? helpBadge(label, hint) : ''}</label><div>${inputHtml}</div>`;
+  }
+
+  /** The `?` itself. A real <button>, so it is reachable by keyboard and
+   *  announced as one, rather than a span that only responds to a mouse. */
+  function helpBadge(label, hint) {
+    const title = String(label || '').replace(/<[^>]*>/g, '').trim();
+    return `<button type="button" class="set-help" tabindex="0"
+      data-help="${escAttr(I18n.t(hint))}" data-help-title="${escAttr(I18n.t(title))}"
+      aria-label="${escAttr(`${I18n.t('What this setting does')}: ${I18n.t(title)}`)}"
+      title="${escAttr(I18n.t('What this setting does'))}">?</button>`;
   }
   function sel(id, options, value) {
     return `<select id="${id}">` + options.map(([v, t]) => `<option value="${v}" ${v === value ? 'selected' : ''}>${t}</option>`).join('') + '</select>';
@@ -199,6 +225,7 @@ const Settings = (() => {
       ${field('Messages kept per folder', num('s-backfill', draft.syncBackfillLimit, 50, 5000), 'How many of each folder\'s newest messages are cached locally for fast browsing. Lower is faster to sync; the rest is always still on the server and reachable via search.')}
       ${field('Messages kept ready to open instantly', num('s-contentcache', draft.contentCacheLimit, 0, 1000), 'How many of each folder\'s newest messages have their full content pre-fetched in the background, so opening them is instant instead of a live fetch. 0 turns this off — a message still gets cached the first time you open it, just not before. Cannot exceed "Messages kept per folder" above.')}
       ${field('Search box autocomplete', chk('s-searchauto', draft.searchAutocomplete), 'Finishes words as you type in the search box, suggested from your own mail history (sender names/addresses, subjects) — shown as selected text you can just keep typing over to ignore.')}
+      ${field('Search index size limit', num('s-ftsmax', draft.searchIndexMaxMb, 0, 100000), 'A ceiling, in MB, on the full-text index that lets search look inside messages — turn it on per account under Mail accounts. 0 means no limit. This is a stop rather than a cleanup: at the ceiling nothing new is indexed until older mail ages out of the content cache above and takes its index entries with it, so searching keeps working, it just stops getting deeper. The index only ever covers messages the setting above has already cached, which is what bounds it in the first place.')}
       <hr class="set-divider">
       ${field('Run filters when opening Inbox', chk('s-runfilters', draft.runFiltersOnLoad))}
       ${field('Delete behavior', sel('s-delmode', [['trash', 'Move to Trash folder'], ['flag', 'Only mark as \\Deleted (keep in place)'], ['expunge', 'Delete permanently (expunge)']], draft.deleteBehavior))}
@@ -222,7 +249,14 @@ const Settings = (() => {
       <hr class="set-divider">
       ${field('Swipe gestures on mobile', chk('s-swipe', draft.swipeGestures), 'Swipe a message left or right to mark it read/unread or delete it — the action fires once you drag it about a third of the way across, and a swipe-delete can be taken back from the message that appears afterwards.')}
       ${field('Swipe direction', sel('s-swipedir', [['normal', 'Swipe left: read/unread · Swipe right: delete'], ['swapped', 'Swipe left: delete · Swipe right: read/unread']], draft.swipeSwapDirection ? 'swapped' : 'normal'))}
+      <hr class="set-divider">
+      ${field('Export your data',
+        `<div class="row"><button class="btn-sm" id="s-export-settings">${I18n.t('Export settings')}</button>
+         <button class="btn-sm" id="s-export-mail">${I18n.t('Export mail…')}</button></div>`,
+        'Settings, identities, filters, subject rules, saved searches, templates, contacts and local calendars come out as one zip. Mail comes out separately, one folder at a time, as an mbox file — the format Thunderbird and every migration tool import. Your mail ACCOUNTS are deliberately not included: their passwords are encrypted with this server\'s own key, so a copy would be useless elsewhere, and decrypting them into the file would put every mailbox password in your downloads folder.')}
     </div>`;
+    document.getElementById('s-export-settings')?.addEventListener('click', () => download(API.exportSettingsUrl()));
+    document.getElementById('s-export-mail')?.addEventListener('click', exportMailDialog);
     document.getElementById('s-notify-test')?.addEventListener('click', async (e) => {
       e.target.disabled = true;
       try {
@@ -264,10 +298,69 @@ const Settings = (() => {
       ${field('Trusted domains', `<textarea id="s-trusted" rows="3" style="width:100%">${esc((draft.trustedDomains || []).join('\n'))}</textarea>`, 'One domain per line, e.g. github.com')}
       ${field('Show deleted messages', chk('s-showdel', draft.showDeleted), 'Messages flagged \\Deleted appear struck through.')}
       ${field('Unsubscribe button', chk('s-unsub', draft.unsubscribeButton), 'Newsletters that say how to leave them (a List-Unsubscribe header) get a button in the reading pane. Nothing is ever sent without pressing it — but note that unsubscribing does tell the sender your address is read, which is not always what you want on mail you never asked for.')}
+      ${field('Show whether the sender is verified', chk('s-authbadge', draft.senderAuthBadge !== false), 'Reads the SPF/DKIM/DMARC result your mail server recorded when the message arrived. A quiet mark beside the sender when the checks pass, and a warning when a message claims to come from a domain it is not allowed to send for, or wears the name of someone in your contacts over a different address. Messages where nothing was checked — which is normal on smaller mail servers — are left unmarked rather than treated as suspect.')}
       ${field('Compact unsubscribe banner', chk('s-unsub-min', draft.unsubscribeBannerCompact), 'Show that banner folded to just the icon and the button. Click the icon on a message to see where the request would go — the confirmation dialog names it either way.')}
       ${field('Message font', fontSel('s-font', draft.messageFont))}
       ${field('Message font size', num('s-fontsize', draft.messageFontSize, 11, 24))}
+      ${field('Also use them for formatted mail', chk('s-fontforce', draft.messageFontOverride), 'Without this, the two settings above are only a fallback — and formatted mail almost never falls back to it, because it states its own fonts on the elements themselves. Turning this on makes your font win everywhere, and scales every size in the message by the same amount, so headings stay bigger than body text rather than everything becoming one size. The cost is that a newsletter designed around its own typeface stops looking the way its sender built it.')}
     </div>`;
+  }
+
+  /** A plain anchor navigation, never a Blob: an export can be gigabytes, and
+   *  the Android shell's DownloadListener only sees a real navigation (it
+   *  carries the session cookie, which JS cannot read to re-fetch with). */
+  function download(url) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  /** Which account, which folder, and optionally from when. Asked rather than
+   *  assumed: exporting is a deliberate act and the wrong folder is a long wait
+   *  for the wrong file. */
+  async function exportMailDialog() {
+    const accts = allAccounts().filter((a) => !a.disabled);
+    if (!accts.length) return toast(I18n.t('No mail accounts yet'));
+    const first = accts[0].id;
+    // loadFoldersFor fills the module-level `folderList` rather than returning
+    // — same call the Folders tab makes.
+    let folders = [];
+    try { await loadFoldersFor(first); folders = folderList || []; } catch { folders = []; }
+    const value = await Dialog.form(I18n.t('Export mail'),
+      `<label class="dialog-label">${I18n.t('Account')}</label>
+       ${sel('ex-acct', accts.map((a) => [a.id, a.label]), first)}
+       <label class="dialog-label">${I18n.t('Folder')}</label>
+       ${sel('ex-folder', (folders.length ? folders : [{ path: 'INBOX' }]).map((f) => [f.path, f.path]), 'INBOX')}
+       <label class="dialog-label">${I18n.t('Only mail since (optional)')}</label>
+       <input class="dialog-input" id="ex-since" type="date">
+       <div class="set-hint">${I18n.t('One mbox file per folder. Large folders take a while and the browser cannot show progress — the download simply finishes when it finishes.')}</div>`,
+      {
+        okLabel: I18n.t('Export'),
+        getValue: (r) => ({
+          accountId: r.querySelector('#ex-acct').value,
+          folder: r.querySelector('#ex-folder').value,
+          since: r.querySelector('#ex-since').value,
+        }),
+        onOpen: (r) => {
+          // The folder list belongs to the chosen account, so it is re-read
+          // when that changes — otherwise picking a second account offers the
+          // first one's folders, and the export quietly 404s or exports nothing.
+          r.querySelector('#ex-acct').addEventListener('change', async (e) => {
+            const sel2 = r.querySelector('#ex-folder');
+            sel2.innerHTML = `<option>${I18n.t('Loading…')}</option>`;
+            let list = [];
+            try { await loadFoldersFor(e.target.value); list = folderList || []; } catch { list = []; }
+            sel2.innerHTML = (list.length ? list : [{ path: 'INBOX' }])
+              .map((f) => `<option value="${escAttr(f.path)}">${esc(f.path)}</option>`).join('');
+          });
+        },
+      });
+    if (!value?.folder) return;
+    download(API.exportMailUrl(value.folder, value.accountId, value.since));
+    toast(I18n.t('Export started — the file appears when the whole folder has been read.'), 6000);
   }
 
   function renderCompose() {
@@ -276,7 +369,10 @@ const Settings = (() => {
       ${field('Default font', composeFontSel('s-compose-font', draft.composeFont), 'Used for what you write in new messages, replies and forwards — not for the quoted original. Rich text only. The toolbar\'s font button still overrides it per message.')}
       ${field('Quoted message on reply', sel('s-quote', [['below', 'Below my reply'], ['above', 'Above my reply'], ['none', 'Do not quote']], draft.replyQuotePosition))}
       ${field('Autosave drafts every (seconds)', num('s-autosave', draft.autosaveDraftSeconds, 0, 600), '0 disables autosave.')}
+      ${field('Undo send window (seconds)', num('s-undosend', draft.undoSendSeconds, 0, 120), 'How long Send holds a message back so you can take it out of the outbox again — a toast offers Undo for that long. 0 sends immediately. The wait is on the server, not in this tab, so the window still applies if you close Hmelj right after pressing Send; the message simply goes out when the time is up.')}
       ${field('Request read receipts by default', chk('s-receipt', draft.requestReadReceipt))}
+      ${field('Warn about a missing attachment', chk('s-attachwarn', draft.attachmentReminder !== false), 'Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote \'v prilogi\' does not ask.')}
+      ${field('Offer Reply to all', chk('s-replyall', draft.replyAllNudge !== false), 'When you press Reply on a message that had other people on it, offer to reply to all of them instead. A message addressed only to you never asks.')}
       ${field('Check spelling as I type', chk('s-spellcheck', draft.spellcheck !== false), 'Slovenian and English, detected automatically. Spelling only — no grammar. Off uses your browser\'s own spellchecker instead.')}
     </div>`;
   }
@@ -298,6 +394,16 @@ const Settings = (() => {
   // handle the server uses to find the tokens it is holding — it is NOT a
   // token itself, and there is deliberately no way for this code to see one.
   let oauthProviders = [];
+  // Full-text index figures per owned account (GET /api/search-index), fetched
+  // once per Settings session and re-read after a toggle. null = not fetched
+  // yet or the request failed; searchIndexRow() copes with both.
+  let searchIndexInfo = null;
+  // Sidebar-pinned searches, edited as a list on their own tab. Like filters:
+  // loaded on open, written by Save, and adopted back from the server's own
+  // normalised response rather than from what was sent.
+  let savedSearches = [];
+  // Message boilerplate (Settings > Templates), loaded on open and written by Save.
+  let templates = [];
   let wizardOAuth = { provider: '', state: '', email: '' };
   // "Use an app password instead" pressed while editing an account that signs
   // in: turns the open form back into a plain IMAP one for this save only (the
@@ -411,7 +517,48 @@ const Settings = (() => {
       </div>
       ${isOwner ? oauthBadge : ''}
       ${isOwner ? switchRow : ''}
+      ${isOwner ? searchIndexRow(a) : ''}
       ${grantees}
+    </div>`;
+  }
+
+  /** Human-readable byte size for the index figures. */
+  function mb(bytes) {
+    if (!bytes) return '0 MB';
+    const m = bytes / 1024 / 1024;
+    return m < 0.1 ? '<0.1 MB' : `${m.toFixed(m < 10 ? 1 : 0)} MB`;
+  }
+
+  /**
+   * "Search inside messages" — the per-account full-text index
+   * (server/cache.js#message_fts). Owner-only, and its own row rather than a
+   * line in the wizard, because it is the one account setting whose cost a
+   * person needs to SEE while deciding: the numbers next to it are the answer
+   * to "what will this do to my disk?", which is why it reports size at all.
+   *
+   * `searchIndexInfo` is fetched once per Settings session; while it is still
+   * loading (or if the cache is off entirely) the row degrades to the toggle
+   * without figures rather than not appearing.
+   */
+  function searchIndexRow(a) {
+    if (searchIndexInfo && !searchIndexInfo.enabled) return '';
+    const info = searchIndexInfo?.accounts?.[a.id];
+    const on = info ? info.on : !!a.searchIndex;
+    let detail = '';
+    if (info && on) {
+      const parts = [I18n.t('{n} messages indexed').replace('{n}', info.messages)];
+      if (info.share) parts.push('≈' + mb(info.share));
+      // Only worth mentioning while there is a backlog — steady state is 0 and
+      // saying "0 waiting" every time reads as a problem rather than as idle.
+      if (info.pending) parts.push(I18n.t('{n} waiting').replace('{n}', info.pending));
+      detail = ' · ' + parts.join(' · ');
+    }
+    const full = searchIndexInfo && searchIndexInfo.maxMb > 0 && searchIndexInfo.bytes > searchIndexInfo.maxMb * 1024 * 1024;
+    return `<div class="row">
+      <span class="set-hint" style="margin:0">🔍 ${I18n.t('Search inside messages')}${esc(detail)}</span>
+      ${full && on ? `<span class="set-hint wiz-status err" style="margin:0">${I18n.t('Size limit reached — pausing until older mail ages out')}</span>` : ''}
+      <span class="spacer"></span>
+      <button class="btn-sm ac-index">${on ? I18n.t('Turn off') : I18n.t('Turn on')}</button>
     </div>`;
   }
 
@@ -425,6 +572,10 @@ const Settings = (() => {
     // answer only changes when an admin configures a provider. Failure is not
     // fatal: the "switch to signing in" row simply doesn't appear.
     if (!oauthProviders.length) oauthProviders = await API.oauthProviders().catch(() => []);
+    // Same "fetch once per Settings session" treatment as oauthProviders, and
+    // failure is equally non-fatal: searchIndexRow() falls back to a bare
+    // toggle. Re-read after a toggle so the figures move without a reload.
+    if (!searchIndexInfo) searchIndexInfo = await API.searchIndex().catch(() => null);
     body().innerHTML = `<div class="card-list">
       ${allAccounts().map(accountCard).join('')}
       </div>
@@ -506,6 +657,26 @@ const Settings = (() => {
       const a = state.accounts.find((x) => x.id === id);
       await API.patchAccount(id, { disabled: !a.disabled });
       await reloadAccounts();
+    }));
+    body().querySelectorAll('.ac-index').forEach((b) => b.addEventListener('click', async () => {
+      const id = b.closest('[data-acct]').dataset.acct;
+      const on = !!(searchIndexInfo?.accounts?.[id]?.on ?? state.accounts.find((x) => x.id === id)?.searchIndex);
+      // Turning it OFF throws away work and disk, so it asks first; turning it
+      // on costs nothing that isn't already on disk and is silently reversible.
+      if (on && !await Dialog.confirm(
+        I18n.t('Stop searching inside this account\'s messages? The index is deleted; your mail and its cached content are untouched.'),
+        { title: I18n.t('Search inside messages'), okLabel: I18n.t('Turn off') },
+      )) return;
+      b.disabled = true;
+      try {
+        await API.patchAccount(id, { searchIndex: !on });
+        searchIndexInfo = await API.searchIndex().catch(() => null);
+        await reloadAccounts();
+        if (!on) toast(I18n.t('Indexing started — searching inside messages will get more complete over the next few minutes.'));
+      } catch (e) {
+        toast(I18n.t('Could not change that') + ': ' + e.message, 6000);
+        b.disabled = false;
+      }
     }));
     body().querySelectorAll('.ac-del').forEach((b) => b.addEventListener('click', async () => {
       const id = b.closest('[data-acct]').dataset.acct;
@@ -1899,6 +2070,559 @@ const Settings = (() => {
     };
   }
 
+  /* ---------- subject (Settings > Subject) ----------
+   *
+   * Rewrites the subject SHOWN in the message list and in push notifications,
+   * per account. server/subjectRules.js owns the engine and the reasoning; the
+   * two things worth repeating where the buttons are:
+   *
+   *   - it is DISPLAY ONLY. Nothing on the mail server changes, the cache keeps
+   *     the real subject (so search still matches what the sender wrote), and
+   *     opening a message shows it in full. That is deliberate, and it is what
+   *     the hint at the top of the tab says.
+   *   - rules CHAIN, top to bottom, each working on the previous one's output.
+   *     Which is why order is editable, and why saving is all-or-nothing (the
+   *     server refuses a list with a bad rule in it rather than storing half a
+   *     chain).
+   *
+   * Deliberately one flat view with no separate editor page, unlike Filters: a
+   * rule is six fields, and a round trip through an editor to change "U-" to
+   * "N-" would cost more than it explains. Order is moved with buttons rather
+   * than the Filters tab's drag handle — that is ~120 lines of tuned pointer
+   * handling wired to .f-drag, and generalising it to earn a second user would
+   * put a working interaction at risk for a list that holds a handful of rows.
+   */
+
+  let subjectRules = [];
+  let savedSubjectKey = '[]';
+  // A rule list grows past the point where reading it as a wall of open cards
+  // works, so a rule is one line until you open it. Ids, not indices — the list
+  // is reordered and filtered under this.
+  const subjectExpanded = new Set();
+  // Filter text for the rule list. Kept here rather than read off the input so
+  // it survives the re-renders that adding, removing and moving a rule cause.
+  let subjectSearch = '';
+  // What the Test panel is currently trying, kept across re-renders so typing a
+  // subject and then toggling a rule doesn't empty the box you were testing in.
+  let subjectTest = { subject: '', accountId: null, result: null, steps: [], timer: null };
+
+  const subjectKey = (list) => JSON.stringify(list);
+  const subjectDirty = () => subjectKey(subjectRules) !== savedSubjectKey;
+
+  function newSubjectRule() {
+    return {
+      id: uid(), name: '', enabled: true, accountIds: [],
+      mode: 'text', find: '', replace: '', ignoreCase: false, all: false,
+    };
+  }
+
+  /** Refreshes the "not saved yet" marker without re-rendering — the same
+   * reasoning as markFiltersDirty: a re-render on every keystroke would take
+   * the focus out of the field being typed in. */
+  function markSubjectDirty() {
+    const mark = body().querySelector('.sr-dirty');
+    if (mark) mark.textContent = subjectDirty() ? I18n.t('Not saved yet') : '';
+  }
+
+  /** Why a rule's pattern can't run, or '' if it's fine. Mirrors
+   * server/subjectRules.js#compile — the server is still the authority (it also
+   * refuses patterns that are merely too SLOW, which cannot be measured here),
+   * this just says so immediately instead of at save time. */
+  function subjectRuleError(r) {
+    if (!r.find) return '';
+    if (r.mode !== 'regex') return '';
+    try { new RegExp(r.find); return ''; } catch (e) { return e.message; }
+  }
+
+  /**
+   * A rule that is plainly MEANT as a regular expression but is set to Plain
+   * text — which fails by doing nothing at all, silently, on every message.
+   *
+   * Two signals, both strong enough to stand alone:
+   *   - `$1` in the replacement. Plain text has no capture groups, so there is
+   *     nothing for it to refer to; it can only be a leftover from a pattern.
+   *   - a backslash in the text to find. `\d`, `\[`, `\s` are regex; nobody
+   *     types a backslash into a subject line on purpose.
+   *
+   * Deliberately NOT "the find contains brackets": "[RESOLVED]" and
+   * "[FIRING:1]" are exactly what a plain-text rule is for here, and warning
+   * about those would train the warning to be ignored.
+   */
+  function subjectRuleModeHint(r) {
+    if (r.mode === 'regex' || !r.find) return '';
+    if (/\$\d/.test(r.replace || '')) return I18n.t('$1 only means something in a regular expression — this rule is set to Plain text, so it will match nothing.');
+    if (/\\/.test(r.find)) return I18n.t('This looks like a regular expression, but the rule is set to Plain text — the backslashes will be matched literally.');
+    return '';
+  }
+
+  /** Does this rule match the list's filter? Name, find and replace all count:
+   *  a rule's name is optional in the first place, so matching names alone
+   *  would make every unnamed rule unfindable — and "which rule strips
+   *  [Dogodek]?" is the question actually being asked. */
+  function subjectRuleMatches(r, q) {
+    if (!q) return true;
+    return `${r.name || ''}\n${r.find || ''}\n${r.replace || ''}`.toLowerCase().includes(q);
+  }
+
+  /** The one line a collapsed rule shows: what it looks for and what it puts
+   *  there instead. Rebuilt in place as those two fields are typed (see
+   *  bindSubjectRows) so the head never disagrees with the body under it. */
+  function subjectRuleSummary(r) {
+    return `${r.find || '…'} → ${r.replace || ''}`;
+  }
+
+  function subjectRuleCard(r, i) {
+    const err = subjectRuleError(r);
+    const accounts = allAccounts();
+    // `all` drives two things on the account row below: each per-account box is
+    // DISABLED, and its label carries `off`. The class is what actually shows
+    // it — disabling an <input> greys the box and leaves the label beside it at
+    // full strength, so the row read as "these are available, they just ignore
+    // you". See .sr-accounts .mini-toggle.off in app.css.
+    const all = !r.accountIds || !r.accountIds.length;
+    const open = subjectExpanded.has(r.id);
+    // Reordering is what the chain runs in, and a filtered list only shows some
+    // of it — "up" past a neighbour you cannot see would look like the button
+    // doing nothing. Off while filtering, and the tooltip says why.
+    const filtering = !!subjectSearch;
+    const moveTitle = filtering ? I18n.t('Clear the search to reorder rules') : null;
+    return `<div class="card sr-row${open ? ' expanded' : ''}" data-sid="${escAttr(r.id)}">
+      <div class="row sr-head">
+        <button class="sr-toggle" aria-expanded="${open}" title="${escAttr(I18n.t(open ? 'Collapse' : 'Expand'))}">${open ? '▾' : '▸'}</button>
+        <b class="sr-title" data-no-i18n>${esc(r.name || I18n.t('Untitled rule'))}</b>
+        <span class="set-hint sr-summary" data-no-i18n>${esc(subjectRuleSummary(r))}</span>
+        ${r.enabled !== false ? '' : `<span class="set-hint sr-off" style="margin:0">${I18n.t('Disabled')}</span>`}
+        <span class="spacer"></span>
+        <!-- data-edge marks the buttons that are disabled STRUCTURALLY (the
+             first row cannot go up, the last cannot go down) as opposed to
+             just because a search is on. applySubjectFilter re-enables the
+             latter when the search is cleared, and must leave these alone. -->
+        <button class="btn-sm sr-up" ${i === 0 ? 'data-edge="1"' : ''} title="${escAttr(moveTitle || I18n.t('Move up'))}" ${filtering || i === 0 ? 'disabled' : ''}>↑</button>
+        <button class="btn-sm sr-down" ${i === subjectRules.length - 1 ? 'data-edge="1"' : ''} title="${escAttr(moveTitle || I18n.t('Move down'))}" ${filtering || i === subjectRules.length - 1 ? 'disabled' : ''}>↓</button>
+        <button class="btn-sm danger sr-del">${I18n.t('Remove')}</button>
+      </div>
+      <div class="sr-detail">
+        <div class="row">
+          <label class="mini-toggle"><input type="checkbox" class="sr-enabled" ${r.enabled !== false ? 'checked' : ''}> ${I18n.t('Enabled')}</label>
+          <input class="sr-name grow" value="${escAttr(r.name || '')}" placeholder="${escAttr(I18n.t('Rule name'))}">
+        </div>
+        <div class="row">
+          ${sel('', [['text', I18n.t('Plain text')], ['regex', I18n.t('Regular expression')]], r.mode || 'text').replace('<select', `<select class="sr-mode" title="${escAttr(I18n.t('How the text to find is read'))}"`)}
+          <input class="sr-find grow" value="${escAttr(r.find || '')}" placeholder="${escAttr(I18n.t('Text to find'))}" spellcheck="false">
+          <span>→</span>
+          <input class="sr-replace grow" value="${escAttr(r.replace || '')}" placeholder="${escAttr(I18n.t('Replace with'))}" spellcheck="false">
+        </div>
+        ${err ? `<div class="set-hint sr-err" data-no-i18n>${esc(err)}</div>` : ''}
+        ${!err && subjectRuleModeHint(r) ? `<div class="set-hint sr-warn">${esc(subjectRuleModeHint(r))}</div>` : ''}
+        <div class="row">
+          <label class="mini-toggle"><input type="checkbox" class="sr-ci" ${r.ignoreCase ? 'checked' : ''}> ${I18n.t('Ignore case')}</label>
+          <label class="mini-toggle"><input type="checkbox" class="sr-all" ${r.all ? 'checked' : ''}> ${I18n.t('Replace every occurrence')}</label>
+        </div>
+        <div class="row sr-accounts">
+          <label>${I18n.t('Applies to')}</label>
+          <label class="mini-toggle"><input type="checkbox" class="sr-acct-all" ${all ? 'checked' : ''}> ${I18n.t('All accounts')}</label>
+          ${accounts.map((a) => `<label class="mini-toggle${all ? ' off' : ''}" data-no-i18n${
+            all ? ` title="${escAttr(I18n.t('Turn off "All accounts" to pick individual ones'))}"` : ''
+          }><input type="checkbox" class="sr-acct" value="${escAttr(a.id)}" ${!all && r.accountIds.includes(a.id) ? 'checked' : ''} ${all ? 'disabled' : ''}> ${esc(a.label)}</label>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * Hides the rules that don't match the filter, and updates the "n of m" count
+   * with them.
+   *
+   * Deliberately a DOM pass rather than a re-render: this runs on every
+   * keystroke in the search box, and re-rendering would take the cursor out of
+   * the very field being typed in. The same reasoning as markSubjectDirty.
+   */
+  function applySubjectFilter() {
+    const q = subjectSearch.trim().toLowerCase();
+    const byId = new Map(subjectRules.map((r) => [r.id, r]));
+    let shown = 0;
+    for (const card of body().querySelectorAll('.sr-row')) {
+      const r = byId.get(card.dataset.sid);
+      const match = !r || subjectRuleMatches(r, q);
+      card.hidden = !match;
+      if (match) shown++;
+    }
+    const count = body().querySelector('.sr-count');
+    if (count) count.textContent = q ? `${shown} / ${subjectRules.length}` : '';
+    // Reordering is disabled while filtering (see subjectRuleCard) — but the
+    // filter changes WITHOUT a re-render, so the buttons have to follow it from
+    // here. data-edge marks the ones that are disabled for a structural reason
+    // and must stay that way when the search is cleared.
+    for (const b of body().querySelectorAll('.sr-up, .sr-down')) b.disabled = !!q || b.dataset.edge === '1';
+    const empty = body().querySelector('.sr-none');
+    if (empty) empty.hidden = !(q && shown === 0);
+  }
+
+  /* ---------- saved searches ----------
+   * Rename, reorder and delete only. There is deliberately no "new saved
+   * search" button here: a saved search is made from a search you have just
+   * run and looked at the results of ("Save this search", under the results),
+   * which is the only moment you know it asks the right question. A form here
+   * would invite typing a query blind and pinning it unseen.
+   */
+  function savedScopeLabel(sv) {
+    if (!sv.accountId) return I18n.t('All accounts');
+    const a = allAccounts().find((x) => x.id === sv.accountId);
+    // Named rather than silently blank when the account is gone: this pane is
+    // exactly where someone comes to fix that.
+    if (!a) return I18n.t('Account no longer available');
+    return sv.folder ? `${a.label} · ${sv.folder}` : a.label;
+  }
+
+  function renderSaved() {
+    if (!savedSearches.length) {
+      body().innerHTML = `<p class="set-hint">${I18n.t('No saved searches yet. Run a search, then use "Save this search" under the results.')}</p>`;
+      return;
+    }
+    body().innerHTML = `<div class="card-list">
+      ${savedSearches.map((sv, i) => `<div class="card" data-saved="${escAttr(sv.id)}">
+        <div class="row">
+          <input class="sv-name" value="${escAttr(sv.name)}" style="flex:1" aria-label="${escAttr(I18n.t('Name'))}">
+          <button class="btn-sm sv-up" ${i === 0 ? 'disabled' : ''} title="${escAttr(I18n.t('Move up'))}">↑</button>
+          <button class="btn-sm sv-down" ${i === savedSearches.length - 1 ? 'disabled' : ''} title="${escAttr(I18n.t('Move down'))}">↓</button>
+          <button class="btn-sm danger sv-del">${I18n.t('Remove')}</button>
+        </div>
+        <div class="row">
+          <input class="sv-query" value="${escAttr(sv.query)}" style="flex:1" aria-label="${escAttr(I18n.t('Search'))}">
+        </div>
+        <div class="row">
+          <span class="set-hint" style="margin:0">${esc(savedScopeLabel(sv))}${sv.unreadOnly ? ' · ' + I18n.t('Unread only') : ''}${sv.flaggedOnly ? ' · ' + I18n.t('Starred only') : ''}</span>
+        </div>
+      </div>`).join('')}
+      </div>
+      <p class="set-hint">${I18n.t('Saved searches run fresh every time you open one — nothing is stored except the question itself. They appear in the sidebar under your folders.')}</p>`;
+
+    const idOf = (el) => el.closest('[data-saved]').dataset.saved;
+    const at = (id) => savedSearches.findIndex((x) => x.id === id);
+    // Typed edits are collected on save (collectCurrentTab), like every other
+    // deferred pane; the buttons below change the LIST and so re-render, which
+    // would throw away an uncommitted edit in a sibling row — hence the read-back.
+    const collect = () => {
+      for (const card of body().querySelectorAll('[data-saved]')) {
+        const sv = savedSearches.find((x) => x.id === card.dataset.saved);
+        if (!sv) continue;
+        sv.name = card.querySelector('.sv-name').value;
+        sv.query = card.querySelector('.sv-query').value;
+      }
+    };
+    for (const b of body().querySelectorAll('.sv-up, .sv-down')) {
+      b.addEventListener('click', () => {
+        collect();
+        const i = at(idOf(b));
+        const j = b.classList.contains('sv-up') ? i - 1 : i + 1;
+        if (j < 0 || j >= savedSearches.length) return;
+        [savedSearches[i], savedSearches[j]] = [savedSearches[j], savedSearches[i]];
+        renderSaved();
+      });
+    }
+    for (const b of body().querySelectorAll('.sv-del')) {
+      b.addEventListener('click', async () => {
+        collect();
+        const sv = savedSearches[at(idOf(b))];
+        if (!await Dialog.confirm(I18n.t('Remove this saved search?') + ` "${sv.name}"`, { title: I18n.t('Remove'), okLabel: I18n.t('Remove') })) return;
+        savedSearches = savedSearches.filter((x) => x.id !== sv.id);
+        renderSaved();
+      });
+    }
+  }
+
+  /* ---------- templates ----------
+   * Reusable pieces of message. Edited as rich text, because that is what gets
+   * inserted — a template with a link or a bulleted list is the common case,
+   * and a plain-text box here would quietly throw that away.
+   */
+  function renderTemplates() {
+    body().innerHTML = `<div class="card-list">
+      ${templates.map((t) => `<div class="card" data-tpl="${escAttr(t.id)}">
+        <div class="row">
+          <input class="tpl-name" value="${escAttr(t.name)}" placeholder="${escAttr(I18n.t('Name'))}" style="flex:1" aria-label="${escAttr(I18n.t('Name'))}">
+          <button class="btn-sm danger tpl-del">${I18n.t('Remove')}</button>
+        </div>
+        <div class="tpl-body sig-rich" contenteditable="true" data-no-i18n>${t.html || ''}</div>
+      </div>`).join('')}
+      </div>
+      <p><button class="link-btn" id="tpl-add">+ ${I18n.t('Add template')}</button></p>
+      <p class="set-hint">${I18n.t('Insert one while writing with the 📋 button in the composer toolbar. Templates are yours alone — they are not shared with anyone you share a mailbox with.')}</p>`;
+
+    document.getElementById('tpl-add').addEventListener('click', () => {
+      collectTemplates();
+      templates.push({ id: 'new-' + Date.now(), name: '', html: '' });
+      renderTemplates();
+      // Straight into the new row's name field: adding one and then having to
+      // find it is a step nobody wants.
+      body().querySelector('[data-tpl]:last-of-type .tpl-name')?.focus();
+    });
+    for (const b of body().querySelectorAll('.tpl-del')) {
+      b.addEventListener('click', async () => {
+        collectTemplates();
+        const id = b.closest('[data-tpl]').dataset.tpl;
+        const t = templates.find((x) => x.id === id);
+        if (t?.name && !await Dialog.confirm(I18n.t('Remove this template?') + ` "${t.name}"`, { title: I18n.t('Remove'), okLabel: I18n.t('Remove') })) return;
+        templates = templates.filter((x) => x.id !== id);
+        renderTemplates();
+      });
+    }
+  }
+
+  /** Reads the rows back into `templates`. Called before any re-render and by
+   *  collectCurrentTab, for the same reason the saved-search pane does it: a
+   *  re-render throws away uncommitted typing in every OTHER row. */
+  function collectTemplates() {
+    for (const card of body().querySelectorAll('[data-tpl]')) {
+      const t = templates.find((x) => x.id === card.dataset.tpl);
+      if (!t) continue;
+      t.name = card.querySelector('.tpl-name').value;
+      t.html = card.querySelector('.tpl-body').innerHTML;
+    }
+  }
+
+  function renderSubject() {
+    const accounts = allAccounts();
+    if (subjectTest.accountId == null) subjectTest.accountId = defaultFilterAccountId();
+    body().innerHTML = `<div class="card-list">
+      <p class="set-hint" style="grid-column:auto">${I18n.t('Shortens long subjects in the message list and in notifications. Nothing is changed on the mail server: search still matches the original text, and opening a message shows its real subject in full.')}</p>
+      <p class="set-hint" style="grid-column:auto">${I18n.t('Rules run top to bottom, each one working on the result of the one above it, so a prefix can be stripped by one rule and a word shortened by the next. Plain text matches literally; a regular expression can use $1, $2 for whatever it captured.')}</p>
+      ${subjectRules.length > 1 || subjectSearch ? `<div class="row sr-search-row">
+        <input id="sr-search" class="grow" type="search" value="${escAttr(subjectSearch)}" placeholder="${escAttr(I18n.t('Search rules by name or text'))}" spellcheck="false">
+        <span class="set-hint sr-count" data-no-i18n style="margin:0"></span>
+        <button class="link-btn" id="sr-expand-all">${I18n.t(allSubjectRulesOpen() ? 'Collapse all' : 'Expand all')}</button>
+      </div>` : ''}
+      ${subjectRules.map(subjectRuleCard).join('')}
+      <p class="set-hint sr-none" style="grid-column:auto" hidden>${I18n.t('No rule matches your search.')}</p>
+      ${subjectRules.length ? '' : `<p class="set-hint" style="grid-column:auto">${I18n.t('No subject rules yet.')}</p>`}
+      <p style="margin:6px 0 0"><button class="link-btn" id="sr-add">${I18n.t('+ Add rule')}</button></p>
+      <div class="f-footer">
+        <span class="set-hint sr-dirty" style="margin:0">${subjectDirty() ? I18n.t('Not saved yet') : ''}</span>
+        <button class="send-btn" id="sr-save">${I18n.t('Save rules')}</button>
+      </div>
+      <hr class="set-divider">
+      <div class="card">
+        <div class="row"><b>${I18n.t('Test a subject')}</b></div>
+        <p class="set-hint" style="margin:0">${I18n.t('Paste a real subject to see what the list would show. Tests the rules exactly as edited above, saved or not.')}</p>
+        <div class="row">
+          ${accounts.length > 1 ? sel('', accounts.map((a) => [a.id, a.label]), subjectTest.accountId).replace('<select', `<select class="sr-test-account" title="${escAttr(I18n.t('Account'))}"`) : ''}
+          <input class="sr-test-input grow" value="${escAttr(subjectTest.subject)}" placeholder="${escAttr(I18n.t('Paste a subject here'))}" spellcheck="false">
+        </div>
+        <div id="sr-test-out"></div>
+      </div>
+    </div>`;
+    bindSubjectRows();
+    // The filter lives in a module variable, not in the DOM, so a re-render
+    // (add, remove, reorder) has to re-apply it or every hidden rule comes back.
+    applySubjectFilter();
+    renderSubjectTestOut();
+    if (subjectTest.subject) runSubjectTest();
+  }
+
+  /** True when every rule is open — which is what decides whether the toggle
+   *  offers "Expand all" or "Collapse all". An empty list counts as not open,
+   *  so the button never starts out offering to collapse nothing. */
+  function allSubjectRulesOpen() {
+    return subjectRules.length > 0 && subjectRules.every((r) => subjectExpanded.has(r.id));
+  }
+
+  /** Opens or closes one rule. A class toggle rather than a re-render, so it
+   *  costs nothing to open several and nothing on screen moves except the rule
+   *  being opened. */
+  function toggleSubjectRule(card, open) {
+    const id = card.dataset.sid;
+    const on = open === undefined ? !subjectExpanded.has(id) : open;
+    if (on) subjectExpanded.add(id); else subjectExpanded.delete(id);
+    card.classList.toggle('expanded', on);
+    const btn = card.querySelector('.sr-toggle');
+    btn.textContent = on ? '▾' : '▸';
+    btn.setAttribute('aria-expanded', String(on));
+    btn.title = I18n.t(on ? 'Collapse' : 'Expand');
+    const all = document.getElementById('sr-expand-all');
+    if (all) all.textContent = I18n.t(allSubjectRulesOpen() ? 'Collapse all' : 'Expand all');
+  }
+
+  /** The Test panel's result area, drawn on its own so a test result can be
+   * repainted without re-rendering the rule cards under the cursor. */
+  function renderSubjectTestOut() {
+    const out = document.getElementById('sr-test-out');
+    if (!out) return;
+    if (subjectTest.result == null) { out.innerHTML = ''; return; }
+    // data-no-i18n throughout: every string here is the user's own subject and
+    // their own rule names. Without it a rule called "Delete", or a subject
+    // that happens to match a catalogue entry, comes back translated — the same
+    // trap the Filters tab documents on filterRow().
+    const steps = subjectTest.steps.length
+      ? `<div class="set-hint" data-no-i18n style="margin:6px 0 0">${subjectTest.steps.map((st) =>
+          `${esc(st.name || I18n.t('Rule'))}: <s>${esc(st.before)}</s> → ${esc(st.after)}`).join('<br>')}</div>`
+      : `<div class="set-hint" style="margin:6px 0 0">${I18n.t('No rule matched — the subject would be shown unchanged.')}</div>`;
+    out.innerHTML = `<div class="row"><b data-no-i18n>${esc(subjectTest.result)}</b></div>${steps}`;
+  }
+
+  /** Debounced, because it runs on every keystroke in the test box. The rules
+   * go WITH the request (server/index.js's /api/subject-rules/test) so what is
+   * tested is what is on screen, including unsaved edits. */
+  function runSubjectTest() {
+    clearTimeout(subjectTest.timer);
+    subjectTest.timer = setTimeout(async () => {
+      const asked = subjectTest.subject;
+      try {
+        const r = await API.testSubjectRules(asked, subjectTest.accountId, subjectRules);
+        if (asked !== subjectTest.subject) return; // typing continued — stale
+        subjectTest.result = r.result;
+        subjectTest.steps = r.steps || [];
+      } catch {
+        return; // offline / logged out; leave the last result rather than blanking it
+      }
+      renderSubjectTestOut();
+    }, 150);
+  }
+
+  /** Reads one card back into its rule. Called on every input so the array is
+   * always current — which is what lets Save, the Test panel and the dirty
+   * marker all read `subjectRules` directly instead of needing a collect step. */
+  function readSubjectCard(card) {
+    const r = subjectRules.find((x) => x.id === card.dataset.sid);
+    if (!r) return null;
+    const all = card.querySelector('.sr-acct-all').checked;
+    r.enabled = card.querySelector('.sr-enabled').checked;
+    r.name = card.querySelector('.sr-name').value;
+    r.mode = card.querySelector('.sr-mode').value;
+    r.find = card.querySelector('.sr-find').value;
+    r.replace = card.querySelector('.sr-replace').value;
+    r.ignoreCase = card.querySelector('.sr-ci').checked;
+    r.all = card.querySelector('.sr-all').checked;
+    r.accountIds = all ? [] : [...card.querySelectorAll('.sr-acct')].filter((c) => c.checked).map((c) => c.value);
+    return r;
+  }
+
+  function bindSubjectRows() {
+    document.getElementById('sr-add')?.addEventListener('click', () => {
+      const r = newSubjectRule();
+      subjectRules.push(r);
+      // Open, obviously — it is empty and every field still has to be filled in.
+      subjectExpanded.add(r.id);
+      // And visible: a filter left over from looking something up would
+      // otherwise hide the rule that was just added, which reads as the button
+      // being broken.
+      subjectSearch = '';
+      renderSubject();
+      body().querySelector(`.sr-row[data-sid="${CSS.escape(r.id)}"] .sr-name`)?.focus();
+    });
+    document.getElementById('sr-save')?.addEventListener('click', (e) => saveSubjectRulesNow(e.currentTarget));
+    body().querySelectorAll('.sr-row').forEach((card) => {
+      // Typing: read the card back, keep the dirty marker and the test result
+      // current, but never re-render — that would pull the field out from
+      // under the cursor.
+      card.querySelectorAll('input, select').forEach((el) => {
+        el.addEventListener('input', () => {
+          const r = readSubjectCard(card);
+          markSubjectDirty();
+          // The inline regex error is the one thing that has to repaint as you
+          // type, so a half-written pattern doesn't sit there looking broken.
+          const errBox = card.querySelector('.sr-err');
+          const err = r ? subjectRuleError(r) : '';
+          if (err && errBox) { errBox.textContent = err; }
+          else if (err) card.querySelector('.sr-find').closest('.row').insertAdjacentHTML('afterend', `<div class="set-hint sr-err" data-no-i18n>${esc(err)}</div>`);
+          else if (errBox) errBox.remove();
+          // The collapsed line is what this rule will be FOUND by once it is
+          // closed again, so keep it in step with the fields being typed rather
+          // than letting it go stale until the next re-render.
+          if (r) {
+            card.querySelector('.sr-title').textContent = r.name || I18n.t('Untitled rule');
+            card.querySelector('.sr-summary').textContent = subjectRuleSummary(r);
+            card.querySelector('.sr-off')?.remove();
+            if (r.enabled === false) {
+              card.querySelector('.sr-summary').insertAdjacentHTML('afterend',
+                `<span class="set-hint sr-off" style="margin:0">${I18n.t('Disabled')}</span>`);
+            }
+          }
+          if (subjectTest.subject) runSubjectTest();
+        });
+      });
+      // "All accounts" and the per-account boxes are mutually exclusive, and
+      // switching between them enables/disables the others — a re-render is
+      // right here (a checkbox has no cursor position to lose).
+      card.querySelector('.sr-acct-all').addEventListener('change', (e) => {
+        const r = readSubjectCard(card);
+        // Turning "All accounts" OFF has to leave something selected, or the
+        // rule comes back with an empty accountIds — which MEANS all accounts,
+        // so the box re-checks itself and the checkbox is impossible to turn
+        // off. Falling to the account you are looking at is what unchecking it
+        // plainly means anyway.
+        if (r && !e.target.checked && !r.accountIds.length) {
+          r.accountIds = [defaultFilterAccountId()].filter(Boolean);
+        }
+        renderSubject();
+      });
+      // The whole head is the hit target, not just the ▸ — a one-line row is
+      // meant to be clicked anywhere. The buttons sitting in it are the
+      // exception, or Remove would open the rule on its way to deleting it.
+      card.querySelector('.sr-head').addEventListener('click', (e) => {
+        if (e.target.closest('button')?.classList.contains('sr-toggle') || !e.target.closest('button')) {
+          toggleSubjectRule(card);
+        }
+      });
+      card.querySelector('.sr-del').addEventListener('click', () => {
+        subjectRules = subjectRules.filter((x) => x.id !== card.dataset.sid);
+        renderSubject();
+      });
+      card.querySelector('.sr-up').addEventListener('click', () => moveSubjectRule(card.dataset.sid, -1));
+      card.querySelector('.sr-down').addEventListener('click', () => moveSubjectRule(card.dataset.sid, 1));
+    });
+    const search = document.getElementById('sr-search');
+    search?.addEventListener('input', (e) => { subjectSearch = e.target.value; applySubjectFilter(); });
+    document.getElementById('sr-expand-all')?.addEventListener('click', () => {
+      const open = !allSubjectRulesOpen();
+      for (const card of body().querySelectorAll('.sr-row')) toggleSubjectRule(card, open);
+    });
+    const testInput = body().querySelector('.sr-test-input');
+    testInput?.addEventListener('input', (e) => { subjectTest.subject = e.target.value; runSubjectTest(); });
+    body().querySelector('.sr-test-account')?.addEventListener('change', (e) => {
+      subjectTest.accountId = e.target.value;
+      if (subjectTest.subject) runSubjectTest();
+    });
+  }
+
+  /** Order is what the chain runs in, so this is a real edit, not a view
+   * preference — it dirties the list like any other change. */
+  function moveSubjectRule(id, dir) {
+    const i = subjectRules.findIndex((x) => x.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= subjectRules.length) return;
+    [subjectRules[i], subjectRules[j]] = [subjectRules[j], subjectRules[i]];
+    renderSubject();
+    // Keep the moved rule's button under the pointer, so a run of clicks walks
+    // a rule up the list instead of moving whatever landed there next.
+    body().querySelector(`.sr-row[data-sid="${CSS.escape(id)}"] .sr-${dir < 0 ? 'up' : 'down'}`)?.focus();
+  }
+
+  /** Saves the rules on their own, without closing the dialog — the same reason
+   * the Filters tab has its own button. The server refuses the whole list if
+   * any rule is bad (a chain half-saved is a different rewrite, not a smaller
+   * one), and names the offending rule, so that message is worth showing
+   * verbatim rather than as "could not save". */
+  async function saveSubjectRulesNow(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const saved = await API.saveSubjectRules(subjectRules);
+      if (Array.isArray(saved)) subjectRules = saved;
+      savedSubjectKey = subjectKey(subjectRules);
+      markSubjectDirty();
+      // The list is rewritten server-side, so what is on screen behind Settings
+      // is now stale — repaint it rather than leaving the old subjects sitting
+      // there looking current.
+      loadMessages();
+      toast(I18n.t('Subject rules saved'));
+      return true;
+    } catch (e) {
+      toast(I18n.t('Could not save the subject rules') + ': ' + e.message, 5000);
+      return false;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   /* ---------- folders ---------- */
   // Independent of the sidebar's "currently open" account (state.currentAccount
   // can be 'all') — this tab has its own account picker so folders are always
@@ -2237,11 +2961,17 @@ const Settings = (() => {
         </div>
         <div class="card" style="margin-top:10px">
           <div class="row" style="margin-bottom:8px"><b>${I18n.t('Add a custom holiday')}</b></div>
-          <div class="row" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
-            <label>${I18n.t('Month')}<br>${sel('sch-hol-new-month', Array.from({ length: 12 }, (_, i) => [i + 1, i + 1]), 1)}</label>
-            <label>${I18n.t('Day')}<br>${num('sch-hol-new-day', 1, 1, 31)}</label>
-            <label>${I18n.t('Name')}<br>${txt('sch-hol-new-name', '', I18n.t('e.g. Independence Day'))}</label>
-            <label class="mini-toggle" style="margin-bottom:8px">${chk('sch-hol-new-workfree', true)} ${I18n.t('Work-free')}</label>
+          <!-- A <br> inside each label used to do the stacking, which left the
+               three controls at whatever height their own line box happened to
+               be — a <select> and an <input> do not agree on that, so the month
+               dropdown hung below its neighbours. Each caption and its control
+               are their own flex column now; .card .row.hol-new in app.css
+               gives all three controls one height. -->
+          <div class="row hol-new">
+            <label>${I18n.t('Month')}${sel('sch-hol-new-month', Array.from({ length: 12 }, (_, i) => [i + 1, i + 1]), 1)}</label>
+            <label>${I18n.t('Day')}${num('sch-hol-new-day', 1, 1, 31)}</label>
+            <label>${I18n.t('Name')}${txt('sch-hol-new-name', '', I18n.t('e.g. Independence Day'))}</label>
+            <label class="mini-toggle">${chk('sch-hol-new-workfree', true)} ${I18n.t('Work-free')}</label>
             <button class="link-btn" id="sch-hol-add">+ ${I18n.t('Add')}</button>
           </div>
         </div>
@@ -2348,6 +3078,116 @@ const Settings = (() => {
 
   /* ---------- login (Hmelj username/password — distinct from mail accounts) ---------- */
 
+  /* ---------- app passwords (the CalDAV/CardDAV server) ----------
+   *
+   * A separate credential per device, because a DAV client stores what it is
+   * given in plain form and sends it on every request. Handing a phone the
+   * Hmelj account password for one calendar subscription would be handing it
+   * mail, settings and every mailbox credential the account can reach.
+   *
+   * The secret exists in readable form exactly once — at creation. There is
+   * deliberately no route that can produce it again, so this has to show it
+   * there and then and say clearly that it will not come back. */
+  let apList = null;
+
+  async function loadAppPasswords() {
+    try { apList = (await API.appPasswords()).passwords || []; } catch { apList = []; }
+  }
+
+  function renderAppPasswords() {
+    const host = document.getElementById('ap-card');
+    if (!host) return;
+    if (apList === null) { host.innerHTML = `<div class="set-hint">${esc(I18n.t('Loading…'))}</div>`; return; }
+    host.innerHTML = `
+      <div class="row" style="margin-bottom:8px;align-items:baseline">
+        <b>${esc(I18n.t('App passwords'))}</b>
+        <span class="spacer"></span>
+        <button type="button" class="link-btn" id="ap-add">+ ${esc(I18n.t('New app password'))}</button>
+      </div>
+      <p class="set-hint" style="grid-column:auto;margin:0 0 10px">${esc(I18n.t('For subscribing a phone or another calendar app to Hmelj over CalDAV or CardDAV. Each device gets its own, and revoking one leaves the others working. Your Hmelj password itself is never accepted there.'))}</p>
+      ${!apList.length ? `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('No devices set up yet.'))}</p>` : `
+      <div class="card-list">${apList.map((p) => `
+        <div class="card"><div class="row" style="gap:8px;align-items:baseline">
+          <strong>${esc(p.label)}</strong>
+          <span class="set-hint" style="margin:0">${esc((p.scopes || []).map((sc) => I18n.t(sc === 'caldav' ? 'Calendars' : 'Contacts')).join(', '))}</span>
+          <span class="spacer"></span>
+          <span class="set-hint" style="margin:0">${p.lastUsedAt
+            ? `${esc(I18n.t('last used'))}: ${esc(fmtDate(p.lastUsedAt, { long: true }))}`
+            : esc(I18n.t('never used'))}</span>
+          <button type="button" class="link-btn danger ap-del" data-id="${escAttr(p.id)}">✕</button>
+        </div></div>`).join('')}</div>`}`;
+
+    document.getElementById('ap-add').addEventListener('click', addAppPassword);
+    host.querySelectorAll('.ap-del').forEach((b) => b.addEventListener('click', () => removeAppPassword(b.dataset.id)));
+  }
+
+  async function addAppPassword() {
+    const vals = await Dialog.form(I18n.t('New app password'), `
+      ${field(I18n.t('What is it for?'), '<input id="ap-label" placeholder="iPhone">',
+        I18n.t('A name you will recognise later, so you can revoke the right one.'))}
+      <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ap-cal" checked> <span>${esc(I18n.t('Calendars'))}</span></label>
+      <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ap-card" checked> <span>${esc(I18n.t('Contacts'))}</span></label>
+      <p class="set-hint" style="grid-column:auto">${esc(I18n.t('Give it only what that device needs — a credential for calendars cannot read your address book.'))}</p>`,
+      {
+        okLabel: I18n.t('Create'),
+        getValue: () => ({
+          label: document.getElementById('ap-label').value.trim(),
+          scopes: [
+            ...(document.getElementById('ap-cal').checked ? ['caldav'] : []),
+            ...(document.getElementById('ap-card').checked ? ['carddav'] : []),
+          ],
+        }),
+      });
+    if (!vals || vals === 'cancel') return;
+    if (!vals.scopes.length) { toast(I18n.t('Choose at least one thing for it to reach')); return; }
+    try {
+      const { secret } = await API.createAppPassword(vals.label, vals.scopes);
+      await loadAppPasswords();
+      renderAppPasswords();
+      // Shown once, and said so. The secret goes in `bodyHtml` — Dialog.alert's
+      // `message` is escaped and rendered as a sentence, which is not what a
+      // credential you have to copy needs.
+      //
+      // `readonly` rather than disabled so it can still be selected and copied
+      // on every platform; run() focuses and selects the first field for us, so
+      // the common case is one keystroke.
+      await Dialog.alert('', {
+        title: I18n.t('Your new app password'),
+        bodyHtml: `
+          <p class="dialog-message">${esc(I18n.t('Copy it now — it is not stored in a form that can be shown again.'))}</p>
+          <input id="ap-secret" class="dialog-input" readonly value="${escAttr(secret)}"
+                 style="font-family:ui-monospace,monospace;font-size:16px;text-align:center;letter-spacing:.06em">
+          <p style="text-align:center;margin:10px 0 0">
+            <button type="button" id="ap-copy" class="link-btn">${esc(I18n.t('Copy'))}</button>
+          </p>
+          <p class="set-hint">${esc(I18n.t('Use your Hmelj username with this password, and the server address shown under Settings › Calendars.'))}</p>`,
+        onOpen: (root) => {
+          root.querySelector('#ap-copy')?.addEventListener('click', async () => {
+            const el = root.querySelector('#ap-secret');
+            el.focus(); el.select();
+            // execCommand is the fallback rather than the other way round:
+            // navigator.clipboard is unavailable on a plain-HTTP origin, which
+            // is exactly how a self-hosted Hmelj is often reached on a LAN.
+            try { await navigator.clipboard.writeText(el.value); }
+            catch { try { document.execCommand('copy'); } catch { /* leave it selected to copy by hand */ } }
+            toast(I18n.t('Copied'), 2000);
+          });
+        },
+      });
+    } catch (e) { toast(e.message, 8000); }
+  }
+
+  async function removeAppPassword(id) {
+    const p = apList.find((x) => x.id === id);
+    if (!await Dialog.confirm(
+      `${I18n.t('Revoke')} “${p?.label || ''}”? ${I18n.t('That device stops syncing immediately.')}`,
+      { title: I18n.t('Revoke'), okLabel: I18n.t('Revoke'), danger: true })) return;
+    try {
+      apList = (await API.deleteAppPassword(id)).passwords || [];
+      renderAppPasswords();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
   function renderSecurity() {
     body().innerHTML = `
       <div class="card" style="margin-bottom:14px">
@@ -2366,7 +3206,11 @@ const Settings = (() => {
           ${field('New username', `<input id="sec-newuser" autocomplete="username" value="${escAttr(state.username)}">`)}
         </div>
         <p><button class="btn-sm" id="sec-user-save">${I18n.t('Change username')}</button> <span class="set-hint" id="sec-user-status" style="margin:0"></span></p>
-      </div>`;
+      </div>
+      <div class="card" style="margin-top:14px" id="ap-card"></div>`;
+
+    renderAppPasswords();
+    if (apList === null) loadAppPasswords().then(renderAppPasswords);
 
     document.getElementById('sec-pass-save').addEventListener('click', async () => {
       const cur = document.getElementById('sec-curpass').value;
@@ -2478,6 +3322,291 @@ const Settings = (() => {
   // matching" still covers matches that aren't currently drawn.
   const CT_RENDER_CAP = 200;
 
+  /* ---------- live contact sync (server/contactsSync/*) ----------
+   *
+   * A "source" is one server's worth of address books: a CardDAV URL with its
+   * own password, or a mail account whose OAuth sign-in is borrowed. Each source
+   * exposes one or more BOOKS, and the user ticks the ones they want.
+   *
+   * Kept in its own state, refetched rather than drafted: unlike the settings on
+   * this tab, saving a source has side effects on somebody else's server, so it
+   * happens immediately on its own dialog's Save rather than riding along on the
+   * tab's Save button. */
+  let ctSources = null;      // null until first fetched
+  let ctSourceKinds = {};
+  let ctSyncing = new Set(); // source ids with a sync in flight
+
+  async function loadContactSources() {
+    try {
+      const r = await API.contactSources();
+      ctSources = r.sources || [];
+      ctSourceKinds = r.kinds || {};
+    } catch { ctSources = []; }
+  }
+
+  /** Mail accounts whose sign-in a source of this kind could borrow. */
+  function ctAccountsFor(kind) {
+    if (kind === 'graph') return allAccounts().filter((a) => a.type === 'graph' && !a.disabled);
+    if (kind === 'ews') return allAccounts().filter((a) => a.type === 'ews' && !a.disabled);
+    if (kind === 'google') {
+      // A Gmail account signed in with OAuth — a Gmail account on an app
+      // password has no token to borrow, and offering it would produce a source
+      // that can never authenticate.
+      return allAccounts().filter((a) => !a.disabled && a.oauth?.provider === 'google');
+    }
+    return [];
+  }
+
+  function ctSourceStatus(src) {
+    const books = (src.books || []).filter((b) => b.enabled);
+    const err = src.lastError || books.map((b) => b.lastError).find(Boolean);
+    if (err) return `<span class="set-hint" style="margin:0;color:var(--danger)">${esc(err)}</span>`;
+    if (!books.length) return `<span class="set-hint" style="margin:0">${esc(I18n.t('No address book selected yet'))}</span>`;
+    const total = books.reduce((n, b) => n + (b.count || 0), 0);
+    const when = src.lastSyncAt ? fmtDate(src.lastSyncAt, { long: true }) : I18n.t('never');
+    return `<span class="set-hint" style="margin:0">${total} ${esc(I18n.t('contacts'))} · ${esc(I18n.t('last synced'))}: ${esc(when)}</span>`;
+  }
+
+  function renderContactSources() {
+    const host = document.getElementById('ct-sources');
+    if (!host) return;
+    if (ctSources === null) {
+      host.innerHTML = `<div class="set-hint">${esc(I18n.t('Loading…'))}</div>`;
+      return;
+    }
+    // Only offer the source types this instance could actually use — a Google
+    // source needs a Gmail account signed in with OAuth, and offering one where
+    // there is none produces a source that can never authenticate.
+    const addable = Object.entries(ctSourceKinds)
+      .filter(([kind, meta]) => meta.credentials === 'own' || ctAccountsFor(kind).length);
+
+    host.innerHTML = `
+      <div class="row" style="align-items:baseline;gap:8px;margin-bottom:8px">
+        <strong>${esc(I18n.t('Synced address books'))}</strong>
+        <span class="spacer"></span>
+        ${addable.map(([kind, meta]) =>
+          `<button type="button" class="link-btn ct-src-add" data-kind="${escAttr(kind)}">+ ${esc(meta.label)}</button>`).join('')}
+      </div>
+      <div class="set-hint" style="margin-top:0">${esc(I18n.t('Contacts from these servers stay up to date on their own. They are kept separately from the contacts you type here, so removing a source never touches your own address book.'))}</div>
+      ${!ctSources.length ? '' : `<div class="card-list" style="margin-top:10px">${ctSources.map((src) => `
+        <div class="card" data-src="${escAttr(src.id)}">
+          <div class="row" style="gap:8px;align-items:baseline">
+            <strong>${esc(src.label)}</strong>
+            <span class="set-hint" style="margin:0">${esc(ctSourceKinds[src.kind]?.label || src.kind)}</span>
+            ${src.direction === 'two-way' ? `<span class="set-hint" style="margin:0">↔ ${esc(I18n.t('two-way'))}</span>` : ''}
+            <span class="spacer"></span>
+            <button type="button" class="link-btn ct-src-sync" data-src="${escAttr(src.id)}" ${ctSyncing.has(src.id) ? 'disabled' : ''}>${esc(ctSyncing.has(src.id) ? I18n.t('Syncing…') : I18n.t('Sync now'))}</button>
+            <button type="button" class="link-btn ct-src-edit" data-src="${escAttr(src.id)}">${esc(I18n.t('Edit'))}</button>
+            <button type="button" class="link-btn danger ct-src-del" data-src="${escAttr(src.id)}">✕</button>
+          </div>
+          <div class="row" style="margin-top:4px">${ctSourceStatus(src)}</div>
+          ${(src.books || []).length ? `<div style="margin-top:6px">${src.books.map((b) => `
+            <label class="mini-toggle" style="gap:6px">
+              <input type="checkbox" class="ct-book" data-src="${escAttr(src.id)}" data-book="${escAttr(b.id)}" ${b.enabled ? 'checked' : ''}>
+              <span>${esc(b.displayName)}</span>
+              ${b.readOnly ? `<span class="set-hint" style="margin:0">${esc(I18n.t('read-only'))}</span>` : ''}
+              ${b.count ? `<span class="set-hint" style="margin:0">${b.count}</span>` : ''}
+            </label>`).join('')}</div>` : ''}
+        </div>`).join('')}</div>`}`;
+
+    host.querySelectorAll('.ct-src-add').forEach((b) => b.addEventListener('click', () => editContactSource(null, b.dataset.kind)));
+    host.querySelectorAll('.ct-src-edit').forEach((b) => b.addEventListener('click', () => {
+      editContactSource(ctSources.find((x) => x.id === b.dataset.src));
+    }));
+    host.querySelectorAll('.ct-src-del').forEach((b) => b.addEventListener('click', () => removeContactSource(b.dataset.src)));
+    host.querySelectorAll('.ct-src-sync').forEach((b) => b.addEventListener('click', () => syncContactSourceNow(b.dataset.src)));
+    host.querySelectorAll('.ct-book').forEach((b) => b.addEventListener('change', () => toggleContactBook(b.dataset.src, b.dataset.book, b.checked)));
+  }
+
+  /** Add or edit one source. Discovery runs from inside the dialog, so a
+   *  mistyped password is corrected there instead of leaving a broken source
+   *  saved behind — which is what happens with a save-then-discover flow, and
+   *  it is the common case when adding one. */
+  async function editContactSource(existing, kind = null) {
+    const k = existing?.kind || kind || 'carddav';
+    const meta = ctSourceKinds[k] || {};
+    const accounts = ctAccountsFor(k);
+    if (meta.credentials === 'account' && !accounts.length) {
+      toast(I18n.t('No mail account of that type to sign in with'), 5000);
+      return;
+    }
+    const body = `
+      ${field(I18n.t('Name'), `<input id="cs-label" value="${escAttr(existing?.label || meta.label || '')}">`)}
+      ${k === 'carddav' ? `
+        ${field(I18n.t('Server address'), `<input id="cs-url" placeholder="https://cloud.example.com" value="${escAttr(existing?.url || '')}">`,
+          I18n.t('The server, or the address book itself if you already have its URL. Hmelj works the rest out.'))}
+        ${field(I18n.t('Username'), `<input id="cs-user" autocomplete="off" value="${escAttr(existing?.username || '')}">`)}
+        ${field(I18n.t('Password'), `<input id="cs-pass" type="password" autocomplete="new-password" placeholder="${escAttr(existing?.passwordSet ? I18n.t('unchanged') : '')}">`,
+          I18n.t('If your provider uses two-factor authentication, this has to be an app-specific password generated in their own settings — the account password will always be refused.'))}
+      ` : field(I18n.t('Sign in with'), sel('cs-account', accounts.map((a) => [a.id, a.label]), existing?.accountId || accounts[0]?.id))}
+      ${field(I18n.t('Direction'), sel('cs-direction', [
+        ['pull', I18n.t('Read only — never change anything on the server')],
+        ['two-way', I18n.t('Two-way — edits here are written back')],
+      ], existing?.direction || 'pull'))}`;
+
+    const vals = await Dialog.form(existing ? I18n.t('Edit address book source') : I18n.t('Add address book source'), body, {
+      okLabel: I18n.t('Continue'),
+      getValue: () => ({
+        label: document.getElementById('cs-label').value.trim(),
+        url: document.getElementById('cs-url')?.value.trim() || '',
+        username: document.getElementById('cs-user')?.value.trim() || '',
+        password: document.getElementById('cs-pass')?.value || '',
+        accountId: document.getElementById('cs-account')?.value || '',
+        direction: document.getElementById('cs-direction').value,
+      }),
+    });
+    if (!vals || vals === 'cancel') return;
+
+    const draft = { ...vals, kind: k, id: existing?.id };
+
+    // Before discovery, not after: without the contacts permission the probe
+    // comes back 401 with nothing useful to say, and the user is left believing
+    // the account itself is broken.
+    if (meta.credentials === 'account') {
+      const account = accounts.find((a) => a.id === draft.accountId);
+      if (!await ensureOAuthFeature(account, 'contacts')) return;
+    }
+
+    let found;
+    try {
+      toast(I18n.t('Looking for address books…'), 2500);
+      found = await API.discoverContactSource(draft);
+    } catch (e) {
+      toast(I18n.t('Could not reach that server: ') + e.message, 8000);
+      return;
+    }
+    if (!found.collections?.length) {
+      toast(I18n.t('That server answered, but has no address books this account can see.'), 8000);
+      return;
+    }
+
+    // Which books to sync, chosen against what the server actually reported —
+    // never guessed, and never all of them by default: a work server routinely
+    // shares a company-wide book of several thousand people.
+    const previous = new Map((existing?.books || []).map((b) => [b.href, b]));
+    const pick = await Dialog.form(I18n.t('Address books'),
+      `<div class="pick-list">${found.collections.map((c, i) => `<label class="pick-row">
+        <input type="checkbox" class="cs-book" data-i="${i}" ${previous.get(c.href)?.enabled || (!existing && found.collections.length === 1) ? 'checked' : ''}>
+        <span class="pick-name">${esc(c.displayName)}</span>
+        ${c.readOnly ? `<span class="pick-tag">${esc(I18n.t('read-only'))}</span>` : ''}
+      </label>`).join('')}</div>`,
+      { okLabel: I18n.t('Save'), getValue: () => [...document.querySelectorAll('.cs-book')].map((b) => b.checked) });
+    if (!pick || pick === 'cancel') return;
+
+    try {
+      await API.saveContactSource({
+        ...draft,
+        principalUrl: found.principalUrl, homeUrl: found.homeUrl,
+        books: found.collections.map((c, i) => ({ ...previous.get(c.href), ...c, enabled: !!pick[i] })),
+      }, existing?.id);
+      await loadContactSources();
+      renderContactSources();
+      if (existing?.id || ctSources.length) await syncContactSourceNow(existing?.id || ctSources.at(-1).id);
+    } catch (e) {
+      toast(I18n.t('Could not save that source: ') + e.message, 8000);
+    }
+  }
+
+  async function removeContactSource(id) {
+    const src = ctSources.find((x) => x.id === id);
+    if (!await Dialog.confirm(
+      `${I18n.t('Stop syncing')} ${src?.label || ''}? ${I18n.t('Its contacts are removed from Hmelj. Nothing is deleted on the server, and your own contacts are untouched.')}`,
+      { title: I18n.t('Stop syncing'), okLabel: I18n.t('Stop syncing'), danger: true })) return;
+    try {
+      await API.deleteContactSource(id);
+      await loadContactSources();
+      await adoptImportedContacts();
+      renderContacts();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  async function toggleContactBook(sourceId, bookId, enabled) {
+    const src = ctSources.find((x) => x.id === sourceId);
+    if (!src) return;
+    try {
+      await API.saveContactSource({
+        ...src,
+        books: (src.books || []).map((b) => (b.id === bookId ? { ...b, enabled } : b)),
+      }, sourceId);
+      await loadContactSources();
+      if (enabled) await syncContactSourceNow(sourceId);
+      else { await adoptImportedContacts(); renderContacts(); }
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  async function syncContactSourceNow(id) {
+    if (!id || ctSyncing.has(id)) return;
+    ctSyncing.add(id);
+    renderContactSources();
+    try {
+      const r = await API.syncContactSource(id);
+      const totals = (r.books || []).reduce((a, b) => ({
+        added: a.added + (b.added || 0), updated: a.updated + (b.updated || 0), removed: a.removed + (b.removed || 0),
+      }), { added: 0, updated: 0, removed: 0 });
+      const failed = (r.books || []).find((b) => b.error);
+      if (failed) toast(`${I18n.t('Sync failed')}: ${failed.error}`, 8000);
+      else if (totals.added || totals.updated || totals.removed) {
+        toast(`${I18n.t('Synced')}: +${totals.added} ~${totals.updated} -${totals.removed}`);
+      } else toast(I18n.t('Already up to date'));
+      ctSources = r.sources || ctSources;
+      await adoptImportedContacts();
+    } catch (e) {
+      toast(`${I18n.t('Sync failed')}: ${e.message}`, 8000);
+    } finally {
+      ctSyncing.delete(id);
+      renderContacts();
+    }
+  }
+
+  /** One contact row. A synced row is deliberately NOT the same control as a
+   *  local one: it has no tick box (bulk delete works by filtering the local
+   *  array, which for a synced contact would change nothing on the server), and
+   *  its fields commit to their own server as they are edited rather than
+   *  waiting for this tab's Save button. */
+  function contactRowHtml(c) {
+    if (!c.synced) {
+      return `<div class="card" data-id="${escAttr(c.id)}"><div class="row">
+        <input type="checkbox" class="ct-pick" data-id="${escAttr(c.id)}" ${ctSelected.has(c.id) ? 'checked' : ''}>
+        <input class="ct-name grow" value="${escAttr(c.name)}" placeholder="Name">
+        <input class="ct-email grow" value="${escAttr(c.email)}" placeholder="email@example.com">
+        <button class="link-btn ct-del" data-id="${escAttr(c.id)}">✕</button>
+      </div></div>`;
+    }
+    const ro = c.readOnly ? 'disabled' : '';
+    return `<div class="card" data-id="${escAttr(c.id)}" data-synced="1"><div class="row">
+      <span class="ct-sync-mark" title="${escAttr(`${c.sourceLabel} · ${c.bookName}`)}">☁</span>
+      <input class="ct-name grow" value="${escAttr(c.name)}" placeholder="Name" ${ro}>
+      <input class="ct-email grow" value="${escAttr(c.email)}" placeholder="email@example.com" ${ro}>
+      ${c.readOnly ? '' : `<button class="link-btn ct-del-synced" data-id="${escAttr(c.id)}">✕</button>`}
+    </div></div>`;
+  }
+
+  /** Writes one synced row back to the server it came from. Fired on `change`
+   *  (i.e. on blur, not per keystroke), because each one is a network write to
+   *  somebody else's server. */
+  async function commitSyncedRow(card) {
+    const id = card.dataset.id;
+    const row = contacts.find((c) => c.id === id);
+    if (!row) return;
+    const name = card.querySelector('.ct-name').value.trim();
+    const email = card.querySelector('.ct-email').value.trim();
+    if (name === row.name && email === row.email) return;
+    if (!email.includes('@')) { toast(I18n.t('A contact needs an e-mail address')); return; }
+    try {
+      const r = await API.updateSyncedContact(id, { name, email });
+      contacts = r.contacts;
+      state.contacts = structuredClone(contacts);
+      renderContacts();
+    } catch (e) {
+      // A 412 means somebody changed the contact on the other side while this
+      // was open. Saying so and re-reading is the only honest answer — retrying
+      // without the condition would silently destroy their edit.
+      toast(e.message, 8000);
+      await adoptImportedContacts();
+      renderContacts();
+    }
+  }
+
   function renderContacts() {
     const ewsAccounts = allAccounts().filter((a) => a.type === 'ews' && !a.disabled);
     const graphAccounts = allAccounts().filter((a) => a.type === 'graph' && !a.disabled);
@@ -2495,7 +3624,7 @@ const Settings = (() => {
           ${graphAccounts.length > 1 ? sel('ct-graph-account', graphAccounts.map((a) => [a.id, a.label]), graphAccounts[0].id) : ''}` : ''}
         <span class="set-hint" id="ct-import-status" style="margin:0"></span>
       </p>
-      <p class="set-hint" style="grid-column:auto">Google sync tip: export your contacts from contacts.google.com as Google CSV, then import the file here. Live CardDAV sync is on the roadmap.</p>
+      <div class="card" id="ct-sources" style="margin-bottom:14px"></div>
       <div class="card" style="margin-bottom:14px">
         <label class="mini-toggle" style="gap:6px">${chk('ct-autoadd', draft.autoAddContacts !== false)} <span>${I18n.t('Add people I send to')}</span></label>
         <div class="set-hint">${I18n.t('Every recipient of a message you send is saved here, unless they already are.')}</div>
@@ -2516,12 +3645,7 @@ const Settings = (() => {
           <button type="button" class="btn-sm danger" id="ct-del-sel">${I18n.t('Delete selected')}</button>` : ''}
       </div>
       <div class="card-list" id="ct-list">
-      ${shown.map((c) => `<div class="card" data-id="${escAttr(c.id)}"><div class="row">
-        <input type="checkbox" class="ct-pick" data-id="${escAttr(c.id)}" ${ctSelected.has(c.id) ? 'checked' : ''}>
-        <input class="ct-name grow" value="${escAttr(c.name)}" placeholder="Name">
-        <input class="ct-email grow" value="${escAttr(c.email)}" placeholder="email@example.com">
-        <button class="link-btn ct-del" data-id="${escAttr(c.id)}">✕</button>
-      </div></div>`).join('')}
+      ${shown.map((c) => contactRowHtml(c)).join('')}
       </div>
       ${matches.length > shown.length ? `<p class="set-hint" style="grid-column:auto">${I18n.t('Showing the first')} ${shown.length} ${I18n.t('of')} ${matches.length} — ${I18n.t('search to narrow the list down.')}</p>` : ''}
       ${!matches.length ? `<p class="set-hint" style="grid-column:auto">${contacts.length ? I18n.t('No contacts match your search.') : I18n.t('No contacts yet — add one, or import them above.')}</p>` : ''}`;
@@ -2560,12 +3684,16 @@ const Settings = (() => {
     });
 
     document.getElementById('ct-all').addEventListener('change', (e) => {
-      for (const c of shown) { if (e.target.checked) ctSelected.add(c.id); else ctSelected.delete(c.id); }
+      // Local rows only. A synced row has no checkbox at all — bulk delete works
+      // by filtering the local array and letting Save write it back, which for a
+      // synced contact would remove it from the screen and change nothing on the
+      // server it actually lives on.
+      for (const c of shown.filter((x) => !x.synced)) { if (e.target.checked) ctSelected.add(c.id); else ctSelected.delete(c.id); }
       collectContacts();
       renderContacts();
     });
     document.getElementById('ct-select-matching')?.addEventListener('click', () => {
-      for (const c of matches) ctSelected.add(c.id);
+      for (const c of matches.filter((x) => !x.synced)) ctSelected.add(c.id);
       collectContacts();
       renderContacts();
     });
@@ -2649,6 +3777,28 @@ const Settings = (() => {
       }
     });
 
+    // ---- synced rows: their own delete, and commit-on-blur ----
+    body().querySelectorAll('.ct-del-synced').forEach((b) => b.addEventListener('click', async () => {
+      if (!await Dialog.confirm(
+        I18n.t('Delete this contact from the server it is synced with?'),
+        { title: I18n.t('Delete'), okLabel: I18n.t('Delete'), danger: true })) return;
+      try {
+        const r = await API.deleteContact(b.dataset.id);
+        contacts = r.contacts;
+        state.contacts = structuredClone(contacts);
+        renderContacts();
+      } catch (e) { toast(e.message, 8000); }
+    }));
+    // `change`, not `input`: each one is a write to somebody else's server, and
+    // one per keystroke would be both slow and a good way to get rate-limited.
+    body().querySelectorAll('#ct-list .card[data-synced] input').forEach((el) => {
+      el.addEventListener('change', () => commitSyncedRow(el.closest('.card')));
+    });
+
+    // ---- synced address books ----
+    renderContactSources();
+    if (ctSources === null) loadContactSources().then(renderContactSources);
+
     // ---- Suggestions from mail history ----
     renderSuggestions();
     if (contactSuggestions === null) {
@@ -2721,10 +3871,17 @@ const Settings = (() => {
     for (const card of body().querySelectorAll('#ct-list .card')) {
       const c = byId.get(card.dataset.id);
       if (!c) continue;
+      // A synced row is committed to its own server as it is edited (see
+      // commitSyncedRow), not gathered here — reading its inputs into the draft
+      // would mean Save quietly took a copy of somebody else's address book.
+      if (c.synced) continue;
       c.name = card.querySelector('.ct-name').value.trim();
       c.email = card.querySelector('.ct-email').value.trim();
     }
-    contacts = contacts.filter((c) => c.email);
+    // Blank rows are dropped, synced ones never are: an empty synced row cannot
+    // exist (the server would not have sent it) and filtering on `email` alone
+    // would delete one the moment a search hid it mid-edit.
+    contacts = contacts.filter((c) => c.synced || c.email);
     // The two address-book upkeep toggles are ordinary settings that happen to
     // live on this tab, so they ride along in `draft` like every other one —
     // save() writes settings and contacts in the same pass.
@@ -3023,20 +4180,35 @@ const Settings = (() => {
   function collectCurrentTab() {
     const g = (id) => document.getElementById(id);
     switch (tab) {
+      // Not a settings field but a resource list, like filters and subject
+      // rules: read the typed name/query back out of the rows so the footer
+      // Save picks them up from whichever tab happens to be on screen.
+      case 'templates':
+        collectTemplates();
+        break;
+      case 'saved':
+        for (const card of body().querySelectorAll('[data-saved]')) {
+          const sv = savedSearches.find((x) => x.id === card.dataset.saved);
+          if (!sv) continue;
+          sv.name = card.querySelector('.sv-name').value;
+          sv.query = card.querySelector('.sv-query').value;
+        }
+        break;
       case 'general':
-        Object.assign(draft, { language: g('s-lang').value, uiFont: g('s-uifont').value, uiFontSize: +g('s-uifontsize').value, uiFontWeight: +g('s-uiweight').value, keepScreenOn: g('s-keepawake').checked, timeFormat: g('s-time').value, dateFormat: g('s-date').value, conversationView: g('s-convview').checked, conversationExpandAll: g('s-convexpand').checked, messagesPerPage: +g('s-perpage').value, syncBackfillLimit: +g('s-backfill').value, contentCacheLimit: +g('s-contentcache').value, searchAutocomplete: g('s-searchauto').checked, runFiltersOnLoad: g('s-runfilters').checked, deleteBehavior: g('s-delmode').value, markReadOnDelete: g('s-delread').checked, desktopNotifications: g('s-notify')?.checked ?? draft.desktopNotifications, swipeGestures: g('s-swipe').checked, swipeSwapDirection: g('s-swipedir').value === 'swapped' });
+        Object.assign(draft, { language: g('s-lang').value, uiFont: g('s-uifont').value, uiFontSize: +g('s-uifontsize').value, uiFontWeight: +g('s-uiweight').value, keepScreenOn: g('s-keepawake').checked, timeFormat: g('s-time').value, dateFormat: g('s-date').value, conversationView: g('s-convview').checked, conversationExpandAll: g('s-convexpand').checked, messagesPerPage: +g('s-perpage').value, syncBackfillLimit: +g('s-backfill').value, contentCacheLimit: +g('s-contentcache').value, searchAutocomplete: g('s-searchauto').checked, searchIndexMaxMb: +g('s-ftsmax').value, runFiltersOnLoad: g('s-runfilters').checked, deleteBehavior: g('s-delmode').value, markReadOnDelete: g('s-delread').checked, desktopNotifications: g('s-notify')?.checked ?? draft.desktopNotifications, swipeGestures: g('s-swipe').checked, swipeSwapDirection: g('s-swipedir').value === 'swapped' });
         break;
       case 'reading':
         Object.assign(draft, {
           readingPane: g('s-pane').value, autoMarkRead: g('s-amr').value, autoMarkReadDelay: +g('s-amr-delay').value,
           externalImages: g('s-ext').value, trustedDomains: g('s-trusted').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
-          showDeleted: g('s-showdel').checked, unsubscribeButton: g('s-unsub').checked,
+          showDeleted: g('s-showdel').checked, unsubscribeButton: g('s-unsub').checked, senderAuthBadge: g('s-authbadge').checked,
           unsubscribeBannerCompact: g('s-unsub-min').checked,
           messageFont: g('s-font').value, messageFontSize: +g('s-fontsize').value,
+          messageFontOverride: g('s-fontforce').checked,
         });
         break;
       case 'compose':
-        Object.assign(draft, { composeFormat: g('s-format').value, composeFont: g('s-compose-font').value, replyQuotePosition: g('s-quote').value, autosaveDraftSeconds: +g('s-autosave').value, requestReadReceipt: g('s-receipt').checked, spellcheck: g('s-spellcheck').checked });
+        Object.assign(draft, { undoSendSeconds: +g('s-undosend').value, attachmentReminder: g('s-attachwarn').checked, replyAllNudge: g('s-replyall').checked, composeFormat: g('s-format').value, composeFont: g('s-compose-font').value, replyQuotePosition: g('s-quote').value, autosaveDraftSeconds: +g('s-autosave').value, requestReadReceipt: g('s-receipt').checked, spellcheck: g('s-spellcheck').checked });
         break;
       case 'identities': collectIdentities(); break;
       case 'filters': collectFilters(); break;
@@ -3166,8 +4338,564 @@ const Settings = (() => {
     });
   }
 
+  /* ---------- Calendars tab (server/calendar/*) ----------
+   *
+   * Deliberately parallel to the contact-sources panel above: a source is one
+   * server's worth of calendars, either a CalDAV URL with its own password or a
+   * mail account whose OAuth sign-in is borrowed. Saving one has effects on
+   * somebody else's server, so it happens on its own dialog's Save rather than
+   * riding along on this tab's Save button — which is why none of this touches
+   * `draft`. */
+  let calSources = null;      // null until first fetched
+  let calList = [];
+  let calKinds = {};
+  let calWindow = null;       // the rolling window Microsoft/Exchange are known over
+  let calSyncing = new Set();
+  let davInfo = null;         // what Hmelj publishes, and the URL to subscribe at
+
+  async function loadCalendars() {
+    try {
+      const r = await API.calendars();
+      calSources = r.sources || [];
+      calList = r.calendars || [];
+      calKinds = r.kinds || {};
+      calWindow = r.window || null;
+    } catch { calSources = []; }
+  }
+
+  /** Mail accounts whose sign-in a calendar source of this kind could borrow. */
+  function calAccountsFor(kind) {
+    if (kind === 'graph') return allAccounts().filter((a) => a.type === 'graph' && !a.disabled);
+    if (kind === 'ews') return allAccounts().filter((a) => a.type === 'ews' && !a.disabled);
+    // A Gmail account on an app password has no token to borrow, and offering
+    // it would produce a source that can never authenticate.
+    if (kind === 'google') return allAccounts().filter((a) => !a.disabled && a.oauth?.provider === 'google');
+    return [];
+  }
+
+  /** Whether this source type is only known over a rolling window. Microsoft
+   *  and Exchange expand their own recurrence rather than handing over the
+   *  rules, so their calendars reach exactly as far as the window and no
+   *  further — and "my appointment in 2031 is missing" deserves an answer. */
+  const calWindowed = (kind) => kind === 'graph' || kind === 'ews';
+
+  function renderCalendars() {
+    if (calSources === null) {
+      body().innerHTML = `<p class="set-hint">${esc(I18n.t('Loading…'))}</p>`;
+      loadCalendars().then(renderCalendars);
+      return;
+    }
+    const addable = Object.entries(calKinds)
+      // 'none' is a calendar that lives in Hmelj itself — no server, nothing to
+      // sign in to, so it is always offerable.
+      .filter(([kind, meta]) => meta.credentials === 'none' || meta.credentials === 'own' || calAccountsFor(kind).length);
+    // Named from the server's own descriptors rather than listed here, so this
+    // says nothing when every kind is writable (which it now is) and starts
+    // saying it again by itself if one ever is not.
+    const readOnlyKinds = Object.values(calKinds).filter((m) => !m.writable).map((m) => m.label);
+    const tz = draft.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+    body().innerHTML = `
+      <p>
+        ${addable.map(([kind, meta]) =>
+          `<button type="button" class="link-btn cal-src-add" data-kind="${escAttr(kind)}">+ ${esc(meta.label)}</button>`).join('')}
+      </p>
+      ${!readOnlyKinds.length ? '' : `<p class="set-hint" style="grid-column:auto">${esc(readOnlyKinds.join(', '))} ${esc(I18n.t('calendars are read-only — Hmelj shows them, and changes made in the app you normally use appear here on the next sync. Every other kind can be edited from the calendar itself.'))}</p>`}
+
+      <div class="card" style="margin-bottom:14px">
+        ${field(I18n.t('Time zone'), `<input id="cal-tz" list="cal-tz-list" value="${escAttr(draft.timezone || '')}" placeholder="${escAttr(tz)}">
+          <datalist id="cal-tz-list">${(Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [])
+            .map((z) => `<option value="${escAttr(z)}">`).join('')}</datalist>`,
+          I18n.t('Decides which day an event belongs to, and how an event written without a time zone is read. Leave it empty to follow this device. An event that carries its own time zone is always shown at the moment that zone names.'))}
+      </div>
+
+      <div class="card" id="dav-card" style="margin-bottom:14px"></div>
+
+      ${!calSources.length ? `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('No calendars set up yet.'))}</p>` : `
+      <div class="card-list">${calSources.map((src) => {
+        const mine = calList.filter((c) => c.sourceId === src.id);
+        const err = src.lastError || mine.map((c) => c.lastError).find(Boolean);
+        return `<div class="card" data-src="${escAttr(src.id)}">
+          <div class="row" style="gap:8px;align-items:baseline">
+            <strong>${esc(src.label)}</strong>
+            <span class="set-hint" style="margin:0">${esc(calKinds[src.kind]?.label || src.kind)}</span>
+            <span class="spacer"></span>
+            ${calKinds[src.kind]?.canCreate ? `<button type="button" class="link-btn cal-src-new" data-src="${escAttr(src.id)}">${esc(I18n.t('New calendar'))}</button>` : ''}
+            <button type="button" class="link-btn cal-src-sync" data-src="${escAttr(src.id)}" ${calSyncing.has(src.id) ? 'disabled' : ''}>${esc(calSyncing.has(src.id) ? I18n.t('Syncing…') : I18n.t('Sync now'))}</button>
+            <button type="button" class="link-btn cal-src-edit" data-src="${escAttr(src.id)}">${esc(I18n.t('Edit'))}</button>
+            <button type="button" class="link-btn danger cal-src-del" data-src="${escAttr(src.id)}">✕</button>
+          </div>
+          <div class="row" style="margin-top:4px">${err
+            ? `<span class="set-hint" style="margin:0;color:var(--danger)">${esc(err)}</span>`
+            : `<span class="set-hint" style="margin:0">${mine.filter((c) => c.enabled).length} ${esc(I18n.t('of'))} ${mine.length} ${esc(I18n.t('synced'))}${
+                src.lastSyncAt ? ` · ${esc(I18n.t('last synced'))}: ${esc(fmtDate(src.lastSyncAt, { long: true }))}` : ''}</span>`}</div>
+          ${calWindowed(src.kind) && calWindow ? `<div class="set-hint" style="margin-top:2px">${
+            esc(I18n.t('This provider expands repeating events itself, so its calendars are known from'))} ${esc(fmtDate(calWindow.from, { long: true }))} ${esc(I18n.t('to'))} ${esc(fmtDate(calWindow.to, { long: true }))}.</div>` : ''}
+          ${mine.length ? `<div style="margin-top:6px">${mine.map((c) => `
+            <div class="cal-row">
+              <label class="mini-toggle" style="gap:6px">
+                <input type="checkbox" class="cal-pick" data-src="${escAttr(src.id)}" data-cal="${escAttr(c.id)}" ${c.enabled ? 'checked' : ''}>
+                <input type="color" class="cal-color-pick" data-cal="${escAttr(c.id)}" value="${escAttr(/^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#0b57d0')}"
+                  title="${escAttr(I18n.t(c.colorLocked ? 'Your own colour — double-click to go back to the one the server gives' : 'Pick a colour for this calendar'))}">
+                <span>${esc(c.displayName)}</span>
+                ${c.readOnly ? `<span class="set-hint" style="margin:0">${esc(I18n.t('read-only'))}</span>` : ''}
+                ${c.count ? `<span class="set-hint" style="margin:0" title="${escAttr(I18n.t('Events in this calendar'))}">${c.count}</span>` : ''}
+              </label>
+              ${c.enabled ? `<div class="cal-row-opts">
+                <label class="mini-toggle" style="gap:6px">
+                  <span>${esc(I18n.t('Remind me'))}</span>
+                  ${sel(`cal-rem-${c.id}`, reminderOptions(), reminderValue(c))}
+                </label>
+                <label class="mini-toggle" style="gap:6px">
+                  <input type="checkbox" class="cal-quiet" data-cal="${escAttr(c.id)}" ${c.followQuietHours ? 'checked' : ''}>
+                  <span>${esc(I18n.t('Stay quiet when mail notifications are'))}</span>
+                </label>
+              </div>` : ''}
+            </div>`).join('')}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`}`;
+
+    document.getElementById('cal-tz').addEventListener('change', (e) => { draft.timezone = e.target.value.trim(); });
+    renderDavPublished();
+    if (davInfo === null) loadDavPublished().then(renderDavPublished);
+    body().querySelectorAll('.cal-src-add').forEach((b) => b.addEventListener('click', () => editCalendarSource(null, b.dataset.kind)));
+    body().querySelectorAll('.cal-src-edit').forEach((b) => b.addEventListener('click', () =>
+      editCalendarSource(calSources.find((x) => x.id === b.dataset.src))));
+    body().querySelectorAll('.cal-src-del').forEach((b) => b.addEventListener('click', () => removeCalendarSource(b.dataset.src)));
+    body().querySelectorAll('.cal-src-sync').forEach((b) => b.addEventListener('click', () => syncCalendarSourceNow(b.dataset.src)));
+    body().querySelectorAll('.cal-pick').forEach((b) => b.addEventListener('change', () =>
+      toggleCalendarSynced(b.dataset.src, b.dataset.cal, b.checked)));
+    for (const c of calList) {
+      document.getElementById(`cal-rem-${c.id}`)?.addEventListener('change', (e) =>
+        patchCalendar(c, { defaultReminder: e.target.value === '' ? null : Number(e.target.value) }));
+    }
+    body().querySelectorAll('.cal-quiet').forEach((b) => b.addEventListener('change', () => {
+      const c = calList.find((x) => x.id === b.dataset.cal);
+      if (c) patchCalendar(c, { followQuietHours: b.checked });
+    }));
+    body().querySelectorAll('.cal-src-new').forEach((b) => b.addEventListener('click', () => newCalendarIn(b.dataset.src)));
+    body().querySelectorAll('.cal-color-pick').forEach((b) => {
+      // `change`, not `input`: a native colour well fires input continuously
+      // while the picker is open, which would be one PATCH per pixel dragged.
+      b.addEventListener('change', () => setCalendarColor(b.dataset.cal, b.value));
+      // Double-click hands the colour back to the server's own — the way out of
+      // a choice, without a second control taking up room on every row.
+      b.addEventListener('dblclick', (e) => { e.preventDefault(); setCalendarColor(b.dataset.cal, ''); });
+    });
+  }
+
+  /**
+   * Creates a calendar on the source's own server.
+   *
+   * The name is all that is asked for. A colour could be picked here too, but
+   * the row it lands in has a colour well of its own two seconds later, and one
+   * fewer field in the way of making a calendar is worth more than saving that
+   * click.
+   */
+  async function newCalendarIn(sourceId) {
+    const src = calSources.find((x) => x.id === sourceId);
+    if (!src) return;
+    const name = await Dialog.prompt(I18n.t('New calendar'), {
+      label: I18n.t('Name for the new calendar'),
+      hint: I18n.t('Created on the calendar server itself, so it appears in that provider\'s own apps too.'),
+    });
+    if (!name) return; // Dialog.prompt already trims and answers null for empty
+    try {
+      // Slow enough to need saying: it is a round trip to Google or Microsoft,
+      // and then a full sync of the source behind it.
+      toast(I18n.t('Creating…'));
+      await API.createCalendar(sourceId, name);
+      await loadCalendars();
+      renderCalendars();
+      // The sidebar's calendar list is drawn from its own copy.
+      Calendar.refresh?.();
+      toast(I18n.t('Calendar created'));
+    } catch (e) { toast(e.message, 8000); }
+  }
+
+  /** A colour of the user's own for one calendar, or '' to follow the server's
+   *  again. Its own route rather than patchCalendar's whole-source PUT — see
+   *  the PATCH handler in server/index.js. */
+  async function setCalendarColor(calendarId, color) {
+    try {
+      const r = await API.setCalendarColor(calendarId, color);
+      if (r?.calendars) calList = r.calendars;
+      renderCalendars();
+      Calendar.refresh?.();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  /** The reminder picker's options. Outlook's own list (see
+   *  calendarStore.js#REMINDER_MINUTES), plus the two entries that are not
+   *  offsets: follow the event's own alarm, and never. */
+  function reminderOptions() {
+    const label = (m) => {
+      if (m === 0) return I18n.t('At the time of the event');
+      if (m < 60) return `${m} ${I18n.t('minutes before')}`;
+      if (m < 1440) { const h = m / 60; return `${h} ${I18n.t(h === 1 ? 'hour before' : 'hours before')}`; }
+      if (m < 10080) { const d = m / 1440; return `${d} ${I18n.t(d === 1 ? 'day before' : 'days before')}`; }
+      return I18n.t('1 week before');
+    };
+    return [
+      // '' rather than null: a <select> value is always a string, and the
+      // handler maps the empty one back to null.
+      ['', I18n.t('Whatever the event asks for')],
+      ['-1', I18n.t('Never')],
+      ...[0, 5, 10, 15, 30, 60, 120, 720, 1440, 2880, 10080].map((m) => [String(m), label(m)]),
+    ];
+  }
+
+  const reminderValue = (c) => (c.defaultReminder === null || c.defaultReminder === undefined ? '' : String(c.defaultReminder));
+
+  /** Writes one calendar's own settings back. Goes through the source record,
+   *  since that is where calendars live — but sends only THIS calendar's
+   *  changed fields, so nothing else in the list can be clobbered by a stale
+   *  copy of it. */
+  async function patchCalendar(cal, patch) {
+    const src = calSources.find((x) => x.id === cal.sourceId);
+    if (!src) return;
+    Object.assign(cal, patch);
+    try {
+      await API.saveCalendarSource({
+        ...src,
+        calendars: calList.filter((c) => c.sourceId === src.id).map((c) => ({ ...c })),
+      }, src.id);
+      await loadCalendars();
+      renderCalendars();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  /**
+   * Makes sure a mail account's sign-in actually covers what is about to be
+   * asked of it, running one more consent round if it does not.
+   *
+   * Reading a Google or Microsoft calendar needs permission the MAIL sign-in
+   * never asked for. Those scopes are deliberately not requested up front (see
+   * server/oauth.js#FEATURE_SCOPES): widening them for everybody would mark
+   * every existing Google and Microsoft account as needing re-authentication,
+   * including accounts that will never open a calendar.
+   *
+   * So the ask happens here, at the moment it is needed, for the one account it
+   * is needed for. An account that already has the permission is not disturbed.
+   */
+  // Whole sentences, one per feature, rather than a sentence built around a
+  // translated noun: "read your " + t('calendars') needs the accusative in
+  // Slovenian and the nominative in the dictionary, and one of the two is
+  // always wrong. Dialog.confirm escapes its own message, so these are plain
+  // text and not markup.
+  const FEATURE_ASK = {
+    calendar: 'Hmelj needs one more permission to read the calendars on this account.',
+    contacts: 'Hmelj needs one more permission to read the contacts on this account.',
+  };
+
+  async function ensureOAuthFeature(account, feature) {
+    const block = account?.oauth || account?.graph;
+    if (!block?.provider) return true;                 // not an OAuth account — nothing to widen
+    if ((block.features || []).includes(feature)) return true;
+
+    const provider = block.provider;
+    const who = account.email || account.label || '';
+    const okToAsk = await Dialog.confirm(
+      `${I18n.t(FEATURE_ASK[feature] || FEATURE_ASK.calendar)} `
+      + `${I18n.t('You will be asked to sign in once more as')} ${who}. `
+      + I18n.t('Nothing else about this account changes, and your other accounts are untouched.'),
+      { title: I18n.t('One more sign-in'), okLabel: I18n.t('Sign in') });
+    if (!okToAsk) return false;
+
+    try {
+      const { state } = await OAuthFlow.signIn({
+        provider,
+        email: account.email,
+        accountId: account.id,
+        // The union of what it already has and what is being asked for — the
+        // server refuses anything not on its own list, so this cannot widen
+        // the grant beyond the two known features.
+        features: [...new Set([...(block.features || []), feature])],
+        onStatus: (kind, detail) => {
+          if (kind === 'manual') toast(I18n.t('Open the sign-in page in your browser to continue'), 8000);
+          else if (kind === 'waiting') toast(I18n.t('Waiting for the sign-in to finish…'), 4000);
+        },
+      });
+      await API.oauthAttach(state, account.id);
+      // The account list carries the granted features, and the next check reads
+      // them — so refresh it rather than assuming.
+      await state_accountsRefresh();
+      return true;
+    } catch (e) {
+      toast(I18n.t('That sign-in did not complete: ') + e.message, 8000);
+      return false;
+    }
+  }
+
+  /** Re-reads the account list into app state, so a freshly widened grant is
+   *  visible to the next check without a page reload. */
+  async function state_accountsRefresh() {
+    try { state.accounts = await API.accounts(); } catch { /* the next load picks it up */ }
+  }
+
+  /* ---------- what Hmelj publishes (the CalDAV/CardDAV server) ----------
+   *
+   * Two shapes, and the difference is the feature: a SINGLE publication is one
+   * calendar or address book served as itself, and an AGGREGATE merges several
+   * into one collection. Each source inside an aggregate contributes either
+   * full detail or busy-only, which is what makes a shared household calendar
+   * workable — your partner sees that Thursday afternoon is taken without
+   * seeing who you are seeing. */
+  async function loadDavPublished() {
+    try { davInfo = await API.davPublished(); } catch { davInfo = { published: [], publishable: { calendars: [], addressbooks: [] } }; }
+  }
+
+  function renderDavPublished() {
+    const host = document.getElementById('dav-card');
+    if (!host) return;
+    if (davInfo === null) { host.innerHTML = `<div class="set-hint">${esc(I18n.t('Loading…'))}</div>`; return; }
+    const pubs = davInfo.published || [];
+    host.innerHTML = `
+      <div class="row" style="margin-bottom:8px;align-items:baseline">
+        <b>${esc(I18n.t('Share from Hmelj'))}</b>
+        <span class="spacer"></span>
+        <button type="button" class="link-btn" id="dav-add-cal">+ ${esc(I18n.t('Calendar'))}</button>
+        <button type="button" class="link-btn" id="dav-add-card">+ ${esc(I18n.t('Contacts'))}</button>
+      </div>
+      <p class="set-hint" style="grid-column:auto;margin:0 0 8px">${esc(I18n.t('Publish a calendar or address book so a phone or another app can subscribe to it over CalDAV or CardDAV.'))}</p>
+      ${!davInfo.hasPassword ? `<p class="set-hint" style="grid-column:auto;color:var(--danger)">${
+        esc(I18n.t('You will also need an app password — create one under Settings › Login. Your Hmelj password is not accepted for this.'))}</p>` : ''}
+      ${pubs.length ? `<div class="set-hint" style="margin:0 0 8px">
+        ${esc(I18n.t('Server address'))}: <code>${esc(davInfo.baseUrl)}</code> · ${esc(I18n.t('Username'))}: <code>${esc(state.username)}</code>
+      </div>` : ''}
+      ${!pubs.length ? `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('Nothing published yet.'))}</p>` : `
+      <div class="card-list">${pubs.map((p) => `
+        <div class="card"><div class="row" style="gap:8px;align-items:baseline">
+          <strong>${esc(p.label)}</strong>
+          <span class="set-hint" style="margin:0">${esc(I18n.t(p.kind === 'calendar' ? 'Calendar' : 'Contacts'))}</span>
+          ${p.mode === 'aggregate' ? `<span class="set-hint" style="margin:0">${esc(I18n.t('merged'))} · ${p.sources.length}</span>` : ''}
+          <span class="set-hint" style="margin:0">${esc(p.writable ? I18n.t('read and write') : I18n.t('read-only'))}</span>
+          <span class="spacer"></span>
+          <button type="button" class="link-btn dav-edit" data-id="${escAttr(p.id)}">${esc(I18n.t('Edit'))}</button>
+          <button type="button" class="link-btn danger dav-del" data-id="${escAttr(p.id)}">✕</button>
+        </div>
+        ${p.sources.some((sx) => sx.detail === 'busy') ? `<div class="set-hint" style="margin-top:2px">${
+          esc(I18n.t('Some sources show only that the time is taken, with no details.'))}</div>` : ''}
+        </div>`).join('')}</div>`}`;
+
+    document.getElementById('dav-add-cal').addEventListener('click', () => editDavPublished(null, 'calendar'));
+    document.getElementById('dav-add-card').addEventListener('click', () => editDavPublished(null, 'addressbook'));
+    host.querySelectorAll('.dav-edit').forEach((b) => b.addEventListener('click', () =>
+      editDavPublished(pubs.find((p) => p.id === b.dataset.id))));
+    host.querySelectorAll('.dav-del').forEach((b) => b.addEventListener('click', () => removeDavPublished(b.dataset.id)));
+  }
+
+  async function editDavPublished(existing, kind = null) {
+    const k = existing?.kind || kind || 'calendar';
+    const choices = k === 'calendar' ? davInfo.publishable.calendars : davInfo.publishable.addressbooks;
+    if (!choices.length) {
+      toast(I18n.t('Nothing to publish yet — set up a calendar or an address book first.'), 6000);
+      return;
+    }
+    const idOf = (c) => c.id;
+    const chosen = new Map((existing?.sources || []).map((sx) => [sx.calendarId || sx.bookId || sx.sourceId, sx.detail]));
+
+    const vals = await Dialog.form(existing ? I18n.t('Edit what is shared') : I18n.t('Share from Hmelj'), `
+      ${field(I18n.t('Name'), `<input id="dp-label" value="${escAttr(existing?.label || '')}" placeholder="${escAttr(k === 'calendar' ? I18n.t('Calendar') : I18n.t('Contacts'))}">`,
+        I18n.t('What subscribers will see it called.'))}
+      <p class="set-hint" style="grid-column:auto">${esc(I18n.t('Tick more than one to merge them into a single shared collection.'))}</p>
+      ${choices.map((c, i) => `
+        <div class="row" style="gap:8px;align-items:baseline">
+          <label class="mini-toggle" style="gap:6px;flex:1">
+            <input type="checkbox" class="dp-src" data-i="${i}" ${chosen.has(idOf(c)) ? 'checked' : ''}>
+            <span>${esc(c.label)}</span>
+            <span class="set-hint" style="margin:0">${esc(c.source)}</span>
+          </label>
+          ${k === 'calendar' ? `<select class="dp-detail" data-i="${i}">
+            <option value="full" ${chosen.get(idOf(c)) !== 'busy' ? 'selected' : ''}>${esc(I18n.t('Full details'))}</option>
+            <option value="busy" ${chosen.get(idOf(c)) === 'busy' ? 'selected' : ''}>${esc(I18n.t('Busy only'))}</option>
+          </select>` : ''}
+        </div>`).join('')}
+      <p class="set-hint" style="grid-column:auto">${esc(I18n.t('“Busy only” shows that the time is taken — no title, no place, no attendees. A merged collection is always read-only.'))}</p>`,
+      {
+        okLabel: I18n.t('Save'),
+        wide: true,
+        getValue: () => ({
+          label: document.getElementById('dp-label').value.trim(),
+          kind: k,
+          sources: [...document.querySelectorAll('.dp-src')].map((b, n) => {
+            if (!b.checked) return null;
+            const c = choices[Number(b.dataset.i)];
+            const detail = document.querySelector(`.dp-detail[data-i="${b.dataset.i}"]`)?.value || 'full';
+            return k === 'calendar'
+              ? { calendarId: c.id, detail }
+              : { bookId: c.id === 'local-contacts' ? '' : c.id, sourceId: c.id === 'local-contacts' ? 'local-contacts' : (c.sourceId || ''), detail: 'full' };
+          }).filter(Boolean),
+        }),
+      });
+    if (!vals || vals === 'cancel') return;
+    if (!vals.sources.length) { toast(I18n.t('Choose at least one to share')); return; }
+    try {
+      await API.saveDavPublished(vals, existing?.id);
+      await loadDavPublished();
+      renderCalendars();
+    } catch (e) { toast(e.message, 8000); }
+  }
+
+  async function removeDavPublished(id) {
+    const p = (davInfo.published || []).find((x) => x.id === id);
+    if (!await Dialog.confirm(
+      `${I18n.t('Stop sharing')} “${p?.label || ''}”? ${I18n.t('Subscribed devices stop seeing it. Nothing is deleted.')}`,
+      { title: I18n.t('Stop sharing'), okLabel: I18n.t('Stop sharing'), danger: true })) return;
+    try {
+      await API.deleteDavPublished(id);
+      await loadDavPublished();
+      renderCalendars();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  async function editCalendarSource(existing, kind = null) {
+    const k = existing?.kind || kind || 'caldav';
+    const meta = calKinds[k] || {};
+    const accounts = calAccountsFor(k);
+    if (meta.credentials === 'account' && !accounts.length) {
+      toast(I18n.t('No mail account of that type to sign in with'), 5000);
+      return;
+    }
+    const bodyHtml = `
+      ${field(I18n.t('Name'), `<input id="cs-label" value="${escAttr(existing?.label || meta.label || '')}">`)}
+      ${k === 'local' ? `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('A calendar kept in Hmelj itself. Nothing is synced anywhere — its events live with your settings, and are included in your backups.'))}</p>` : ''}
+      ${k === 'caldav' ? `
+        ${field(I18n.t('Server address'), `<input id="cs-url" placeholder="https://cloud.example.com" value="${escAttr(existing?.url || '')}">`,
+          I18n.t('The server, or the calendar itself if you already have its URL. Hmelj works the rest out.'))}
+        ${field(I18n.t('Username'), `<input id="cs-user" autocomplete="off" value="${escAttr(existing?.username || '')}">`)}
+        ${field(I18n.t('Password'), `<input id="cs-pass" type="password" autocomplete="new-password" placeholder="${escAttr(existing?.passwordSet ? I18n.t('unchanged') : '')}">`,
+          I18n.t('If your provider uses two-factor authentication, this has to be an app-specific password generated in their own settings — the account password will always be refused.'))}
+      ` : field(I18n.t('Sign in with'), sel('cs-account', accounts.map((a) => [a.id, a.label]), existing?.accountId || accounts[0]?.id))}`;
+
+    const vals = await Dialog.form(existing ? I18n.t('Edit calendar source') : I18n.t('Add calendar source'), bodyHtml, {
+      okLabel: I18n.t('Continue'),
+      getValue: () => ({
+        label: document.getElementById('cs-label').value.trim(),
+        url: document.getElementById('cs-url')?.value.trim() || '',
+        username: document.getElementById('cs-user')?.value.trim() || '',
+        password: document.getElementById('cs-pass')?.value || '',
+        accountId: document.getElementById('cs-account')?.value || '',
+      }),
+    });
+    if (!vals || vals === 'cancel') return;
+
+    const draftSrc = { ...vals, kind: k, id: existing?.id };
+
+    // Before discovery, not after: without the calendar permission the probe
+    // comes back 401 from Google with nothing useful to say, and the user is
+    // left believing their password is wrong.
+    if (meta.credentials === 'account') {
+      const account = accounts.find((a) => a.id === draftSrc.accountId);
+      if (!await ensureOAuthFeature(account, 'calendar')) return;
+    }
+
+    // A Hmelj calendar has no server to ask, so there is no discovery step and
+    // no list to choose from — saving it creates the calendar.
+    if (k === 'local') {
+      try {
+        await API.saveCalendarSource(draftSrc, existing?.id);
+        await loadCalendars();
+        renderCalendars();
+        Calendar.refresh();
+      } catch (e) { toast(I18n.t('Could not save that source: ') + e.message, 8000); }
+      return;
+    }
+
+    let found;
+    try {
+      toast(I18n.t('Looking for calendars…'), 2500);
+      found = await API.discoverCalendarSource(draftSrc);
+    } catch (e) {
+      toast(I18n.t('Could not reach that server: ') + e.message, 8000);
+      return;
+    }
+    if (!found.collections?.length) {
+      toast(I18n.t('That server answered, but has no calendars this account can see.'), 8000);
+      return;
+    }
+
+    // Chosen against what the server actually reported, and never all of them
+    // by default: a work server routinely shares a dozen calendars nobody wants,
+    // and each one is a sync of its own.
+    const previous = new Map((existing ? calList.filter((c) => c.sourceId === existing.id) : []).map((c) => [c.displayName, c]));
+    const pick = await Dialog.form(I18n.t('Calendars'),
+      `<div class="pick-list">${found.collections.map((c, i) => `<label class="pick-row">
+        <input type="checkbox" class="cs-cal" data-i="${i}" ${previous.get(c.displayName)?.enabled || (!existing && found.collections.length === 1) ? 'checked' : ''}>
+        <span class="pick-name">${esc(c.displayName)}</span>
+        ${c.readOnly ? `<span class="pick-tag">${esc(I18n.t('read-only'))}</span>` : ''}
+      </label>`).join('')}</div>`,
+      { okLabel: I18n.t('Save'), getValue: () => [...document.querySelectorAll('.cs-cal')].map((b) => b.checked) });
+    if (!pick || pick === 'cancel') return;
+
+    try {
+      const saved = await API.saveCalendarSource({
+        ...draftSrc,
+        principalUrl: found.principalUrl, homeUrl: found.homeUrl,
+        calendars: found.collections.map((c, i) => ({ ...c, enabled: !!pick[i] })),
+      }, existing?.id);
+      await loadCalendars();
+      renderCalendars();
+      await syncCalendarSourceNow(saved.id);
+    } catch (e) {
+      toast(I18n.t('Could not save that source: ') + e.message, 8000);
+    }
+  }
+
+  async function removeCalendarSource(id) {
+    const src = calSources.find((x) => x.id === id);
+    if (!await Dialog.confirm(
+      `${I18n.t('Stop syncing')} ${src?.label || ''}? ${I18n.t('Its events are removed from Hmelj. Nothing is deleted on the server.')}`,
+      { title: I18n.t('Stop syncing'), okLabel: I18n.t('Stop syncing'), danger: true })) return;
+    try {
+      await API.deleteCalendarSource(id);
+      await loadCalendars();
+      renderCalendars();
+      Calendar.refresh();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  async function toggleCalendarSynced(sourceId, calendarId, enabled) {
+    const src = calSources.find((x) => x.id === sourceId);
+    if (!src) return;
+    try {
+      await API.saveCalendarSource({
+        ...src,
+        calendars: calList.filter((c) => c.sourceId === sourceId)
+          .map((c) => ({ ...c, enabled: c.id === calendarId ? enabled : c.enabled })),
+      }, sourceId);
+      await loadCalendars();
+      renderCalendars();
+      if (enabled) await syncCalendarSourceNow(sourceId);
+      else Calendar.refresh();
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  async function syncCalendarSourceNow(id) {
+    if (!id || calSyncing.has(id)) return;
+    calSyncing.add(id);
+    renderCalendars();
+    try {
+      const r = await API.syncCalendarSource(id);
+      const failed = (r.calendars || []).find((c) => c.error);
+      if (failed) toast(`${I18n.t('Sync failed')}: ${failed.error}`, 8000);
+      else {
+        const n = (r.calendars || []).reduce((a, c) => a + (c.added || 0), 0);
+        toast(n ? `${I18n.t('Synced')}: ${n} ${I18n.t('events')}` : I18n.t('Already up to date'));
+      }
+      calSources = r.sources || calSources;
+      calList = r.calendars || calList;
+      Calendar.refresh();
+    } catch (e) {
+      toast(`${I18n.t('Sync failed')}: ${e.message}`, 8000);
+    } finally {
+      calSyncing.delete(id);
+      renderCalendars();
+    }
+  }
+
   function renderTab() {
-    ({ general: renderGeneral, reading: renderReading, compose: renderCompose, identities: renderIdentities, filters: renderFilters, folders: renderFolders, scheduler: renderScheduler, contacts: renderContacts, accounts: renderAccountsTab, security: renderSecurity, admin: renderAdmin, log: renderLog }[tab])();
+    ({ general: renderGeneral, reading: renderReading, compose: renderCompose, identities: renderIdentities, filters: renderFilters, subject: renderSubject, saved: renderSaved, templates: renderTemplates, folders: renderFolders, scheduler: renderScheduler, contacts: renderContacts, calendars: renderCalendars, accounts: renderAccountsTab, security: renderSecurity, admin: renderAdmin, log: renderLog }[tab])();
   }
 
   /** `startTab` is for the callers that mean a specific one (the user menu's
@@ -3179,6 +4907,18 @@ const Settings = (() => {
     draft = { ...state.settings };
     identities = structuredClone(state.identities);
     filters = await API.filters();
+    subjectRules = await API.subjectRules();
+    savedSearches = structuredClone(state.savedSearches || []);
+    templates = await API.templates().catch(() => []);
+    savedSubjectKey = subjectKey(subjectRules);
+    // Every rule closed and no filter on each open, the same reasoning the
+    // Filters tab reopens on its list for: a search left over from last time
+    // looks exactly like rules having gone missing.
+    subjectExpanded.clear();
+    subjectSearch = '';
+    // The test box starts empty on each open — a subject pasted last time is
+    // not something to reopen into, and the account picker re-derives itself.
+    subjectTest = { subject: '', accountId: null, result: null, steps: [], timer: null };
     // Filters tab always reopens on the list, never inside an editor whose
     // filter may not even exist any more.
     filtersView = 'list';
@@ -3189,6 +4929,10 @@ const Settings = (() => {
     filtersListScrollTop = 0;
     savedFiltersKey = filtersKey(filters);
     filterFoldersLoaded = false;
+    // Re-read rather than cached for the module's lifetime like oauthProviders:
+    // these numbers climb while the backfill runs, so a figure from the last
+    // time Settings was open would understate a fresh index every time.
+    searchIndexInfo = null;
     contacts = structuredClone(state.contacts);
     // Cheap refresh, not just at boot — picks up a custom font an admin
     // uploaded from another session without needing a full reload here too.
@@ -3205,6 +4949,17 @@ const Settings = (() => {
     ctSearch = '';
     ctSelected = new Set();
     ctSuggestOpen = false;
+    // Refetched per open, for the same reason as the suggestions above: the
+    // background poller changes these under us (a book's contact count, a
+    // last-synced time, a credential that has since started failing), and a
+    // panel showing what was true when the page loaded is worse than one that
+    // takes a moment to fill in.
+    ctSources = null;
+    ctSyncing = new Set();
+    calSources = null;
+    calSyncing = new Set();
+    apList = null;
+    davInfo = null;
     tab = startTab || lastTab();
     rememberTab();
     let activeBtn;
@@ -3250,7 +5005,38 @@ const Settings = (() => {
     state.identities = await API.saveIdentities(identities);
     await API.saveFilters(filters);
     savedFiltersKey = filtersKey(filters);
-    state.contacts = await API.saveContacts(contacts);
+    // Same treatment as filters: the footer Save saves every tab, not just the
+    // one on screen. A rejected rule set must not take the rest of Save down
+    // with it — the tab's own button reports the reason properly.
+    try {
+      await API.saveSubjectRules(subjectRules);
+      savedSubjectKey = subjectKey(subjectRules);
+    } catch (e) {
+      toast(I18n.t('Could not save the subject rules') + ': ' + e.message, 5000);
+    }
+    // Same again: adopt the server's normalised list (it drops empty queries and
+    // fills in missing names), then rebuild the sidebar so a rename or reorder
+    // shows without a reload.
+    try {
+      state.savedSearches = await API.saveSavedSearches(savedSearches);
+      savedSearches = structuredClone(state.savedSearches);
+      // No loadFolders() here — saveSettings already rebuilds the sidebar
+      // below, which is what makes a rename or reorder show without a reload.
+    } catch (e) {
+      toast(I18n.t('Could not save the saved searches') + ': ' + e.message, 5000);
+    }
+    try {
+      // Compose is told directly, so the 📋 button appears or disappears
+      // without a reload the moment the first template exists.
+      Compose.setTemplates(templates = await API.saveTemplates(templates));
+    } catch (e) {
+      toast(I18n.t('Could not save the templates') + ': ' + e.message, 5000);
+    }
+    // Only the LOCAL address book. Synced contacts belong to somebody else's
+    // server and are written there through their own route as they are edited —
+    // sending them here would be asking contacts.json to store a mirror it must
+    // never hold (see server/contactSources.js's header).
+    state.contacts = await API.saveContacts(contacts.filter((c) => !c.synced));
     Compose.setIdentities(state.identities);
     // Picks up the spell-check toggle without a reload — an open composer
     // either starts underlining or hands itself back to the browser right away.
@@ -3261,6 +5047,11 @@ const Settings = (() => {
     applyReadingPane();
     loadFolders();
     loadMessages();
+    // A message already open keeps its own parked frame options, so the new
+    // font has to be pushed into it explicitly — otherwise the one message the
+    // user was looking at while changing the setting is the one that does not
+    // change (see app.js#refreshOpenMessageFonts).
+    refreshOpenMessageFonts();
     for (const s of statuses) s.textContent = 'Saved ✓';
     setTimeout(() => {
       for (const s of statuses) s.textContent = '';
@@ -3301,6 +5092,18 @@ const Settings = (() => {
   function init() {
     document.querySelectorAll('#settings-tabs button').forEach((b) =>
       b.addEventListener('click', () => switchTab(b.dataset.tab)));
+    // Delegated from the modal, bound once: every tab rebuilds its own body on
+    // each render, so a listener per badge would be re-attached constantly and
+    // leak one per render of every tab ever opened.
+    document.getElementById('settings-modal').addEventListener('click', (e) => {
+      const b = e.target.closest('.set-help');
+      if (!b) return;
+      // A `?` inside a <label> would otherwise activate the control the label
+      // is for — clicking it would toggle the very tick box it explains.
+      e.preventDefault();
+      e.stopPropagation();
+      Dialog.alert(b.dataset.help, { title: b.dataset.helpTitle || I18n.t('What this setting does') });
+    });
     document.getElementById('btn-settings-close').addEventListener('click', close);
     document.getElementById('btn-settings-save').addEventListener('click', saveSettings);
     document.getElementById('btn-settings-save-mobile').addEventListener('click', saveSettings);

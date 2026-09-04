@@ -14,6 +14,7 @@ import { isSafePostTarget, parseMailto, pickUnsubscribeAnchor, ONE_CLICK_BODY } 
 import { BOX_FOLDER, isBox, HOME_FALLBACK, noteOrigins, recallOrigin, dropOrigins, planReturn, originKey } from './refile.js';
 import { isActionable } from './icalendar.js';
 import { createByteLru, attachmentKey, etagFor, etagMatches } from './attachmentCache.js';
+import { zipSync, safeEntryName } from './zip.js';
 import { runFilters } from './filters.js';
 import {
   requireAuth, createSession, destroySession, sessionFromRequest,
@@ -25,6 +26,19 @@ import {
 } from './session.js';
 import * as accounts from './accounts.js';
 import { addContacts, learnRecipients } from './contacts.js';
+import * as contactSources from './contactSources.js';
+import * as vcard from './vcard.js';
+import * as contactsSync from './contactsSync/index.js';
+import * as contactSyncRunner from './contactSyncRunner.js';
+import * as calendarStore from './calendarStore.js';
+import * as calendarBackends from './calendar/index.js';
+import * as calendarEvents from './calendarEvents.js';
+import * as calendarSync from './calendarSync.js';
+import * as calendarReminders from './calendarReminders.js';
+import * as calendarWrite from './calendarWrite.js';
+import * as appPasswords from './appPasswords.js';
+import * as davPublish from './davPublish.js';
+import { davRouter, wellKnownRedirects } from './davServer.js';
 import * as oauth from './oauth.js';
 import * as idle from './idle.js';
 // Imported directly, not through mailClient's protocol dispatch: contacts have
@@ -36,6 +50,8 @@ import * as graphClient from './graphClient.js';
 // IMAP-specific plumbing, not one of the protocol-agnostic mail operations.
 import * as imapClient from './imapClient.js';
 import * as scheduledSend from './scheduledSend.js';
+import * as snooze from './snooze.js';
+import * as exportLib from './export.js';
 import * as accountOverrides from './accountOverrides.js';
 import { currentUser, runAsAccount, runWithAccount, userKey } from './session.js';
 import { listPresets, savePreset, deletePreset } from './presets.js';
@@ -53,8 +69,10 @@ import * as analytics from './analytics.js';
 import * as proofread from './proofread.js';
 import * as userLog from './userLog.js';
 import { queryNeedsBodySearch, extractStarredTerm } from './searchQuery.js';
+import * as subjectRules from './subjectRules.js';
 import { groupByKey, mergeGroupResults } from './unifiedMerge.js';
 import { log } from './log.js';
+import * as pushI18n from './pushI18n.js';
 
 const reqLog = log.scope('http');
 const htmlLog = log.scope('html');
@@ -109,6 +127,59 @@ app.get(Object.keys(HTML_ENTRY_POINTS), (req, res, next) => {
   res.set('Cache-Control', 'no-cache'); // the shell itself must always be revalidated — it names the versions
   res.type('html').send(html);
 });
+// The CalDAV/CardDAV server, and RFC 6764's auto-discovery for it. Both are
+// registered BEFORE the static handler: `/.well-known/*` would otherwise be a
+// 404 from the file server before it ever reached the redirect, and every
+// client's auto-discovery would fail on a path the user cannot see.
+//
+// Its own authentication, deliberately outside `app.use('/api', requireAuth)`
+// below — a DAV client speaks HTTP Basic and has no cookie. See
+// server/appPasswords.js for why the login password is not accepted there.
+wellKnownRedirects(app, '/dav');
+app.use('/dav', davRouter());
+
+/**
+ * The web app manifest, translated.
+ *
+ * Everything else visible in this app goes through public/js/i18n.js at
+ * runtime. The manifest cannot: the OS reads it at INSTALL time and builds the
+ * window title and the taskbar right-click jump list from it, long before any
+ * of our JavaScript exists. A Slovenian user pinning Hmelj to the taskbar got
+ * an English "Compose" in the jump list for exactly that reason — the same
+ * class of bug as the push-notification buttons, and fixed the same way
+ * (server/pushI18n.js reads the frontend's own catalogs).
+ *
+ * The language comes from the query string rather than the session, because a
+ * manifest is fetched with credentials omitted by default — there is no cookie
+ * on this request to read a user's settings from. public/js/i18n.js points the
+ * <link> at ?lang=<current> once it knows, which is also what makes the OS
+ * notice a language change: the URL changes, so the manifest is re-read.
+ *
+ * Registered BEFORE express.static, or the file on disk wins.
+ */
+app.get('/manifest.webmanifest', (req, res) => {
+  const lang = /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(String(req.query.lang || '')) ? String(req.query.lang) : 'en';
+  const t = (k) => pushI18n.t(lang, k);
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'manifest.webmanifest'), 'utf8'));
+  } catch (e) {
+    log.warn(`Could not read the manifest: ${e.message}`);
+    return res.status(500).json({ error: 'No manifest' });
+  }
+  manifest.lang = lang;
+  manifest.description = t(manifest.description);
+  manifest.shortcuts = (manifest.shortcuts || []).map((sc) => ({ ...sc, name: t(sc.name) }));
+  // `name` and `short_name` stay as they are on purpose: "Hmelj" is the
+  // application's name, not a word, and translating it would rename the app in
+  // the launcher.
+  res.type('application/manifest+json');
+  // Re-read when the language changes — which it does by changing the URL —
+  // but not on every load: an installed PWA re-fetches this periodically.
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.json(manifest);
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 // Admin-uploaded custom fonts (see server/fonts.js) — unauthenticated, same
 // as the public/ mount above: font files aren't sensitive, and gating this
@@ -356,7 +427,7 @@ app.post('/api/account/username', wrap(async (req, res) => {
 app.get('/api/oauth/providers', (req, res) => res.json(oauth.listProviders()));
 
 app.post('/api/oauth/start', wrap(async (req, res) => {
-  const { provider, email, accountId } = req.body || {};
+  const { provider, email, accountId, features } = req.body || {};
   try {
     res.json(oauth.startFlow({
       // The sign-in belongs to whoever is doing it. viewerKey, so a request that
@@ -372,6 +443,12 @@ app.post('/api/oauth/start', wrap(async (req, res) => {
       // Set when re-signing in to an existing account whose refresh token
       // died, rather than creating a new one.
       accountId: accountId || null,
+      // Optional extra scopes this sign-in should also ask for — 'contacts',
+      // 'calendar' (see oauth.js#FEATURE_SCOPES). Filtered against what the
+      // provider actually offers rather than passed through, so a crafted
+      // request cannot widen the scope string with anything not on that list.
+      features: (Array.isArray(features) ? features : [])
+        .filter((f) => oauth.featuresAvailable(provider).includes(f)),
       redirectUri: oauth.redirectUriFrom(req),
     }));
   } catch (e) {
@@ -562,9 +639,19 @@ app.patch('/api/accounts/:id', (req, res) => {
   const id = req.params.id;
   const viewerKey = currentUser().viewerKey;
   if (accounts.isOwnAccount(viewerKey, id)) {
-    const allowed = ['label', 'color', 'sentFolder', 'draftsFolder', 'trashFolder', 'junkFolder', 'archiveFolder', 'hiddenFolders', 'disabled', 'monitorMode', 'pollIntervalMs', 'notificationSchedule', 'folderNotificationSchedules'];
+    const allowed = ['label', 'color', 'sentFolder', 'draftsFolder', 'trashFolder', 'junkFolder', 'archiveFolder', 'hiddenFolders', 'disabled', 'monitorMode', 'pollIntervalMs', 'notificationSchedule', 'folderNotificationSchedules', 'searchIndex', 'snoozeFolder', 'authservId'];
     const patch = Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => allowed.includes(k)));
+    const wasIndexed = !!accounts.getAccount(id)?.searchIndex;
     accounts.updateAccountFields(id, patch);
+    // Turning full-text search OFF takes effect at once, and means it: the
+    // index rows go now rather than lingering until something happens to prune
+    // the content they shadow. Turning it ON only sets the flag — the indexing
+    // itself is the sync loop's backfill pass (server/contentCache.js), which
+    // fills it in over the next few ticks without blocking this request.
+    if (config.cacheEnabled && 'searchIndex' in patch && wasIndexed && !patch.searchIndex) {
+      const dropped = cache.dropSearchIndex(currentUser().userKey, id);
+      log.info(`Search index for account ${id} turned off — dropped ${dropped} indexed message(s)`);
+    }
     // How often (or how) this account is watched just changed — re-plan its
     // timer/watcher now instead of letting the change take effect only after
     // the current interval happens to elapse.
@@ -584,6 +671,31 @@ app.patch('/api/accounts/:id', (req, res) => {
   const patch = Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => allowed.includes(k)));
   accountOverrides.setOverride(viewerKey, id, patch);
   res.json({ ok: true });
+});
+
+/**
+ * What the full-text index currently costs, for Settings > Accounts.
+ *
+ * `bytes` is the whole index — FTS5 keeps one set of shadow tables for every
+ * indexed message regardless of which account it came from, and there is no
+ * per-account attribution short of the dbstat virtual table, which is not
+ * compiled in. Each account therefore gets a `share` estimated from its row
+ * count, which the UI labels as approximate rather than dressing up as exact.
+ *
+ * Owned accounts only: the flag is the owner's to set (see accounts.js), and a
+ * grantee has no business being told how big someone else's index is.
+ */
+app.get('/api/search-index', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!config.cacheEnabled) return res.json({ enabled: false, accounts: {} });
+  const uKey = currentUser().userKey;
+  const viewerKey = currentUser().viewerKey;
+  const out = {};
+  for (const a of accounts.listAccounts()) {
+    if (!accounts.isOwnAccount(viewerKey, a.id)) continue;
+    out[a.id] = { on: !!a.searchIndex, ...cache.searchIndexStats(uKey, a.id) };
+  }
+  res.json({ enabled: true, maxMb: store.getSettings().searchIndexMaxMb, ...cache.searchIndexStats(uKey), accounts: out });
 });
 
 /**
@@ -916,6 +1028,31 @@ async function starredFoldersFor(account, ownerKey, run, pick = starredFolderPat
   return pick(folders, account);
 }
 
+/**
+ * The subject each row of a LIST shows, per Settings > Subject
+ * (server/subjectRules.js). Response shaping and nothing else: the cache still
+ * holds the real subject, so search goes on matching what the sender actually
+ * wrote; /api/message and /api/thread are deliberately NOT run through this, so
+ * opening a message shows the truth and a Reply's subject is the real one.
+ *
+ * A row whose subject actually changed carries `subjectOriginal` alongside it,
+ * which is what lets the list still put the full thing in a row's tooltip.
+ *
+ * `fallbackAccountId` is for the single-account routes, whose rows carry no
+ * account of their own; a unified row does (cache.js#queryUnified, sweepLive)
+ * and uses its own, since one list can span accounts with different rules.
+ */
+function shortenSubjects(messages, fallbackAccountId = null) {
+  // The overwhelmingly common case — nobody has written a rule — costs one
+  // small JSON read and nothing per message.
+  const rules = store.getSubjectRules();
+  if (!rules.length || !Array.isArray(messages) || !messages.length) return messages;
+  return messages.map((m) => {
+    const shown = subjectRules.applyRules(m.subject, rules, m.account?.id || fallbackAccountId);
+    return shown === m.subject ? m : { ...m, subject: shown, subjectOriginal: m.subject };
+  });
+}
+
 app.get('/api/unified/:box', wrap(async (req, res) => {
   // Express's default weak-ETag/conditional-GET handling can otherwise let the browser
   // go on trusting a previous answer for the same URL+query without even asking the
@@ -966,7 +1103,7 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
       return { account: a, run, folders: folders.filter((p) => !mutedPairs?.has(schedule.pairKey(a.id, p))) };
     }));
     const starredResult = await sweepLive(targets, { page, pageSize, q, unreadOnly, flaggedOnly: true, label: 'is:starred' });
-    return res.json({ total: starredResult.total, page, pageSize, unified: true, messages: starredResult.messages });
+    return res.json({ total: starredResult.total, page, pageSize, unified: true, messages: shortenSubjects(starredResult.messages), scope: 'starred' });
   }
   // "Search everywhere", the unified view's own version of the per-folder route's
   // scope=account branch: every account, every folder, live, header and body.
@@ -983,7 +1120,7 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
     }));
     const swept = await sweepLive(targets, { page, pageSize, q, unreadOnly, fullText: true, label: 'search-everywhere' });
     return res.json({
-      total: swept.total, page, pageSize, unified: true, messages: swept.messages,
+      total: swept.total, page, pageSize, unified: true, messages: shortenSubjects(swept.messages),
       scope: 'account', foldersSwept: targets.reduce((n, t) => n + t.folders.length, 0),
     });
   }
@@ -997,8 +1134,27 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
   // viewer's — queryUnifiedGrouped (above) handles that by querying once per
   // owner-key group and merging, rather than disabling the cache path outright
   // whenever any shared account is present (as this route used to).
-  const needsLive = q ? queryNeedsBodySearch(q) : false;
+  //
+  // …unless the accounts in scope have a full-text index, in which case the
+  // body IS cached and the cache answers the whole query. bodySearchServable
+  // insists on ALL of them being indexed: answering a body: term from the
+  // indexed half of a unified view would look like a complete result and be a
+  // partial one, so a mixed set still goes live. (An UNSCOPED term needs no
+  // such care — see cache.js#buildCacheSearchClause.)
+  const needsLive = q ? !cache.bodySearchServable(q, list) : false;
   const cacheEligible = config.cacheEnabled && !needsLive;
+  // True only when the index actually contributed — a body: term answered from
+  // it. Reported separately from 'cache' so the line under the results can say
+  // the whole message was searched rather than repeating the subject/sender
+  // caveat, which would now be wrong.
+  const indexAnswered = cacheEligible && !!q && queryNeedsBodySearch(q);
+  // Which of the two actually answered, reported to the client so the line under
+  // the results can say so (public/js/app.js#searchScopeRow). It used to claim
+  // "only recently cached mail was searched" for EVERY unescalated search, which
+  // is a flat lie for a body: term — that one is already live and covers the
+  // folder's whole history — and it sent a real "why didn't it find yesterday's
+  // mail?" hunt looking at the cache when the actual limit was folder scope.
+  let scopeUsed = indexAnswered ? 'index' : (cacheEligible ? 'cache' : 'inboxes');
   let result = cacheEligible
     ? queryUnifiedGrouped(groups, { box, page, pageSize, q, unreadOnly, flaggedOnly, mutedPairs })
     : await unifiedLive({ id: currentUser().userId, username: currentUser().username }, list, { box, page, pageSize, q, unreadOnly, flaggedOnly, mutedPairs });
@@ -1011,8 +1167,9 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
   // normal small-but-real result set doesn't pay this cost on top of the cache read.
   if (q && result.total === 0 && cacheEligible) {
     result = await unifiedLive({ id: currentUser().userId, username: currentUser().username }, list, { box, page, pageSize, q, unreadOnly, flaggedOnly, mutedPairs });
+    scopeUsed = 'inboxes';
   }
-  res.json({ total: result.total, page, pageSize, unified: true, messages: result.messages });
+  res.json({ total: result.total, page, pageSize, unified: true, messages: shortenSubjects(result.messages), scope: scopeUsed });
 }));
 
 // ---------- background sync status ----------
@@ -1233,19 +1390,53 @@ app.get('/api/identities', (req, res) => {
 app.put('/api/identities', (req, res) => res.json(store.saveIdentities(req.body || [])));
 
 // ---------- contacts ----------
-app.get('/api/contacts', (req, res) => res.json(store.getContacts()));
-app.put('/api/contacts', (req, res) => res.json(store.saveContacts(req.body || [])));
+/**
+ * The address book: what the user typed, plus everything synced in.
+ *
+ * One flat list, because every consumer (the compose recipient picker, the
+ * Settings editor) wants "people I can write to" and does not care where a row
+ * came from. Synced rows carry `synced: true` and a composite id — see
+ * contactSources.js#allRows — which is what lets the editor mark them and the
+ * routes below tell the two kinds apart.
+ */
+app.get('/api/contacts', (req, res) => res.json([...store.getContacts(), ...contactSources.allRows()]));
+
+/**
+ * Replaces the LOCAL address book.
+ *
+ * Synced rows are stripped rather than trusted, even though no Hmelj client
+ * sends them back. This route takes a whole list and overwrites contacts.json
+ * with it, and contacts.json is the only copy of the hand-typed address book
+ * that exists anywhere — so "the client would not do that" is not a good enough
+ * guarantee. A synced contact is edited through
+ * PUT /api/contact-sources/rows/:id, which writes to the server it came from.
+ */
+app.put('/api/contacts', (req, res) => {
+  const incoming = Array.isArray(req.body) ? req.body : [];
+  const local = incoming.filter((c) => !c?.synced);
+  res.json([...store.saveContacts(local), ...contactSources.allRows()]);
+});
 /** Removes one contact by id, answering with the list that's left so the caller
  * can adopt it wholesale. A dedicated route rather than a PUT of the whole list:
  * this is reachable straight from compose's recipient autocomplete, where the
  * client holds a filtered VIEW of the contacts and PUTting that back would
  * delete everything not currently matching what was typed. */
-app.delete('/api/contacts/:id', (req, res) => {
+app.delete('/api/contacts/:id', wrap(async (req, res) => {
+  // A synced row's id is composite (contactSources.js#allRows). Deleting one
+  // means deleting the CARD on the server it came from — removing only the
+  // local mirror would put it straight back on the next poll, which reads as
+  // "delete does nothing".
+  const target = contactSources.resolveRow(req.params.id);
+  if (target) {
+    await contactsSync.deleteCardFor(myKey(), target.source, target.book,
+      { href: target.card.href, url: target.card.url, etag: target.card.etag });
+    return res.json({ contacts: [...store.getContacts(), ...contactSources.allRows()] });
+  }
   const contacts = store.getContacts();
   const next = contacts.filter((c) => c.id !== req.params.id);
   if (next.length === contacts.length) return res.status(404).json({ error: 'No such contact' });
-  res.json({ contacts: store.saveContacts(next) });
-});
+  res.json({ contacts: [...store.saveContacts(next), ...contactSources.allRows()] });
+}));
 
 /**
  * People this user actually corresponds with, harvested from the local message
@@ -1281,7 +1472,11 @@ app.get('/api/contacts/suggestions', (req, res) => {
     ...list.map((a) => String(a.email || '').toLowerCase()),
     ...store.getIdentities().map((i) => String(i.email || '').toLowerCase()),
   ].filter(Boolean));
-  const known = new Set(store.getContacts().map((c) => String(c.email || '').toLowerCase()));
+  // Synced contacts count as known too: offering to "add" somebody who is
+  // already in the address book would create a second, local copy of them that
+  // then never goes away.
+  const known = new Set([...store.getContacts(), ...contactSources.allRows()]
+    .map((c) => String(c.email || '').toLowerCase()));
   const suggestions = [...merged.values()]
     .filter((c) => !known.has(c.email) && !mine.has(c.email))
     .sort((a, b) => (b.sent - a.sent) || (b.received - a.received) || (b.last - a.last))
@@ -1347,6 +1542,680 @@ app.post('/api/contacts/import', (req, res) => {
   }
   res.json(addContacts(rows));
 });
+
+// ---------- contact sources (live CardDAV / Google / Microsoft / Exchange sync) ----------
+//
+// Everything here is viewerKey-scoped through contactSources.js, like the rest
+// of a person's own configuration — see store.js's userDir() comment for why
+// that must never follow the shared-mail-account ownership swap.
+
+const myKey = () => currentUser().viewerKey;
+
+app.get('/api/contact-sources', (req, res) => res.json({
+  sources: contactSources.listSources(),
+  kinds: contactSources.SOURCE_KINDS,
+}));
+
+/**
+ * Ask a server what it has, WITHOUT saving anything.
+ *
+ * Its own route because the alternative — save first, then discover — leaves a
+ * broken source behind every time a password is mistyped, which is the common
+ * case when adding one. The credentials are used for this one request and
+ * dropped unless the caller goes on to save.
+ */
+app.post('/api/contact-sources/discover', wrap(async (req, res) => {
+  const draft = { ...(req.body || {}) };
+  // A saved source re-discovering itself sends no password (the UI never has
+  // it); fall back to the stored one rather than making the user retype it.
+  if (draft.id && !draft.password) {
+    const stored = contactSources.rawSource(draft.id);
+    if (stored) { draft.password = contactSources.passwordOf(stored); draft.kind ||= stored.kind; }
+  }
+  const probe = {
+    id: draft.id || 'probe', kind: draft.kind || 'carddav', label: draft.label || '',
+    url: draft.url || '', username: draft.username || '',
+    // buildContext decrypts what it finds here, so a plaintext probe password
+    // has to arrive already encrypted — the same shape a stored one has.
+    password: draft.password ? accounts.encrypt(String(draft.password)) : '',
+    accountId: draft.accountId || '', direction: 'pull', books: [],
+  };
+  res.json(await contactsSync.discoverFor(myKey(), probe));
+}));
+
+app.post('/api/contact-sources', wrap(async (req, res) => {
+  const saved = contactSources.saveSource(req.body || {});
+  contactSyncRunner.clearBackoff(saved.id);
+  res.json(saved);
+}));
+
+app.put('/api/contact-sources/:id', wrap(async (req, res) => {
+  const saved = contactSources.saveSource(req.body || {}, req.params.id);
+  // A source that was just fixed should try again now, not sit out the backoff
+  // its broken credentials earned it.
+  contactSyncRunner.clearBackoff(saved.id);
+  res.json(saved);
+}));
+
+app.delete('/api/contact-sources/:id', (req, res) => {
+  contactSources.deleteSource(req.params.id);
+  contactSyncRunner.clearBackoff(req.params.id);
+  res.json({ ok: true });
+});
+
+/**
+ * Edits one synced contact — writing to the server it came from.
+ *
+ * The vCard is rebuilt from the STORED one (see server/vcard.js's header):
+ * Hmelj replaces the name and the addresses and puts every other property back
+ * exactly as it arrived, so an edit here cannot delete somebody's birthday,
+ * photo or postal address.
+ *
+ * A 412 from the server means it changed under us and is passed through as a
+ * 412 rather than retried unconditionally — the unconditional retry is how the
+ * other person's edit gets destroyed.
+ */
+app.put('/api/contact-sources/rows/:id', wrap(async (req, res) => {
+  const target = contactSources.resolveRow(req.params.id);
+  if (!target) return res.status(404).json({ error: 'No such contact' });
+  const { name, email } = req.body || {};
+
+  const card = vcard.parseCard(target.card.vcard);
+  if (!card) return res.status(409).json({ error: 'That contact could not be read back — sync it again first.' });
+  const patch = {};
+  if (name !== undefined) patch.name = String(name);
+  if (email !== undefined) {
+    // Only the address this ROW stands for changes. A card with a work and a
+    // private address shows as two rows, and editing one of them must not
+    // collapse the card down to a single address.
+    const emails = vcard.cardEmails(card).map((e) => ({ email: e.email, types: e.types }));
+    if (emails[target.emailIndex]) emails[target.emailIndex] = { ...emails[target.emailIndex], email: String(email) };
+    else emails.push({ email: String(email) });
+    patch.emails = emails;
+  }
+  const updated = vcard.serializeCard(vcard.applyContact(card, patch));
+
+  await contactsSync.updateCardFor(myKey(), target.source, target.book,
+    { href: target.card.href, url: target.card.url, etag: target.card.etag }, updated);
+  res.json({ contacts: [...store.getContacts(), ...contactSources.allRows()] });
+}));
+
+/** Creates a contact in one synced book. */
+app.post('/api/contact-sources/:id/books/:bookId/cards', wrap(async (req, res) => {
+  const source = contactSources.rawSource(req.params.id);
+  const book = source?.books?.find((b) => b.id === contactSources.assertId(req.params.bookId));
+  if (!source || !book) return res.status(404).json({ error: 'No such address book' });
+  const { name = '', email = '' } = req.body || {};
+  if (!String(email).includes('@')) return res.status(400).json({ error: 'A contact needs an e-mail address' });
+  const uid = crypto.randomUUID();
+  const card = vcard.newCard({ name: String(name), emails: [{ email: String(email) }], uid });
+  await contactsSync.createCardFor(myKey(), source, book, { uid, vcard: vcard.serializeCard(card) });
+  res.json({ contacts: [...store.getContacts(), ...contactSources.allRows()] });
+}));
+
+/** Sync one source now. Goes through the runner, not the engine directly, so
+ *  the in-flight guard is shared with the background poll — a double-click and
+ *  a timer tick must not both write the same book file. */
+app.post('/api/contact-sources/:id/sync', wrap(async (req, res) => {
+  contactSources.assertId(req.params.id);
+  contactSyncRunner.clearBackoff(req.params.id);
+  const result = await contactSyncRunner.syncSourceNow(myKey(), req.params.id, {
+    force: !!req.body?.force, interactive: true,
+  });
+  res.json({ ...result, sources: contactSources.listSources() });
+}));
+
+// ---------- calendars ----------
+//
+// viewerKey-scoped throughout (calendarStore.js), like the rest of a person's
+// own configuration — see store.js's userDir() comment for why that must never
+// follow the shared-mail-account ownership swap.
+
+/** The viewer's zone, which decides two things and no others: which day a timed
+ *  event belongs to, and how a floating event is read. Falls back to the
+ *  server's own zone when the setting is empty, which is what a client that has
+ *  not sent one yet gets. */
+function viewerTimezone(req) {
+  const asked = String(req.query.tz || '').trim();
+  // Validated by trying it, not by pattern: the set of valid zone names is
+  // whatever this Node's ICU knows, and a query parameter is user input.
+  if (asked) {
+    try { new Intl.DateTimeFormat('en', { timeZone: asked }); return asked; } catch { /* fall through */ }
+  }
+  return store.getSettings().timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+app.get('/api/calendars', (req, res) => res.json({
+  sources: calendarStore.listSources(),
+  calendars: calendarStore.listCalendars(),
+  kinds: calendarStore.SOURCE_KINDS,
+  // Microsoft and Exchange calendars are only known over a rolling window, and
+  // the UI has to be able to say so — "my appointment in 2031 is missing"
+  // deserves a better answer than silence.
+  window: calendarSync.currentWindow(),
+  timezone: viewerTimezone(req),
+}));
+
+/** Probe a server and list its calendars WITHOUT saving anything — same
+ *  reasoning as the contact-source probe: save-then-discover leaves a broken
+ *  source behind every time a password is mistyped. */
+app.post('/api/calendars/discover', wrap(async (req, res) => {
+  const draft = { ...(req.body || {}) };
+  if (draft.id && !draft.password) {
+    const stored = calendarStore.rawSource(draft.id);
+    if (stored) { draft.password = calendarStore.passwordOf(stored); draft.kind ||= stored.kind; }
+  }
+  const probe = {
+    id: draft.id || 'probe', kind: draft.kind || 'caldav', label: draft.label || '',
+    url: draft.url || '', username: draft.username || '',
+    // buildContext decrypts what it finds here, so a plaintext probe password
+    // has to arrive already encrypted — the same shape a stored one has.
+    password: draft.password ? accounts.encrypt(String(draft.password)) : '',
+    accountId: draft.accountId || '', calendars: [],
+  };
+  res.json(await calendarBackends.discoverFor(currentUser().viewerKey, probe));
+}));
+
+app.post('/api/calendars/sources', wrap(async (req, res) => {
+  const saved = calendarStore.saveSource(req.body || {});
+  calendarSync.clearBackoff(saved.id);
+  res.json(saved);
+}));
+
+app.put('/api/calendars/sources/:id', wrap(async (req, res) => {
+  const saved = calendarStore.saveSource(req.body || {}, req.params.id);
+  // A source that was just fixed should try again now rather than sit out the
+  // backoff its broken credentials earned it.
+  calendarSync.clearBackoff(saved.id);
+  res.json(saved);
+}));
+
+app.delete('/api/calendars/sources/:id', (req, res) => {
+  calendarStore.deleteSource(req.params.id);
+  calendarSync.clearBackoff(req.params.id);
+  res.json({ ok: true });
+});
+
+/** Sync one source now. Through the runner, not the backend directly, so the
+ *  in-flight guard is shared with the background poll. */
+app.post('/api/calendars/sources/:id/sync', wrap(async (req, res) => {
+  calendarStore.assertId(req.params.id);
+  calendarSync.clearBackoff(req.params.id);
+  const result = await calendarSync.syncSourceNow(currentUser().viewerKey, req.params.id, {
+    force: !!req.body?.force, interactive: true,
+  });
+  res.json({ ...result, sources: calendarStore.listSources(), calendars: calendarStore.listCalendars() });
+}));
+
+/**
+ * A NEW calendar in this source, created on whatever server it talks to.
+ *
+ * Two steps that must stay in this order: create it remotely, and only then
+ * store it. A local record written first would survive a refusal and leave a
+ * calendar in the list that does not exist anywhere — the same reasoning the
+ * discover-then-save flow already follows.
+ */
+app.post('/api/calendars/sources/:id/calendars', wrap(async (req, res) => {
+  const uKey = currentUser().viewerKey;
+  const source = calendarStore.rawSourceFor(uKey, calendarStore.assertId(req.params.id));
+  if (!source) return res.status(404).json({ error: 'No such calendar source' });
+  const collection = await calendarBackends.createCalendarFor(uKey, source, {
+    displayName: req.body?.displayName,
+    color: calendarWrite.normalizeEventColor(req.body?.color) || '',
+  });
+  const stored = calendarStore.addCalendarFor(uKey, source.id, collection);
+  // Straight into a sync, so the new calendar is not sitting there looking
+  // broken (no events, never synced) until the poller next comes round.
+  try { await calendarSync.syncSourceNow(uKey, source.id, { interactive: true }); }
+  catch (e) { log.scope('calendar').warn(`Created ${stored.displayName} but could not sync it yet: ${e.message}`); }
+  res.json({ calendar: stored, sources: calendarStore.listSources(), calendars: calendarStore.listCalendars() });
+}));
+
+/** Show or hide one calendar, or give it a colour of your own. Its own route
+ *  rather than a source PUT: these are one-click changes in the sidebar and in
+ *  Settings, and round-tripping the whole source record through the browser for
+ *  them would be both slower and one more chance to send back stale sync
+ *  state. */
+app.patch('/api/calendars/:id', (req, res) => {
+  const found = calendarStore.resolveCalendar(calendarStore.assertId(req.params.id));
+  if (!found) return res.status(404).json({ error: 'No such calendar' });
+  const uKey = currentUser().viewerKey;
+  if (req.body?.visible !== undefined) {
+    calendarStore.updateSyncStateFor(uKey, found.source.id, found.calendar.id, { visible: !!req.body.visible });
+  }
+  if (req.body?.color !== undefined) {
+    // Validated, because this value is interpolated into a style attribute in
+    // the browser — same reasoning and same function as an event's own colour.
+    const asked = String(req.body.color ?? '');
+    const color = calendarWrite.normalizeEventColor(asked);
+    // A value that was MEANT as a colour and is not one is refused, not quietly
+    // treated as "clear" — which is what the first cut did, so a bad request
+    // wiped the colour of the calendar it was aimed at. Only a genuinely empty
+    // string means clear.
+    if (asked.trim() && !color) return res.status(400).json({ error: 'That is not a colour' });
+    // A colour the USER chose has to survive the next discovery, which reports
+    // the server's own again — calendarStore.js#mergeCalendars checks the lock
+    // this sets. Clearing hands it back to the automatic colour rather than to
+    // no colour at all; see setCalendarColorFor.
+    calendarStore.setCalendarColorFor(uKey, found.source.id, found.calendar.id, color);
+  }
+  res.json({ calendars: calendarStore.listCalendars() });
+});
+
+/**
+ * The occurrences in a window — everything the calendar views draw.
+ *
+ * `from` and `to` are epoch milliseconds. The window is capped rather than
+ * trusted: an unbounded one would expand every recurring event since 1970, and
+ * the request is reachable by anyone with a session.
+ */
+const MAX_CALENDAR_SPAN_MS = 400 * 86400000;
+app.get('/api/calendar/events', (req, res) => {
+  const from = Number(req.query.from);
+  const to = Number(req.query.to);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+    return res.status(400).json({ error: 'from and to must be epoch milliseconds, with to after from' });
+  }
+  const uKey = currentUser().viewerKey;
+  const timezone = viewerTimezone(req);
+  const ids = req.query.calendars
+    ? String(req.query.calendars).split(',').filter(Boolean)
+    : calendarStore.visibleCalendarIdsFor(uKey);
+  res.json({
+    events: calendarEvents.occurrencesIn(uKey, ids, from, Math.min(to, from + MAX_CALENDAR_SPAN_MS), { timezone }),
+    timezone,
+  });
+});
+
+/** One event. `start` names which occurrence of a series is meant; without it
+ *  the series itself is described. */
+app.get('/api/calendar/event/:calendarId/:uid', wrap(async (req, res) => {
+  const uKey = currentUser().viewerKey;
+  const calendarId = calendarStore.assertId(req.params.calendarId);
+  const detail = calendarEvents.eventDetail(uKey, calendarId, req.params.uid, {
+    occurrenceStart: req.query.start ? Number(req.query.start) : null,
+    timezone: viewerTimezone(req),
+  });
+  if (!detail) return res.status(404).json({ error: 'No such event' });
+
+  // Microsoft and Exchange list events without their bodies — Graph truncates
+  // at 255 characters and EWS's FindItem returns none at all — so the notes,
+  // the attendee list and the "join the call" link are fetched here, for the
+  // one event being opened. A failure is not an error: the event still opens
+  // with everything the last sync knew.
+  if (detail.partialDescription) {
+    const found = calendarStore.resolveCalendarFor(uKey, calendarId);
+    const backend = found && calendarBackends.backendFor(found.source.kind);
+    if (backend?.fetchDetail) {
+      try {
+        const extra = await calendarBackends.withSource(uKey, found.source,
+          (ctx) => backend.fetchDetail(ctx, { ...detail, providerId: detail.providerId, itemId: detail.itemId }));
+        if (extra) Object.assign(detail, extra, { partialDescription: false });
+      } catch (e) {
+        log.scope('calendar').debug(`Could not read the full event: ${e.message}`);
+      }
+    }
+  }
+
+  // The raw iCalendar stays on the server: nothing in the UI reads it, and it
+  // routinely carries every attendee's address. The provider's own opaque ids
+  // go with it — they are how a write would be addressed, and the browser has
+  // no use for them.
+  const { ical, providerId, itemId, ...safe } = detail;
+  res.json(safe);
+}));
+
+/**
+ * Who Hmelj is writing as, on an event it creates or changes.
+ *
+ * The default identity, which is the address this person sends everything else
+ * from and therefore the one an attendee's reply has to come back to. Falls
+ * back to the first mail account, and to nothing at all — a calendar-only user
+ * has no address, and an event with no ORGANIZER is perfectly valid.
+ */
+function calendarOrganizer() {
+  const identities = store.getIdentities();
+  const identity = identities.find((i) => i.default) || identities[0];
+  if (identity?.email) return { name: identity.name || '', address: identity.email };
+  const acc = accounts.listAccounts().find((a) => !a.disabled);
+  return acc?.email ? { name: acc.label || '', address: acc.email } : null;
+}
+
+/** The arguments every write shares. `withSource` and `backendFor` come from
+ *  the dispatcher rather than being rebuilt here, so the write path resolves
+ *  credentials exactly the way the sync path does. */
+const writeDeps = () => ({
+  backendFor: calendarBackends.backendFor,
+  withSource: calendarBackends.withSource,
+  organizer: calendarOrganizer(),
+});
+
+/** Re-reads the one calendar a write touched, so the new state is visible
+ *  immediately rather than at the next poll — up to five minutes of a screen
+ *  that looks like nothing happened. */
+async function afterCalendarWrite(uKey, calendarId) {
+  const found = calendarStore.resolveCalendarFor(uKey, calendarId);
+  if (!found) return;
+  try {
+    await calendarBackends.refreshCalendarFor(uKey, found.source.id, found.calendar.id, { window: calendarSync.currentWindow() });
+  } catch (e) {
+    // The write itself succeeded; a failed re-read is a stale screen, not a
+    // lost event, and the next poll fixes it.
+    log.scope('calendar').debug(`Post-write refresh failed: ${e.message}`);
+  }
+  events.broadcastSettings(uKey);
+}
+
+/**
+ * An event's colour, stored by Hmelj rather than written into the event.
+ *
+ * Applied AFTER the write, and only if the write succeeded: a colour recorded
+ * for an event that failed to save would point at nothing, and would then
+ * quietly colour whatever later took that uid.
+ *
+ * See calendarStore.js's per-event colours section for why this is not the
+ * iCalendar COLOR property any more — Google's CalDAV drops it, and Microsoft
+ * and Exchange never stored iCalendar in the first place.
+ */
+function applyEventColor(uKey, calendarId, uid, input) {
+  if (input?.color === undefined || !uid) return;
+  calendarStore.setEventColorFor(uKey, calendarId, uid, calendarWrite.normalizeEventColor(input.color) || '');
+}
+
+app.post('/api/calendar/events', wrap(async (req, res) => {
+  const uKey = currentUser().viewerKey;
+  const { calendarId, ...input } = req.body || {};
+  const result = await calendarWrite.createEventFor(uKey, calendarId, input, writeDeps());
+  applyEventColor(uKey, calendarId, result?.uid, input);
+  await afterCalendarWrite(uKey, calendarId);
+  res.json(result);
+}));
+
+/**
+ * Changes one event.
+ *
+ * `scope` is the whole reason this route is not a plain PUT: on a repeating
+ * event, "one", "future" and "all" write three genuinely different documents
+ * (see server/calendarWrite.js). It is required from the client rather than
+ * defaulted, so a UI that forgot to ask cannot silently pick the most
+ * destructive one.
+ */
+app.put('/api/calendar/event/:calendarId/:uid', wrap(async (req, res) => {
+  const uKey = currentUser().viewerKey;
+  const calendarId = calendarStore.assertId(req.params.calendarId);
+  const { scope = 'all', occurrenceStart = null, ...input } = req.body || {};
+  if (!calendarWrite.SCOPES.includes(scope)) {
+    return res.status(400).json({ error: `scope must be one of ${calendarWrite.SCOPES.join(', ')}` });
+  }
+  const result = await calendarWrite.updateEventFor(uKey, calendarId, req.params.uid, input, {
+    scope, occurrenceStart, ...writeDeps(),
+  });
+  // `result.uid` rather than the one in the URL: a "this and following" split
+  // writes a NEW series under a new uid, and the colour belongs to the half the
+  // edit produced.
+  applyEventColor(uKey, calendarId, result?.uid || req.params.uid, input);
+  await afterCalendarWrite(uKey, calendarId);
+  res.json(result);
+}));
+
+app.delete('/api/calendar/event/:calendarId/:uid', wrap(async (req, res) => {
+  const uKey = currentUser().viewerKey;
+  const calendarId = calendarStore.assertId(req.params.calendarId);
+  const scope = String(req.query.scope || 'all');
+  if (!calendarWrite.SCOPES.includes(scope)) {
+    return res.status(400).json({ error: `scope must be one of ${calendarWrite.SCOPES.join(', ')}` });
+  }
+  const result = await calendarWrite.deleteEventFor(uKey, calendarId, req.params.uid, {
+    scope,
+    occurrenceStart: req.query.start ? Number(req.query.start) : null,
+    ...writeDeps(),
+  });
+  // Only when the whole event went. Deleting ONE occurrence, or capping a
+  // series, leaves the rest of it on the calendar still wanting its colour.
+  if (scope === 'all') calendarStore.forgetEventColorFor(uKey, calendarId, req.params.uid);
+  await afterCalendarWrite(uKey, calendarId);
+  res.json(result);
+}));
+
+/**
+ * Snoozes one reminder, from the notification's own Snooze button.
+ *
+ * Reached from the service worker with no page open, which is why it takes the
+ * occurrence by value rather than by any id the page would have had to look up.
+ * Deliberately not subject to the staleness guards the runner applies: the user
+ * asked for this one, at this time, explicitly.
+ */
+app.post('/api/calendar/snooze', wrap(async (req, res) => {
+  const { calendarId, uid, start, minutes } = req.body || {};
+  if (!calendarId || !uid || !Number.isFinite(Number(start))) {
+    return res.status(400).json({ error: 'calendarId, uid and start are required' });
+  }
+  const found = calendarStore.resolveCalendar(calendarStore.assertId(String(calendarId)));
+  if (!found) return res.status(404).json({ error: 'No such calendar' });
+  res.json(calendarReminders.snooze(currentUser().viewerKey, {
+    calendarId: found.calendar.id, uid: String(uid), start: Number(start),
+    minutes: Number(minutes) || 5,
+  }));
+}));
+
+// ---------- app passwords and published collections (the DAV server) ----------
+
+app.get('/api/app-passwords', (req, res) => res.json({
+  passwords: appPasswords.list(),
+  scopes: appPasswords.SCOPES,
+}));
+
+/**
+ * Creates one and returns the secret.
+ *
+ * The ONLY time it exists in readable form — it is scrypt-hashed on the way in
+ * and there is deliberately no route that can produce it again. The UI has to
+ * show it once and say so.
+ */
+app.post('/api/app-passwords', wrap(async (req, res) => {
+  const { label, scopes } = req.body || {};
+  res.json(appPasswords.create({ label, scopes }));
+}));
+
+app.delete('/api/app-passwords/:id', (req, res) => {
+  appPasswords.remove(String(req.params.id));
+  res.json({ passwords: appPasswords.list() });
+});
+
+app.get('/api/dav/published', (req, res) => {
+  const uKey = currentUser().viewerKey;
+  res.json({
+    published: davPublish.listFor(uKey).map((p) => ({ ...p, writable: davPublish.isWritable(uKey, p) })),
+    publishable: davPublish.publishable(),
+    // The URL a subscriber types in. Built from the request rather than stored,
+    // so it is right behind a reverse proxy and right on a LAN, and correct
+    // again the day the instance moves.
+    baseUrl: `${oauth.publicBaseFrom(req)}/dav/`,
+    userKey: uKey,
+    hasPassword: appPasswords.hasAnyFor(uKey),
+  });
+});
+
+app.post('/api/dav/published', wrap(async (req, res) => {
+  res.json(davPublish.upsert(req.body || {}));
+}));
+
+app.put('/api/dav/published/:id', wrap(async (req, res) => {
+  res.json(davPublish.upsert(req.body || {}, req.params.id));
+}));
+
+app.delete('/api/dav/published/:id', (req, res) => {
+  davPublish.remove(req.params.id);
+  res.json({ ok: true });
+});
+
+// ---------- subject rules (Settings > Subject) ----------
+//
+// Rewrites the subject SHOWN in a list and in a push notification, per person
+// and per account. server/subjectRules.js owns the engine, why this is
+// display-only, and the regex-safety reasoning behind the save-time refusal
+// below; shortenSubjects() (above, with the list routes) is where the read
+// path uses it.
+app.get('/api/subject-rules', (req, res) => res.json(store.getSubjectRules()));
+app.put('/api/subject-rules', (req, res) => {
+  const list = req.body || [];
+  // All-or-nothing on purpose: the rules CHAIN, so half a chain isn't a
+  // smaller version of the same thing, it's a different rewrite. Better to
+  // refuse the save and name the rule than to store something that reads
+  // wrong.
+  const check = subjectRules.validateAll(list);
+  if (!check.ok) return res.status(400).json({ error: check.error, index: check.index });
+  res.json(store.saveSubjectRules(list));
+});
+// The Test panel in Settings. Takes the rules from the REQUEST rather than from
+// disk, which is the whole point of it: you test the regex you are in the
+// middle of writing, not the one you last saved.
+app.post('/api/subject-rules/test', (req, res) => {
+  const { subject = '', accountId = null, rules = null } = req.body || {};
+  const list = Array.isArray(rules) ? rules : store.getSubjectRules();
+  res.json(subjectRules.explain(subject, list, accountId));
+});
+
+/* ---------- export (server/export.js) ----------
+ *
+ * Two different shapes, because the two kinds of data are nothing alike: the
+ * settings are a handful of small JSON files and fit in one zip; the mail is
+ * unbounded and is streamed as mbox, one folder at a time.
+ */
+
+/** The address book as one vCard file. Rows sharing a name become one card
+ *  with several addresses, which is what a vCard is for and what every other
+ *  address book expects to import. */
+function vcardFor(contacts) {
+  const byName = new Map();
+  for (const c of contacts) {
+    const key = String(c.name || c.email || '').trim().toLowerCase();
+    if (!key) continue;
+    if (!byName.has(key)) byName.set(key, { name: c.name || '', emails: [] });
+    if (c.email) byName.get(key).emails.push({ email: c.email });
+  }
+  return [...byName.values()].map((p) => vcard.serializeCard(vcard.newCard(p))).join('');
+}
+
+/** Everything except the mail: settings, identities, filters, subject rules,
+ *  saved searches, templates, contacts (JSON and vCard), local calendars.
+ *  Mail ACCOUNTS are deliberately excluded — see export.js#settingsArchive. */
+app.get('/api/export/settings', wrap(async (req, res) => {
+  const viewerKey = currentUser().viewerKey;
+  const contacts = store.getContacts();
+  const calendars = {};
+  for (const cal of calendarStore.listCalendarsFor(viewerKey)) {
+    if (cal.sourceKind !== 'local') continue; // the rest live on somebody else's server and are re-syncable
+    try {
+      const events = calendarStore.listLocalEvents(viewerKey, cal.id);
+      // One .ics per event, under a directory per calendar. Concatenating them
+      // into a single VCALENDAR would need the components unwrapped and
+      // re-wrapped, and every one of these files is already a complete,
+      // importable calendar on its own — which is also how they are stored.
+      for (const e of events) calendars[`${cal.id}/${e.file}`] = e.ical;
+    } catch (e) { log.debug(`Export: could not read calendar ${cal.id}: ${e.message}`); }
+  }
+  const files = exportLib.settingsArchive({
+    settings: store.getSettings(),
+    identities: store.getIdentities(),
+    filters: store.getFilters(),
+    subjectRules: store.getSubjectRules(),
+    savedSearches: store.getSavedSearches(),
+    templates: store.getTemplates(),
+    contacts,
+    // A contact ROW is one name + one address (server/contacts.js); a vCard
+    // holds all of a person's addresses, so the rows are regrouped by name on
+    // the way out rather than emitting one card per address.
+    contactsVcf: contacts.length ? vcardFor(contacts) : '',
+    calendars,
+  });
+  const buf = zipSync(files);
+  const name = exportLib.exportFilename(['hmelj', 'settings', new Date().toISOString().slice(0, 10)], 'zip');
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', contentDisposition('attachment', name));
+  res.setHeader('Content-Length', buf.length);
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(buf);
+}));
+
+/**
+ * One folder as mbox, streamed.
+ *
+ * Streamed rather than assembled: a folder can be gigabytes, and buffering it
+ * would mean the export succeeds on small mailboxes and takes the server down
+ * on the ones that actually needed exporting. Written straight to the response
+ * a message at a time, so memory use is one message regardless of folder size.
+ *
+ * No Content-Length for the same reason — the size is not known until the last
+ * message has been fetched, and finding out would mean doing the whole job
+ * twice. The browser shows an indeterminate download; that is the honest state.
+ *
+ * A message that cannot be fetched is SKIPPED and counted, never fatal: one
+ * unreadable message must not cost somebody the other twenty thousand. The
+ * count goes in a trailer comment at the end of the file, where an importer
+ * ignores it and a person reading the file can see it.
+ */
+app.get('/api/export/mail', wrap(async (req, res) => {
+  const folder = decodeURIComponent(req.query.folder || 'INBOX');
+  const acc = accounts.currentAccount();
+  const since = req.query.since ? Date.parse(req.query.since) : null;
+  const name = exportLib.exportFilename([acc.label, folder], 'mbox');
+  res.setHeader('Content-Type', 'application/mbox');
+  res.setHeader('Content-Disposition', contentDisposition('attachment', name));
+  res.setHeader('Cache-Control', 'no-store');
+
+  const PAGE = 100;
+  let page = 1, written = 0, skipped = 0;
+  for (;;) {
+    const batch = await imap.listMessages(folder, { page, pageSize: PAGE });
+    const list = batch?.messages || [];
+    if (!list.length) break;
+    for (const m of list) {
+      if (since && m.date && new Date(m.date).getTime() < since) continue;
+      try {
+        const raw = await imap.getMessageSource(folder, m.uid);
+        // Backpressure: without awaiting drain, a fast mailbox and a slow
+        // connection buffer the whole folder in memory anyway, which is the one
+        // thing streaming was for.
+        if (!res.write(exportLib.mboxEntry(raw, { from: m.from?.address, date: m.date }))) {
+          await new Promise((r) => res.once('drain', r));
+        }
+        written++;
+      } catch (e) {
+        skipped++;
+        log.warn(`Export: skipping ${folder}/${m.uid}: ${e.message}`);
+      }
+    }
+    if (list.length < PAGE) break;
+    page++;
+  }
+  res.end(`\n# Hmelj export: ${written} message(s) from ${folder}${skipped ? `, ${skipped} skipped (unreadable)` : ''}\n`);
+  log.info(`Exported ${written} message(s) from ${acc.label}/${folder}${skipped ? ` (${skipped} skipped)` : ''}`);
+}));
+
+// ---------- templates ----------
+// Whole-list read and write, like identities and saved searches: a handful of
+// them, edited together in one pane, and a PUT of the array is the only write
+// that cannot leave two of them disagreeing about their order.
+app.get('/api/templates', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(store.getTemplates());
+});
+app.put('/api/templates', (req, res) => res.json(store.saveTemplates(req.body)));
+
+// ---------- saved searches ----------
+//
+// Stored and returned as a whole list, like identities and filters: there are a
+// handful of them, the settings pane edits them together, and a PUT of the
+// whole array is the only write that cannot leave two of them disagreeing about
+// their order.
+app.get('/api/saved-searches', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(store.getSavedSearches());
+});
+// The list is normalised by the store rather than here — see store.js's
+// normalizeSavedSearches for what it repairs and what it drops.
+app.put('/api/saved-searches', (req, res) => res.json(store.saveSavedSearches(req.body)));
 
 // ---------- filters ----------
 app.get('/api/filters', (req, res) => res.json(store.getFilters()));
@@ -1869,7 +2738,7 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
     // rather than nothing at all.
     const folders = subtree.length ? starredFolderPaths(subtree, acc) : [folder];
     const starredResult = await sweepLive([{ account: acc, run: (fn) => fn(), folders }], { page, pageSize, q, unreadOnly, flaggedOnly: true, label: 'is:starred' });
-    return res.json({ total: starredResult.total, page, pageSize, messages: starredResult.messages });
+    return res.json({ total: starredResult.total, page, pageSize, messages: shortenSubjects(starredResult.messages, acc.id), scope: 'starred' });
   }
 
   // "Search everywhere" (the list's own footer link — see app.js#searchScopeRow).
@@ -1883,15 +2752,19 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
     const folders = await starredFoldersFor(acc, currentUser().userKey, (fn) => fn(), searchFolderPaths);
     const swept = await sweepLive([{ account: acc, run: (fn) => fn(), folders }],
       { page, pageSize, q, unreadOnly, fullText: true, label: 'search-everywhere' });
-    return res.json({ total: swept.total, page, pageSize, messages: swept.messages, scope: 'account', foldersSwept: folders.length });
+    return res.json({ total: swept.total, page, pageSize, messages: shortenSubjects(swept.messages, acc.id), scope: 'account', foldersSwept: folders.length });
   }
 
   // See /api/unified/:box above: only an explicit body:/-body: term needs a live
   // fetch — everything else (subject/from/to, including the new +/-/"phrase"/field:
   // syntax) is servable from the cache once this folder has synced at least once.
-  const needsLive = q ? queryNeedsBodySearch(q) : false;
+  // On an account with a full-text index the body is servable from here too, so
+  // that term stops being the thing that forces a live search.
+  const searchAcc = accounts.currentAccount();
+  const needsLive = q ? !cache.bodySearchServable(q, [searchAcc]) : false;
+  const indexAnswered = !needsLive && !!q && queryNeedsBodySearch(q);
   if (config.cacheEnabled && !needsLive) {
-    const acc = accounts.currentAccount();
+    const acc = searchAcc;
     const uKey = currentUser().userKey;
     if (cache.hasSyncedBefore(uKey, acc.id, folder)) {
       // One lookup, two uses: the account's real hierarchy separator (for the
@@ -1910,6 +2783,7 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
         threaded: conversationsOn({ q, unreadOnly, flaggedOnly }),
         threadFolders: listScopeFolders(acc, uKey, folder),
         convoFolders: threadScopeFolders(acc, uKey, folder),
+        indexed: !!acc.searchIndex,
       });
       // The cache only ever holds this folder's newest syncBackfillLimit messages (see
       // store.js — 250 by default), not full history. A real search that comes up
@@ -1932,12 +2806,14 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
       // the subfolders it just searched, answering a narrower question than the one
       // asked. Better to report only what the cache holds (this folder tree's newest
       // syncBackfillLimit messages per folder) than to change the scope underfoot.
-      if (flaggedOnly || (!searchCameUpEmpty && !unreadIncomplete)) return res.json(cached);
+      if (flaggedOnly || (!searchCameUpEmpty && !unreadIncomplete)) {
+        return res.json({ ...cached, messages: shortenSubjects(cached.messages, acc.id), scope: indexAnswered ? 'index' : 'cache' });
+      }
     }
   }
 
   const result = await imap.listMessages(folder, { page, pageSize, query: q, unreadOnly, flaggedOnly });
-  res.json(result);
+  res.json({ ...result, messages: shortenSubjects(result.messages, accounts.currentAccount().id), scope: 'folder' });
 }));
 
 /**
@@ -2562,6 +3438,62 @@ app.get('/api/message/:folder/:uid/attachment/:index', wrap(async (req, res) => 
   sendAttachment(req, res, key, a, previewable && req.query.download !== '1');
 }));
 
+/**
+ * Every attachment on one message, as a single .zip.
+ *
+ * Zipped on the server rather than in the browser because the parts are only
+ * on the server: each one is a separate IMAP/Graph/EWS fetch, and doing that
+ * from the client would mean N requests, N copies in the tab's memory, and a
+ * zip built in JavaScript on a phone. Here they are fetched through the same
+ * cache a single download uses, so a second "download all" after opening a few
+ * of them costs nothing extra.
+ *
+ * Embedded images are excluded. A newsletter is routinely twenty of them — the
+ * logo, the spacer gifs, the social icons — and nobody asking for "the
+ * attachments" means those; they are part of the message body, and the chips
+ * this button sits beside do not list them either.
+ */
+app.get('/api/message/:folder/:uid/attachments.zip', wrap(async (req, res) => {
+  const folder = decodeURIComponent(req.params.folder);
+  const uid = decodeURIComponent(req.params.uid);
+  const { userKey: uKey, accountId } = currentUser();
+  const msg = await contentCache.getMessage(uKey, accountId, folder, uid);
+  // EXACTLY the set the reading pane shows as chips, which is `inlineUsed` and
+  // not `inline` — see messageParse.js for why those differ: some senders
+  // (Gmail's own Sent copies among them) fail to mark an embedded image
+  // inline, so `inline` alone both misses real embeds and can exclude a
+  // genuine attachment. Using the other one here would put files in the
+  // archive that the message does not list, or leave out ones it does.
+  const wanted = (msg?.attachments || []).filter((a) => !a.inlineUsed);
+  if (!wanted.length) return res.status(404).json({ error: 'That message has no attachments' });
+
+  const files = [];
+  for (const a of wanted) {
+    const key = attachmentKey(uKey, accountId, folder, uid, a.index);
+    // Sequential, sharing the account's one connection — the same reason
+    // sweepLive walks folders one at a time rather than in parallel.
+    const got = await cachedAttachment(key, () => imap.getAttachment(folder, uid, a.index));
+    files.push({
+      name: a.filename || `attachment-${a.index}`,
+      data: Buffer.isBuffer(got.content) ? got.content : Buffer.from(got.content || ''),
+      date: msg.date ? new Date(msg.date) : new Date(),
+    });
+  }
+
+  const archive = zipSync(files);
+  // Named after the message, so a folder full of these is still navigable —
+  // "attachments.zip" five times over is not. safeEntryName is doing filename
+  // duty here rather than entry duty, which is the same job.
+  const stem = safeEntryName(msg?.subject || 'attachments', 'attachments').slice(0, 80).trim() || 'attachments';
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', contentDisposition('attachment', `${stem}.zip`));
+  res.setHeader('Content-Length', String(archive.length));
+  // Deliberately not cached: it is built from parts that are, and an archive
+  // is a one-off download rather than something a page re-requests.
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(archive);
+}));
+
 app.get('/api/message/:folder/:uid/cid/:cid', wrap(async (req, res) => {
   const folder = decodeURIComponent(req.params.folder);
   const uid = decodeURIComponent(req.params.uid);
@@ -2719,6 +3651,211 @@ app.post('/api/messages/:folder/refile', wrap(async (req, res) => {
   events.broadcastForAccount(currentUser().userKey, currentUserAccountId());
   res.json({ ok: true, box, revert: !!revert, moves });
 }));
+/* ---------- snooze (server/snooze.js) ----------
+ *
+ * "Take this out of my Inbox and bring it back at 08:00 on Monday." The message
+ * really moves, into a per-account folder created on first use — see snooze.js's
+ * header for why hiding it locally was not good enough.
+ */
+
+/**
+ * The account's snooze folder, created if it is not there yet.
+ *
+ * The name is written back onto the account the first time one is made, so a
+ * server that reports the folder under a different path than we asked for
+ * (namespace prefixes like `INBOX.Snoozed` are normal on Courier and older
+ * Dovecot setups) is recorded as IT sees it, not as we guessed. Everything
+ * afterwards — the move, the wake, the sidebar — uses the stored name.
+ */
+async function ensureSnoozeFolder(acc, uKey) {
+  if (acc.snoozeFolder) return acc.snoozeFolder;
+  const existing = (config.cacheEnabled ? cache.getFolders(uKey, acc.id) : [])
+    // Someone may already have a folder by that name from another client. Match
+    // case-insensitively and on the LAST path segment, so `INBOX.Snoozed` and
+    // `Snoozed` both count as one rather than producing a second.
+    .find((f) => (f.path || '').split(/[./\\]/).pop().toLowerCase() === snooze.DEFAULT_SNOOZE_FOLDER.toLowerCase());
+  let name = existing?.path;
+  if (!name) {
+    const created = await imap.createFolder(snooze.DEFAULT_SNOOZE_FOLDER);
+    // ImapFlow reports the path the server actually used; EWS/Graph echo the
+    // name back. Fall back to what we asked for if a backend says nothing.
+    name = created?.path || created?.name || snooze.DEFAULT_SNOOZE_FOLDER;
+    log.info(`Created snooze folder "${name}" for account ${acc.id}`);
+  }
+  accounts.updateAccountFields(acc.id, { snoozeFolder: name });
+  return name;
+}
+
+/**
+ * Snoozes one or more messages: move them out, then write down the promise.
+ *
+ * The move happens here rather than in snooze.js because this is where the
+ * account is resolved and where moveAndMirror already keeps the cache honest —
+ * doing it there would mean a second copy of all of that.
+ */
+app.post('/api/messages/:folder/snooze', wrap(async (req, res) => {
+  const folder = decodeURIComponent(req.params.folder);
+  const { uids = [], wakeAt, addCalendar = false } = req.body || {};
+  if (!Array.isArray(uids) || !uids.length) return res.status(400).json({ error: 'No messages given' });
+  // Validated with snooze.js's own check, and BEFORE anything moves. Two
+  // separate mistakes were possible here and this closes both: `Number(null)`
+  // is 0, which is finite, so a null time passed a bare Number.isFinite test —
+  // and because the move happened first, a request that snooze.remember() then
+  // refused had ALREADY taken the message out of the Inbox, leaving it parked
+  // in the snooze folder with nothing recorded to bring it back.
+  let when;
+  try { when = snooze.validTime(wakeAt); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+
+  const acc = accounts.currentAccount();
+  const uKey = currentUser().userKey;
+  const viewerKey = currentUser().viewerKey;
+  const target = await ensureSnoozeFolder(acc, uKey);
+  if (folder === target) return res.status(400).json({ error: 'These messages are already snoozed' });
+
+  // Read the envelopes BEFORE the move: afterwards these uids name nothing, and
+  // the record needs a subject to show in the list and a Message-ID to find the
+  // message by if its uid turns out to have changed under us.
+  const before = new Map();
+  if (config.cacheEnabled) {
+    for (const m of cache.getMessagesByUids(uKey, acc.id, folder, uids)) before.set(String(m.uid), m);
+  }
+
+  const moved = await moveAndMirror(folder, uids, target);
+  const out = [];
+  for (const uid of uids) {
+    const env = before.get(String(uid)) || {};
+    // No uidMap means the server has no UIDPLUS: the record still gets written,
+    // with a null uid, and the wake finds the message by Message-ID instead.
+    const landed = moved.uidMap?.[uid];
+    let calendar = { calendarId: null, calendarUid: null };
+    if (addCalendar) {
+      try { calendar = await addSnoozeReminderEvent(viewerKey, env, when); }
+      catch (e) { log.warn('Could not add the calendar reminder for a snoozed message:', e.message); }
+    }
+    out.push(snooze.remember(viewerKey, {
+      accountId: acc.id,
+      // For a shared account the mailbox is someone else's, and the wake has to
+      // run as its owner — see the field's comment in snooze.js.
+      ownerUsername: acc.shared ? acc.ownerUsername : currentUser().username,
+      fromFolder: folder,
+      snoozeFolder: target,
+      uid: landed !== undefined ? landed : null,
+      messageId: env.messageId || null,
+      subject: env.subject || '',
+      fromAddr: env.from?.address || '',
+      fromName: env.from?.name || '',
+      wakeAt: when,
+      ...calendar,
+    }));
+  }
+  events.broadcastForAccount(uKey, acc.id);
+  res.json({ ok: true, folder: target, snoozed: out });
+}));
+
+/**
+ * The optional calendar entry: an event at the wake time, with an alarm at zero
+ * minutes so the existing reminder ticker (server/calendarReminders.js) delivers
+ * the notification without this needing a second timer of its own.
+ *
+ * Targets the first writable calendar. Deliberately does NOT auto-create a local
+ * calendar source: that would be a surprising side effect of ticking a checkbox
+ * on a mail message, and a person with no calendar configured is better told
+ * than quietly given one.
+ */
+async function addSnoozeReminderEvent(viewerKey, env, when) {
+  const cal = calendarStore.listCalendarsFor(viewerKey)
+    .find((c) => c.writable && !c.readOnly && c.enabled && c.sourceEnabled);
+  if (!cal) throw Object.assign(new Error('No writable calendar is configured'), { status: 400 });
+  const summary = env.subject ? `Follow up: ${env.subject}` : 'Follow up on a message';
+  const who = env.from?.name || env.from?.address || '';
+  const result = await calendarWrite.createEventFor(viewerKey, cal.id, {
+    summary,
+    start: when,
+    end: when + 30 * 60000,
+    description: who ? `Snoozed message from ${who}.` : 'Snoozed message.',
+    reminders: [0],
+  }, writeDeps());
+  await afterCalendarWrite(viewerKey, cal.id);
+  return { calendarId: cal.id, calendarUid: result?.uid || null };
+}
+
+app.get('/api/snoozed', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(snooze.list(currentUser().viewerKey));
+});
+
+/** Bring one back NOW, ahead of its time. */
+app.post('/api/snoozed/:id/wake', wrap(async (req, res) => {
+  const viewerKey = currentUser().viewerKey;
+  const rec = snooze.get(viewerKey, req.params.id);
+  const owner = listUsers().find((u) => u.username === rec.ownerUsername);
+  if (!owner) return res.status(410).json({ error: 'The owner of that mailbox no longer exists' });
+  const moved = await runAsAccount({ id: owner.id, username: owner.username }, rec.accountId,
+    () => snoozeWakeMove(viewerKey, rec), { purpose: 'snooze' });
+  snooze.forget(viewerKey, rec.id);
+  await dropSnoozeCalendarEvent(viewerKey, rec);
+  res.json({ ok: true, ...moved });
+}));
+
+/** Move one to a different time, leaving the message where it is. */
+app.patch('/api/snoozed/:id', wrap(async (req, res) => {
+  res.json(snooze.resnooze(currentUser().viewerKey, req.params.id, req.body?.wakeAt));
+}));
+
+/**
+ * The move back. Runs under the account OWNER's context, both from the tick and
+ * from the route above — everything it touches (the mailbox, the cache) is the
+ * owner's, not the snoozer's.
+ *
+ * Returns `{gone:true}` when the message is not in the snooze folder any more:
+ * somebody filed it by hand or deleted it, which is a decision rather than a
+ * failure, and putting a copy back in the Inbox would undo it.
+ */
+async function snoozeWakeMove(uKey, rec) {
+  const ownerKey = currentUser().userKey;
+  let uid = rec.uid;
+  // Confirm the uid is still what the record thinks. A snooze can sit for
+  // months, and in that time another client may have moved things around the
+  // folder; the Message-ID is what survives that, so it is the fallback.
+  const stillThere = uid != null && config.cacheEnabled
+    && cache.getMessagesByUids(ownerKey, rec.accountId, rec.snoozeFolder, [uid]).length > 0;
+  if (!stillThere && rec.messageId && config.cacheEnabled) {
+    // Re-sync first: the cache may simply never have seen the folder, which is
+    // not the same as the message being gone.
+    try { await sync.syncFolderNow(ownerKey, accounts.getAccount(rec.accountId), rec.snoozeFolder); }
+    catch (e) { log.debug(`Could not re-sync ${rec.snoozeFolder} before waking: ${e.message}`); }
+    const found = cache.findByMessageId(ownerKey, rec.accountId, rec.snoozeFolder, rec.messageId);
+    uid = found?.uid ?? uid;
+  }
+  if (uid == null) return { gone: true };
+
+  const moved = await moveAndMirror(rec.snoozeFolder, [uid], rec.fromFolder);
+  const landed = moved.uidMap?.[uid];
+  // Back as UNREAD: the whole point of a snooze is that it asks for attention
+  // again at the chosen time, and a message that reappears already-read is one
+  // nothing will draw the eye to.
+  if (landed !== undefined) {
+    try { await imap.setFlags(rec.fromFolder, [landed], { remove: ['\\Seen'] }); }
+    catch (e) { log.debug(`Could not mark a woken message unread: ${e.message}`); }
+    if (config.cacheEnabled) cache.applyFlags(ownerKey, rec.accountId, rec.fromFolder, [landed], { remove: ['\\Seen'] });
+  }
+  events.broadcastForAccount(ownerKey, rec.accountId);
+  return { uid: landed ?? null, folder: rec.fromFolder };
+}
+
+/** Takes the calendar entry away again when a snooze ends early — the reminder
+ *  was for something already dealt with. Never fatal. */
+async function dropSnoozeCalendarEvent(viewerKey, rec) {
+  if (!rec.calendarId || !rec.calendarUid) return;
+  try {
+    await calendarWrite.deleteEventFor(viewerKey, rec.calendarId, rec.calendarUid, writeDeps());
+    await afterCalendarWrite(viewerKey, rec.calendarId);
+  } catch (e) {
+    log.debug(`Could not remove the calendar reminder for an un-snoozed message: ${e.message}`);
+  }
+}
+
 app.post('/api/messages/:folder/copy', wrap(async (req, res) => {
   const result = await imap.copyMessages(decodeURIComponent(req.params.folder), req.body.uids, req.body.target);
   events.broadcastForAccount(currentUser().userKey, currentUserAccountId()); // no cache mirror for copy today, but the destination folder still needs other tabs to know to refetch it
@@ -2906,6 +4043,23 @@ app.post('/api/send', wrap(async (req, res) => {
   // usable identity, or aimed at an account the caller can't send from, should
   // be refused NOW, while there is a compose window open to show the error in —
   // not silently at 07:00 tomorrow with nobody watching.
+  // "Undo send" is a scheduled send with a very short delay — the same queue,
+  // the same cancel route, the same boot catch-up. Applied here rather than in
+  // the browser so the window is honoured even when the tab is closed a second
+  // after Send: the message is already on the server's queue, and closing the
+  // tab simply means nobody takes the offer.
+  const undoSeconds = payload.sendAt ? 0 : Math.max(0, Math.min(120, Number(store.getSettings().undoSendSeconds) || 0));
+  if (undoSeconds > 0) {
+    const rec = scheduledSend.schedule(currentUser().viewerKey, { ...payload, undo: true }, Date.now() + undoSeconds * 1000);
+    if (payload.previousUid) {
+      await runAsAccount(ownerUser, acc.id, () => imap.hardDelete(acc.draftsFolder, [payload.previousUid])).catch(() => {});
+      events.broadcastForAccount(userKey(ownerUser.username), acc.id);
+    }
+    // `undo` rather than `scheduled` so the composer knows to show a countdown
+    // toast instead of the "queued for later" one — same record either way.
+    return res.json({ undo: rec, undoSeconds });
+  }
+
   if (payload.sendAt) {
     const rec = scheduledSend.schedule(currentUser().viewerKey, payload, payload.sendAt);
     // The draft this was composed from is finished with, exactly as it would be
@@ -3000,3 +4154,20 @@ sync.start();
 // Deliberately not inside sync.start(), which returns early when the cache is
 // disabled — a scheduled message must still go out on a cache-less instance.
 scheduledSend.start();
+// Snoozed mail comes back on its own timer, for the same reason scheduled
+// sending has one: it must work whether or not the cache is enabled, so it does
+// not hang off the sync supervisor. The hook is what lets snooze.js move a
+// message without importing this file (a cycle) — see setHooks there.
+snooze.setHooks({ wakeMove: snoozeWakeMove });
+snooze.start();
+// Same reasoning again: contact sync writes to DATA_DIR, not to the message
+// cache, so it has nothing to do with whether the cache is on.
+contactSyncRunner.start();
+// Calendars DO live in cache.sqlite, so this one genuinely needs it.
+if (config.cacheEnabled) {
+  calendarSync.start();
+  // Reminders read from the same cache the sync writes to, so they go together.
+  calendarReminders.start();
+} else {
+  log.scope('calendar').info('CACHE_ENABLED=false — calendar sync and reminders are off, since calendars are stored in the message cache');
+}

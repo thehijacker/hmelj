@@ -125,7 +125,33 @@ const I18n = (() => {
     const data = await loadLanguage(lang);
     strings = data.strings; prefixes = data.prefixes; regexes = data.regexes; months = data.months;
     if (lang !== 'en') translateNode(document.body);
+    pointManifestAt(lang);
     startObserver();
+  }
+
+  /**
+   * Re-points the <link rel="manifest"> at this language.
+   *
+   * The manifest is the one visible thing translateNode can never reach: the
+   * OS reads it when the app is INSTALLED and builds the window title and the
+   * taskbar right-click jump list from it, so a pinned Hmelj showed an English
+   * "Compose" no matter what the app's language was. The server answers
+   * ?lang=<code> with a translated copy (see server/index.js).
+   *
+   * Changing the URL is also the signal: an installed PWA re-reads its
+   * manifest periodically, and a different href is what makes the new one
+   * take. The jump list updates on the OS's own schedule rather than at once,
+   * and a reinstall is the way to force it.
+   */
+  function pointManifestAt(code) {
+    try {
+      const link = document.querySelector('link[rel="manifest"]');
+      if (!link) return;
+      const want = `/manifest.webmanifest?lang=${encodeURIComponent(code)}`;
+      // Compared against the attribute, not the resolved .href, which the
+      // browser expands to an absolute URL and would never match.
+      if (link.getAttribute('href') !== want) link.setAttribute('href', want);
+    } catch { /* nothing here is worth breaking startup over */ }
   }
 
   return {

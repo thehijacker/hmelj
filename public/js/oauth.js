@@ -58,8 +58,8 @@ const OAuthFlow = (() => {
    * `onStatus(kind, detail)` is called with 'opening' | 'waiting' | 'manual',
    * so the wizard can show a link when the popup was blocked.
    */
-  async function signIn({ provider, email, accountId = null, onStatus = () => {} }) {
-    const { authUrl, state } = await API.oauthStart({ provider, email, accountId });
+  async function signIn({ provider, email, accountId = null, features = null, onStatus = () => {} }) {
+    const { authUrl, state } = await API.oauthStart({ provider, email, accountId, features });
     onStatus('opening');
     const opened = openAuthWindow(authUrl);
     if (opened.how === 'manual') onStatus('manual', { authUrl, sameTab: opened.sameTab });

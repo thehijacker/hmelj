@@ -276,9 +276,17 @@ function queuePrune(userKey, dead) {
  * id is not, hence the hash.
  */
 function pushTopic(payload) {
+  // Web Push's `topic` collapses whatever the push service is still holding for
+  // an unreachable device down to the newest one per topic. For mail that is the
+  // point — a laptop switched on after hours should not replay every message.
+  // For a calendar reminder it would be a bug: two different meetings are not
+  // two versions of the same news, and collapsing them means waking up to
+  // exactly one of the three appointments you were reminded about.
   const key = payload.badgeOnly
     ? `badge-${payload.accountId || 'all'}`
-    : `mail-${payload.data?.accountId || 'all'}`;
+    : payload.kind === 'calendar'
+      ? `cal-${payload.tag || 'all'}`
+      : `mail-${payload.data?.accountId || 'all'}`;
   return crypto.createHash('sha256').update(key).digest('base64url').slice(0, 24);
 }
 
@@ -312,7 +320,13 @@ export async function sendPushToUser(userKey, payload, opts = {}) {
     // between this machine and the device, which is the only reason both
     // ends need to agree at all.
     staleAfterMs: (config.pushTtlSeconds + 300) * 1000,
-    staleBody: pushI18n.t(store.getSettingsFor(userKey).language || 'en', 'New mail arrived while you were away'),
+    // Mail only. A calendar reminder is never collapsed into a "while you were
+    // away" line (see public/sw.js): there is never a burst of them, and one
+    // folded into a sentence about mail would be actively wrong. Sending the
+    // string anyway would be harmless but misleading to read in a payload dump.
+    ...(payload.kind === 'calendar' ? {} : {
+      staleBody: pushI18n.t(store.getSettingsFor(userKey).language || 'en', 'New mail arrived while you were away'),
+    }),
   });
   const dead = [];
   await Promise.all(subs.map(async (s) => {
@@ -348,9 +362,15 @@ export async function sendPushToUser(userKey, payload, opts = {}) {
             // a burst wakes to the latest state rather than a queue of
             // superseded messages. Badge updates especially: only the newest
             // number means anything.
+            // Per KIND, and for a calendar reminder per occurrence: collapsing
+            // every reminder into one key would mean a phone that was off for
+            // an hour woke to exactly one of the meetings it missed, which is
+            // the opposite of what a reminder is for.
             collapseKey: payload.badgeOnly
               ? `hmelj-badge-${payload.accountId || 'all'}`
-              : `hmelj-mail-${payload.data?.accountId || 'all'}`,
+              : payload.kind === 'calendar'
+                ? (payload.tag || 'hmelj-cal')
+                : `hmelj-mail-${payload.data?.accountId || 'all'}`,
           },
         }), (e) => e.code === 'messaging/registration-token-not-registered'
               || e.code === 'messaging/invalid-registration-token'
@@ -383,7 +403,13 @@ export async function sendPushToUser(userKey, payload, opts = {}) {
       // config.pushTtlSeconds and pushTopic above.
       await withRetries(label,
         () => webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body,
-          { urgency: 'high', TTL: config.pushTtlSeconds, topic: pushTopic(payload) }),
+          // A calendar reminder is worth less the later it lands, and past its
+          // event it is worth nothing — so it is held for much less time than
+          // mail, which stays useful because the message is in the mailbox
+          // regardless of when the notification shows up.
+          { urgency: 'high',
+            TTL: payload.kind === 'calendar' ? Math.min(config.pushTtlSeconds, 600) : config.pushTtlSeconds,
+            topic: pushTopic(payload) }),
         (e) => e.statusCode === 404 || e.statusCode === 410 || e.statusCode === 400 || e.statusCode === 403);
       slog.info(`  -> ${label}: accepted by push service`);
     } catch (e) {

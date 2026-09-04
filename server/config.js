@@ -32,6 +32,29 @@ export const config = {
   // How often the background poller checks each mail account for new
   // messages (ms). Keep >= 30s to stay a good IMAP citizen.
   syncIntervalMs: Math.max(30e3, int(process.env.SYNC_INTERVAL_MS, 120e3)),
+  // How often the background poller asks each contact source what has changed
+  // (server/contactSyncRunner.js). Much cheaper than the mail poll — a run that
+  // finds nothing costs one request per address book, no bodies transferred —
+  // so the default is longer only because contacts change far less often than
+  // mail arrives, not because it is expensive. Floor of 60s to stay a good
+  // citizen against somebody else's server.
+  contactSyncIntervalMs: Math.max(60e3, int(process.env.CONTACT_SYNC_INTERVAL_MS, 300e3)),
+
+  // How often the background poller checks each synced calendar (milliseconds,
+  // minimum 60000). Default 300000 (5 minutes).
+  calendarSyncIntervalMs: Math.max(60e3, int(process.env.CALENDAR_SYNC_INTERVAL_MS, 300e3)),
+  // How far back and ahead a calendar is kept.
+  //
+  // These only affect Microsoft 365 and Exchange. Those two expand their own
+  // recurrence over a window rather than handing over the rules (see
+  // server/calendar/graphCalendar.js for why asking them to is both less code
+  // and more correct), so their calendars are known over exactly this range and
+  // no further. A CalDAV or Google calendar stores the rules themselves and is
+  // known for all time regardless of what these say.
+  //
+  // Widening them costs a slightly larger response per poll, not more requests.
+  calendarWindowPastDays: Math.max(1, int(process.env.CALENDAR_WINDOW_PAST_DAYS, 120)),
+  calendarWindowFutureDays: Math.max(1, int(process.env.CALENDAR_WINDOW_FUTURE_DAYS, 550)),
   // Kill switch for the background sync poller + SQLite cache (server/sync.js,
   // server/cache.js). When false, the poller never starts and the unified
   // Inbox/Sent views fall back to live per-account IMAP fetches merged in

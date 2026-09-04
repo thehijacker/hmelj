@@ -506,6 +506,36 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
    pane) — same highlight weight, so either state reads as "this row is
    the one that matters right now." */
 .msg-row.picked { background: var(--accent-soft); color: var(--text); }
+/* Where the keyboard is (public/js/shortcuts.js). An OUTLINE rather than a
+   background, because the cursor has to remain readable on top of every other
+   row state — a row can be unread, open and bulk-selected at once, and each of
+   those already owns the background. Drawn inset so it is not clipped by the
+   row's own edge, and it deliberately does not follow the mouse: this marks
+   where the next Del or j lands, which is a different question from what is
+   under the pointer. */
+.msg-row.cursor { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The shortcut-help table (the ? overlay). Two columns on a wide enough
+   dialog, because seventeen bindings in one column is taller than a laptop
+   window; the scroll region is the table's own, so the OK button never leaves
+   the screen with it. */
+.kb-help-scroll { max-height: 58vh; overflow-y: auto; }
+.kb-help { width: 100%; border-collapse: collapse; }
+.kb-help td { padding: 4px 8px; vertical-align: top; }
+.kb-help .kb-keys { white-space: nowrap; width: 1%; text-align: right; }
+@media (min-height: 620px) and (min-width: 520px) {
+  /* Two columns once there is room for them — halves the height, and the
+     dialog is already 92vw on anything narrower than this. */
+  .kb-help { column-count: 2; column-gap: 18px; display: block; }
+  .kb-help tbody { display: block; }
+  .kb-help tr { display: flex; gap: 8px; break-inside: avoid; align-items: baseline; }
+  .kb-help td { padding: 3px 0; }
+  .kb-help .kb-keys { flex: 0 0 auto; min-width: 74px; }
+}
+.kb-help kbd {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-soft, var(--hover));
+  font: inherit; font-size: calc(12px * var(--ui-scale)); line-height: 1.6;
+}
 .msg-row .m-from { width: var(--col-from, 170px); flex: 0 0 var(--col-from, 170px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-row .m-subject { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .msg-row .m-subject .m-preview { font-weight: 400; color: var(--text-dim); }
@@ -860,6 +890,22 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 12px; margin: 10px 0 0; font-size: calc(13px * var(--ui-scale)); display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
 }
+/* A sender-authentication failure (server/authResults.js). Loud on purpose and
+   rare on purpose: nothing is drawn for the ordinary "checks passed" or
+   "nothing was checked" cases, so a red strip here means something specific —
+   the message claims a From domain it is not authorised to use, or it wears a
+   known contact's name over an address that is not theirs. */
+.mv-banner-danger {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+/* The chip beside the sender. Weight comes from colour alone, not a filled
+   background: it sits inline in the From line next to the priority marker and
+   must not turn that line into a row of badges. */
+.mv-auth { font-size: calc(11.5px * var(--ui-scale)); white-space: nowrap; }
+.mv-auth-pass { color: var(--text-dim); }
+.mv-auth-fail { color: var(--danger); font-weight: 600; }
+
 /* The newsletter banner is the one that appears on EVERY message of a kind,
    directly above the first line of it — so it is a size down from the others,
    and by default (settings.unsubscribeBannerCompact) folded to just the icon
@@ -917,6 +963,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .attach-chip:hover { background: var(--hover); }
 /* Attachments on a queued message: the bytes live in the queue file, not behind
    a URL, so this is a label rather than a download link. */
+/* The "download all" chip — set apart from the file chips beside it, because
+   it is an action rather than one of the files. */
+.attach-chip.attach-chip-all { border-style: dashed; color: var(--text-dim); }
+.attach-chip.attach-chip-all:hover { color: var(--text); }
 .attach-chip.attach-chip-static { cursor: default; color: var(--text-dim); }
 .attach-chip.attach-chip-static:hover { background: transparent; }
 .mv-priority-high { color: var(--danger); font-weight: 600; }
@@ -1182,6 +1232,51 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 #an-account { max-width: 200px; }
 
 .set-grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px 18px; align-items: center; max-width: 640px; }
+/* The `?` beside a setting's label, which opens what used to be a paragraph
+   under the control. Sized in ems so it tracks the label it belongs to rather
+   than needing its own --ui-scale arithmetic. */
+.set-help {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.35em; height: 1.35em; margin-left: 6px; padding: 0; vertical-align: middle;
+  border: 1px solid var(--border); border-radius: 50%; background: none;
+  color: var(--text-dim); font-size: .85em; line-height: 1; cursor: help;
+  flex: 0 0 auto;
+}
+/* Centre the badge against its label's text, at any font size.
+   A baseline nudge cannot do this: the badge is .85em, so a `vertical-align`
+   offset is measured in the BADGE's em rather than the label's, and the gap it
+   leaves grows as the app font grows — which is exactly how it looked wrong at
+   a larger size and passable at the default.
+   Not scoped to .set-grid: 14 of the settings rows render inside a .card
+   instead, and they need it just as much. inline-flex so a label that is NOT a
+   grid or flex item keeps flowing inline; where it is one, the browser
+   blockifies this to flex anyway. */
+label:has(> .set-help) { display: inline-flex; align-items: center; }
+/* The badge draws at about 18px, which is well under what a fingertip needs.
+   Rather than making it visually heavier, an invisible pseudo-element extends
+   the HIT AREA past 30px on every side. It is part of the button, not a child
+   element, so a tap on it still lands on the button itself and the delegated
+   closest('.set-help') finds it. */
+.set-help::after { content: ''; position: absolute; inset: -7px; }
+
+/* Scheduler → "Add a custom holiday". Three captioned controls on one row, and
+   a <select> and an <input> have different intrinsic heights — which is why
+   bottom-aligning the LABELS still left the month dropdown looking dropped.
+   Each label is its own column, and the controls are given one height so they
+   line up whatever the app font size is. */
+/* `.card .row.hol-new`, not `.hol-new`: `.card .row` sets align-items:center,
+   matches just as specifically AND sits later in this file, so a bare class
+   here would lose the cascade and the row would go on centring. */
+.card .row.hol-new { align-items: end; gap: 10px; flex-wrap: wrap; }
+.hol-new > label:not(.mini-toggle) { display: flex; flex-direction: column; gap: 4px; }
+.hol-new select,
+.hol-new input:not([type="checkbox"]) { height: 2.4em; box-sizing: border-box; }
+/* The tick box and the + Add button have no caption above them, so they sit on
+   the controls' row rather than being stretched up to the captions'. */
+.hol-new > .mini-toggle, .hol-new > .link-btn { align-self: end; height: 2.4em; }
+.set-help:hover { background: var(--hover); color: var(--text); border-color: var(--text-dim); }
+.set-help:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .set-grid .full { grid-column: 1 / -1; }
 .set-hint { grid-column: 2; font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); margin-top: -8px; }
 /* Grid tracks default to content-based (min-width:auto) sizing — a select
@@ -1196,6 +1291,20 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .set-section { font-weight: 600; margin: 18px 0 8px; grid-column: 1 / -1; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 
 .card-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* A synced contact's row marker (Settings > Contacts). Sits where a local
+   contact's tick box does, so the two kinds of row line up in the same list
+   instead of the synced ones being visibly indented by a missing control —
+   see settings.js#contactRowHtml for why a synced row has no tick box at all. */
+.ct-sync-mark {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: calc(12px * var(--ui-scale));
+  cursor: default;
+}
+.card[data-synced] input[disabled] { opacity: .75; cursor: default; }
 
 /* ---- Settings → Log (see renderLog in settings.js, server/userLog.js) ----
    A list of rows rather than a real <table>: the same markup has to read well
@@ -1326,6 +1435,47 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
    the left and Save on the right, above the filter being edited. */
 .f-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px; }
 .f-editor-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+
+/* Settings > Subject (settings.js#renderSubject). Almost everything there
+   reuses .card / .card .row / .mini-toggle / .f-footer; only these two are its
+   own. The monospace is not decoration: the fields hold regular expressions and
+   literal prefixes where a space, an l and a 1 all have to be told apart. */
+.sr-err { color: var(--danger); margin: 0; }
+/* --danger, like .cal-warn — the palette has no separate warning colour, and a
+   hardcoded amber here would be the one thing on the page that ignores the
+   theme. The rule IS valid; what the text says is that it almost certainly does
+   not do what was meant. */
+.sr-warn { color: var(--danger); margin: 0; }
+.sr-row .sr-find, .sr-row .sr-replace, #sr-test-out b, .sr-test-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* The "before" half of each step in the test result — struck through and dimmed
+   so the eye lands on what the row would actually show. */
+#sr-test-out s { opacity: .6; }
+
+/* A rule is ONE LINE until it is opened — a list long enough to need a search
+   box is not one you want to read as a wall of open cards. */
+.sr-row .sr-detail { display: none; }
+.sr-row.expanded .sr-detail { display: flex; flex-direction: column; gap: 8px; }
+.sr-head { cursor: pointer; }
+.sr-toggle {
+  flex: 0 0 auto; background: none; border: none; padding: 0 2px;
+  color: var(--text-dim); cursor: pointer; font-size: calc(12px * var(--ui-scale));
+}
+/* Both shrink, neither wraps: the name keeps its width as long as it can and
+   the summary gives way first, so a long find/replace can never push the row's
+   buttons off the edge. */
+.sr-title, .sr-summary { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-title { flex: 0 1 auto; }
+.sr-summary { flex: 1 1 auto; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.sr-search-row { margin-bottom: 2px; }
+/* A per-account tick box is disabled while "All accounts" is on
+   (settings.js#subjectRuleCard). The browser greys the box itself but leaves
+   the label beside it at full strength, which reads as "available, just not
+   responding" — so the whole label is dimmed, and the cursor stops promising
+   that clicking will do something. */
+.sr-accounts .mini-toggle.off { opacity: .45; cursor: default; }
+.sr-accounts .mini-toggle.off input { cursor: default; }
 /* .set-hint carries margin-top:-8px, which is right under a form field in the
    settings grid and wrong here: it pulled the hint up into the "+ Add filter"
    button above it, so the button's hover background overlapped the text. */
@@ -1936,13 +2086,52 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
    short its actual content was. max-height still caps genuinely long ones. */
 .dialog { max-width: 440px; width: min(440px, 92vw); height: auto; padding: 22px 24px; max-height: 90vh; overflow: auto; }
 .dialog:has(.dialog-wide) { max-width: 620px; width: min(620px, 94vw); }
-.dialog-title { font-size: calc(17px * var(--ui-scale)); font-weight: 500; margin-bottom: 12px; }
+.dialog-title {
+  font-size: calc(17px * var(--ui-scale)); font-weight: 500; margin-bottom: 12px;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.dialog-title-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* Baseline-aligned with the title text would put a glyph-only button half a
+   line low, so this one aligns to itself. */
+.dialog-expand { flex: 0 0 auto; align-self: center; font-size: calc(15px * var(--ui-scale)); line-height: 1; padding: 4px 6px; }
+
+/* The expanded state. Height as well as width: a meeting request's notes are
+   long rather than wide, and widening alone would still scroll. */
+.dialog.dialog-max { max-width: min(980px, 96vw); width: min(980px, 96vw); }
+.dialog.dialog-max .cal-notes { max-height: 62vh; }
+.dialog.dialog-max .cal-detail-row > span { flex-basis: 130px; }
+/* Below the width it would expand to there is nothing to expand INTO, so the
+   toggle goes away rather than becoming a button that does nothing. */
+@media (max-width: 620px) { .dialog-expand { display: none; } }
 .dialog-label { display: block; font-size: calc(13px * var(--ui-scale)); color: var(--text-dim); margin-bottom: 6px; }
-.dialog-input, .dialog textarea, .dialog select, .dialog input {
+/* :not(checkbox/radio) because `width: 100%` on a tick box stretches it across
+   the whole dialog and pushes its own label off the row — which is what the
+   calendar and address-book pickers looked like. A text field wants the full
+   width; a tick box wants to be a tick box. */
+.dialog-input, .dialog textarea, .dialog select,
+.dialog input:not([type="checkbox"]):not([type="radio"]) {
   width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: calc(14px * var(--ui-scale));
   border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
 }
-.dialog-input:focus, .dialog input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+.dialog-input:focus, .dialog input:not([type="checkbox"]):not([type="radio"]):focus { outline: 2px solid var(--accent); border-color: transparent; }
+.dialog input[type="checkbox"], .dialog input[type="radio"] { flex: 0 0 auto; margin: 0; accent-color: var(--accent); }
+
+/* The "which of these collections do you want?" list — a Google account brings
+   back a dozen, several of them with long shared-calendar names, so the rows
+   stack rather than flowing inline, and the tick boxes line up down the left
+   however long the names are. */
+.pick-list { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow-y: auto; margin: -4px -4px 0; padding: 4px; }
+.pick-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; box-sizing: border-box;
+  padding: 7px 8px; border-radius: 6px; cursor: pointer;
+  font-size: calc(13.5px * var(--ui-scale)); color: var(--text);
+}
+.pick-row:hover { background: var(--hover); }
+/* Wraps instead of overflowing: a shared calendar's name is routinely somebody's
+   full e-mail address, and truncating it hides exactly the part that says which
+   one it is. */
+.pick-row .pick-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.pick-row .pick-tag { flex: 0 0 auto; font-size: calc(11.5px * var(--ui-scale)); color: var(--text-dim); margin: 0; }
 .dialog-message { font-size: calc(14.5px * var(--ui-scale)); line-height: 1.5; }
 /* Wraps because a three-way choice (Cancel / Delete draft / Save draft — see
    Dialog.choose) doesn't fit one row inside a phone-width dialog, least of all
@@ -2122,3 +2311,446 @@ body.no-accounts #folder-list { display: none; }
 .no-account-state p { margin: 0; color: var(--text-dim); line-height: 1.5; }
 .no-account-state .send-btn { margin-top: 10px; }
 .no-account-hint { font-size: .9em; opacity: .8; }
+
+/* ============================================================================
+   Calendar (see public/js/calendar.js)
+
+   A peer of the mailbox rather than an overlay: `body.calendar-mode` hides the
+   message list and reading pane and shows this pane in their place. The sidebar
+   stays where it is, so switching accounts and toggling calendars work exactly
+   as they do everywhere else.
+   ========================================================================== */
+
+body.calendar-mode #msg-list-pane,
+body.calendar-mode #reading-pane,
+body.calendar-mode #resizer-list,
+body.calendar-mode .fab-compose { display: none; }
+
+.calendar-pane {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--surface);
+}
+body.calendar-mode .calendar-pane { display: flex; }
+
+/* The one row of #folder-list that survives having no mail account — a calendar
+   needs no mailbox, and hiding it there would leave a CalDAV-only user with no
+   way in. See app.js#loadFolders. */
+body.no-accounts #folder-list { display: block; }
+body.no-accounts #folder-list li:not([data-path="__CALENDAR__"]) { display: none; }
+
+/* ---- toolbar ---- */
+
+.cal-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.cal-period {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: calc(15px * var(--ui-scale));
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.cal-period:hover { background: var(--hover); }
+.cal-views { display: flex; gap: 2px; background: var(--surface-2); border-radius: 10px; padding: 2px; }
+.cal-views button {
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: calc(12px * var(--ui-scale));
+  white-space: nowrap;
+}
+.cal-views button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+/* The sidebar toggle belongs to the mobile layout only — on desktop the sidebar
+   is always there and the button would do nothing visible. */
+#btn-cal-menu { display: none; }
+
+.cal-body { flex: 1; min-height: 0; overflow: auto; }
+.cal-loading { padding: 24px; color: var(--text-dim); text-align: center; }
+
+.cal-empty { padding: 48px 24px; text-align: center; color: var(--text-dim); }
+.cal-empty-glyph { font-size: 44px; opacity: .85; }
+.cal-empty h2 { font-size: calc(17px * var(--ui-scale)); margin: 10px 0 4px; color: var(--text); }
+
+/* ---- month ---- */
+
+.cal-month { display: flex; flex-direction: column; height: 100%; }
+.cal-dow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.cal-dow span {
+  padding: 6px 8px;
+  font-size: calc(11px * var(--ui-scale));
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.cal-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  /* Six rows always, so paging between a five-week month and a six-week one
+     does not resize every cell under the pointer. */
+  grid-template-rows: repeat(6, minmax(84px, 1fr));
+}
+.cal-cell {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 2px 3px;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cal-cell:nth-child(7n) { border-right: 0; }
+.cal-cell.other-month { background: var(--bg); }
+.cal-cell.other-month .cal-cell-num { opacity: .45; }
+.cal-cell-num {
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text-dim);
+  padding: 2px 4px;
+  align-self: flex-start;
+  line-height: 1.5;
+}
+.cal-cell.today .cal-cell-num {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  min-width: 22px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.cal-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 5px;
+  font-size: calc(11.5px * var(--ui-scale));
+  color: var(--text);
+  min-width: 0;
+  /* The calendar's colour as a left rule rather than a fill: a grid of solid
+     blocks is unreadable once there are more than two per day. */
+  border-left: 3px solid var(--c, var(--accent));
+}
+.cal-chip:hover { background: var(--hover); }
+.cal-chip.all-day { background: color-mix(in srgb, var(--c, var(--accent)) 16%, transparent); }
+.cal-chip-time { color: var(--text-dim); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.cal-chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cal-more {
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: calc(11px * var(--ui-scale));
+  text-align: left;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+/* Phone: dots, not titles. Six rows of seven cells leaves about 45px of width,
+   and a title truncated to three characters is noise — the day opens on tap. */
+.cal-month.compact .cal-grid { grid-template-rows: repeat(6, minmax(56px, 1fr)); }
+.cal-month.compact .cal-cell { cursor: pointer; }
+.cal-dots { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 4px; }
+.cal-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--c, var(--accent)); }
+
+/* ---- week and day: one time grid ---- */
+
+.cal-time { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.cal-time-head, .cal-allday { display: flex; border-bottom: 1px solid var(--border); }
+.cal-gutter-head {
+  flex: 0 0 52px;
+  font-size: calc(10px * var(--ui-scale));
+  color: var(--text-dim);
+  padding: 4px;
+  text-align: right;
+}
+.cal-heads, .cal-allday-cells { flex: 1; display: grid; grid-template-columns: repeat(var(--days), 1fr); min-width: 0; }
+.cal-daycol-head {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  /* More below than above: the head sits directly on the rule that separates
+     it from the grid, and at 6px the day number — and the today pill, which is
+     taller than the text it wraps — touched the line. */
+  padding: 7px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  color: var(--text-dim);
+  border-left: 1px solid var(--border);
+}
+.cal-daycol-head:first-child { border-left: 0; }
+.cal-daycol-dow { font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: .04em; }
+.cal-daycol-num { font-size: calc(16px * var(--ui-scale)); color: var(--text); }
+.cal-daycol-head.today .cal-daycol-num {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  min-width: 26px;
+  /* The pill's own height, rather than the line-height of the digits inside
+     it, is what decides whether it clears the rule below. */
+  line-height: 26px;
+  text-align: center;
+}
+.cal-allday-cell { border-left: 1px solid var(--border); padding: 2px; min-width: 0; }
+.cal-allday-cell:first-child { border-left: 0; }
+
+.cal-time-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; position: relative; }
+.cal-gutter { flex: 0 0 52px; }
+.cal-hour {
+  height: 48px;
+  position: relative;
+  border-top: 1px solid var(--border);
+  font-size: calc(10px * var(--ui-scale));
+  color: var(--text-dim);
+}
+/* Just BELOW its own line, not straddling it. `top: -7px` centred the label on
+   the rule and needed a background patch to punch a hole through it — legible,
+   but it reads as text sitting on a line rather than as a label for the hour
+   that starts there. The background goes with it: nothing to mask any more. */
+.cal-hour span { position: absolute; right: 6px; top: 3px; }
+.cal-cols {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--days), 1fr);
+  position: relative;
+  /* 24 hours × the 48px row height in the gutter beside it — the two have to
+     agree exactly or every event sits a few pixels off its own hour line. */
+  min-height: calc(24 * 48px);
+  min-width: 0;
+  background: repeating-linear-gradient(
+    to bottom, var(--border) 0 1px, transparent 1px 48px);
+}
+.cal-daycol { position: relative; border-left: 1px solid var(--border); min-width: 0; }
+.cal-daycol:first-child { border-left: 0; }
+.cal-block {
+  position: absolute;
+  overflow: hidden;
+  text-align: left;
+  border: 0;
+  border-left: 3px solid var(--c, var(--accent));
+  background: color-mix(in srgb, var(--c, var(--accent)) 18%, var(--surface));
+  color: var(--text);
+  border-radius: 5px;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: calc(11.5px * var(--ui-scale));
+  line-height: 1.25;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cal-block:hover { filter: brightness(0.96); }
+.cal-block-time { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cal-block-title { overflow: hidden; text-overflow: ellipsis; }
+.cal-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--danger);
+  pointer-events: none;
+  z-index: 2;
+}
+.cal-now::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+
+/* ---- agenda ---- */
+
+.cal-agenda { padding: 4px 0; }
+.cal-agenda-day { display: flex; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.cal-agenda-date { flex: 0 0 62px; display: flex; flex-direction: column; color: var(--text-dim); }
+.cal-agenda-dow { font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: .04em; }
+.cal-agenda-num { font-size: calc(14px * var(--ui-scale)); color: var(--text); }
+.cal-agenda-day.today .cal-agenda-num { color: var(--accent); font-weight: 600; }
+.cal-agenda-events { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cal-agenda-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-left: 3px solid var(--c, var(--accent));
+  background: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: calc(13px * var(--ui-scale));
+  min-width: 0;
+}
+.cal-agenda-row:hover { background: var(--hover); }
+.cal-agenda-time { flex: 0 0 auto; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cal-agenda-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cal-agenda-loc { color: var(--text-dim); font-size: calc(11.5px * var(--ui-scale)); flex: 0 0 auto; }
+
+/* ---- the sidebar's calendar list, and the event dialog ---- */
+
+.calendar-list .folder-section {
+  padding: 10px 14px 4px;
+  font-size: calc(11px * var(--ui-scale));
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-dim);
+  cursor: default;
+}
+.cal-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.cal-toggle.off .cal-name { opacity: .45; }
+.cal-toggle.off .cal-swatch { background: transparent; border-color: var(--c, var(--accent)); }
+.cal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cal-warn { color: var(--danger); margin-left: auto; }
+/* The event form's colour strip (calendar.js#colorPickerHtml). The first
+   swatch is "same as the calendar" and is drawn as an outline with a ✕ in it,
+   since an empty square and a white one are not distinguishable in a light
+   theme. */
+/* The custom-interval row, shown only while "Custom…" is the chosen repeat.
+   Sits under the Repeats field rather than beside it, so the number and the
+   unit stay on one line on a phone instead of wrapping mid-sentence. */
+/* The event dialog lays its fields out as inline <label>s whose inputs are
+   width:100% (see the .dialog input rules above) — so a BLOCK inserted between
+   them needs its own vertical rhythm, and a negative margin pulls it straight
+   into the field above. Which is exactly what the first version did.
+   The .dialog-scoped rules below are there to beat that width:100%, which is
+   more specific than a bare .ce-custom selector would be. */
+.ce-custom { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
+.ce-custom-row { display: flex; align-items: center; gap: 8px; }
+.dialog .ce-custom input[type="number"] { width: 5.5em; flex: 0 0 auto; }
+.dialog .ce-custom select { width: auto; flex: 1 1 auto; min-width: 0; }
+/* The weekday strip for a weekly custom repeat. Seven have to fit across a
+   phone, so each is a single letter's worth of width and they share the row. */
+.ce-days { display: flex; gap: 4px; }
+.ce-day {
+  flex: 1 1 0; min-width: 0; padding: 5px 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: none; color: var(--text-dim); font-size: calc(12px * var(--ui-scale));
+}
+.ce-day.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.ce-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
+.ce-swatch {
+  width: 24px; height: 24px; border-radius: 6px; cursor: pointer; padding: 0;
+  background: var(--c); border: 2px solid var(--border);
+  color: var(--text-dim); font-size: calc(12px * var(--ui-scale)); line-height: 1;
+}
+.ce-swatch.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+/* The calendar's own colour, edited in place in Settings — a native colour well
+   rather than a palette, because here it is one deliberate choice per calendar
+   rather than a quick pick from a list. */
+.cal-color-pick {
+  flex: 0 0 auto; width: 26px; height: 22px; padding: 0; cursor: pointer;
+  background: none; border: 1px solid var(--border); border-radius: 5px;
+}
+
+.cal-swatch {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--c, var(--accent));
+  border: 2px solid var(--c, var(--accent));
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 6px;
+}
+.cal-detail { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.cal-detail-row { display: flex; gap: 10px; align-items: baseline; }
+.cal-detail-row > span {
+  flex: 0 0 88px;
+  color: var(--text-dim);
+  font-size: calc(11.5px * var(--ui-scale));
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.cal-detail-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cal-detail-row a { color: var(--accent); }
+
+/* The join link is a button, not a line of text: on a phone it is the only
+   thing anybody opens a meeting to find, and it has to be reachable without
+   reading past a Teams invitation's several paragraphs of boilerplate. */
+.cal-join {
+  display: inline-block; padding: 7px 14px; border-radius: 7px;
+  background: var(--accent); color: #fff !important; text-decoration: none;
+  font-size: calc(13.5px * var(--ui-scale)); font-weight: 500;
+}
+.cal-join:hover { filter: brightness(1.08); }
+
+/* Scrolls rather than growing: a Teams invitation runs to dial-in numbers,
+   conference IDs and a legal footer, and it must not push the buttons off. */
+.cal-notes {
+  max-height: 34vh; overflow-y: auto; white-space: normal;
+  font-size: calc(13px * var(--ui-scale)); line-height: 1.5; color: var(--text-dim);
+}
+/* Explicit, because a meeting request's body is where the dial-in number and
+   the attendee addresses are, and the whole reason to open the event is to get
+   them out. Several ancestors set user-select:none for long-press handling. */
+.cal-detail, .cal-detail-row > div, .cal-notes {
+  user-select: text; -webkit-user-select: text; -webkit-touch-callout: default;
+}
+
+/* ---- phone ---- */
+
+@media (max-width: 600px) {
+  #btn-cal-menu { display: inline-flex; }
+  .cal-bar { padding: 6px 8px; gap: 4px; }
+  .cal-views button { padding: 4px 7px; }
+  /* The week view draws THREE day columns here rather than seven — decided in
+     calendar.js#weekDays, not in CSS. Scrolling seven columns sideways instead
+     was the obvious alternative and is worse: the day header and the grid are
+     separate scroll containers, so either one can be scrolled out of step with
+     the other, and every event then sits under the wrong date. */
+  .cal-gutter, .cal-gutter-head { flex-basis: 40px; }
+  .cal-detail-row { flex-direction: column; gap: 2px; }
+  .cal-detail-row > span { flex: none; }
+}
+
+/* One calendar's row in Settings › Calendars: the tick box on the first line,
+   its reminder options indented under it. Indented rather than inline because
+   the options only appear for a calendar that is actually synced, and a row
+   that changes width when ticked is hard to aim at. */
+.cal-row { padding: 2px 0; }
+.cal-row-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 2px 0 6px 24px;
+}
+.cal-row-opts select { max-width: 220px; }
+@media (max-width: 600px) {
+  .cal-row-opts { padding-left: 20px; gap: 4px 8px; }
+  .cal-row-opts select { max-width: 100%; }
+}

@@ -20,6 +20,7 @@ import { currentUser, listUsers, userKey } from './session.js';
 import * as accountOverrides from './accountOverrides.js';
 import { store } from './store.js';
 import { deleteAccountCache } from './cache.js';
+import * as filterState from './filterState.js';
 import { log } from './log.js';
 // Circular with ewsClient.js (it imports currentAccount from here) — safe:
 // both sides only touch the other's export from inside a function body, at
@@ -192,6 +193,11 @@ function stripSecrets(a) {
         signedInAs: graph?.signedInAs || a.email,
         needsReauth: !!graph?.needsReauth,
         scope: graph?.scope || '',
+        // Which optional scopes this sign-in holds. Safe to send — it is a list
+        // of feature names, not a credential — and Settings needs it to show
+        // whether contact or calendar sync can be turned on without another
+        // sign-in.
+        features: Array.isArray(graph?.features) ? graph.features : [],
       },
     };
   }
@@ -212,6 +218,7 @@ function stripSecrets(a) {
         signedInAs: oa.signedInAs || a.email,
         needsReauth: !!oa.needsReauth,
         scope: oa.scope || '',
+        features: Array.isArray(oa.features) ? oa.features : [],
       },
     } : {}),
     imap: { host: imap.host, port: imap.port, secure: imap.secure, user: imap.user, tlsRejectUnauthorized: imap.tlsRejectUnauthorized },
@@ -227,6 +234,16 @@ function stripSecrets(a) {
  * listAccounts() below instead. */
 export function listOwnedAccounts() {
   return loadOwn().map(stripSecrets);
+}
+
+/** The same, for a caller outside any request's ALS context — the background
+ *  reminder runner (server/calendarReminders.js), which walks every user in
+ *  turn and carries its own key end to end. Same reasoning, and the same
+ *  naming, as store.js's `getSettingsFor` and contactSources.js's
+ *  `listSourcesFor`: the ambient version above stays the one every request
+ *  uses, and a loop over users says whose accounts it means. */
+export function listOwnedAccountsFor(uKey) {
+  return loadRawFor(uKey).map(stripSecrets);
 }
 
 /** Accounts owned by OTHER Hmelj users but shared to this viewer — scans
@@ -469,6 +486,18 @@ export function getAccount(accountId) {
   return getAccountFrom(loadRaw(), accountId);
 }
 
+/**
+ * Is full-text indexing on for this account? Answered from an explicit owner
+ * key rather than the ambient request user, because the caller
+ * (server/contentCache.js) is often running under a shared account's OWNER —
+ * and the flag that governs what gets written into that owner's cache is the
+ * owner's, not the viewer's. Reads no credentials, so it is cheap enough to
+ * ask once per cached message.
+ */
+export function isSearchIndexed(ownerUserKey, accountId) {
+  return !!loadRawFor(ownerUserKey).find((a) => a.id === accountId)?.searchIndex;
+}
+
 /** Account for the current request (ALS accountId). */
 export function currentAccount() {
   const { accountId } = currentUser();
@@ -535,6 +564,8 @@ function oauthRecordFor(input, prev, field) {
     accessToken: encrypt(t.accessToken),
     expiresAt: t.expiresAt,
     scope: t.scope,
+    // See attachOAuthSignIn for what this is and why it has to be stored.
+    features: Array.isArray(t.features) ? t.features : [],
     needsReauth: false,
   };
 }
@@ -657,6 +688,17 @@ export function saveAccount(input, existingId = null) {
     junkFolder: input.junkFolder ?? prev?.junkFolder ?? '',
     archiveFolder: input.archiveFolder ?? prev?.archiveFolder ?? '',
     hiddenFolders: input.hiddenFolders || prev?.hiddenFolders || [],
+    // Where snoozed mail waits (server/snooze.js). Empty means "not chosen
+    // yet" — the folder is created on the first snooze and the name written
+    // back here then, rather than being conjured at account-creation time on
+    // every account whether or not anyone ever snoozes anything.
+    snoozeFolder: input.snoozeFolder ?? prev?.snoozeFolder ?? '',
+    // Which mail server's Authentication-Results verdict to trust
+    // (server/authResults.js). Empty means "the topmost header", which is right
+    // whenever Hmelj reads a mailbox on the server that did the checking — the
+    // normal case. Set it to your own MX's authserv-id if mail reaches this
+    // mailbox through a relay that adds its own header on top of the real one.
+    authservId: input.authservId ?? prev?.authservId ?? '',
     // Notification scheduler (server/schedule.js) — null/{} mean "no schedule
     // configured," which resolveEffectiveSchedule() treats identically to today's
     // behavior (always notify), so every existing account is unaffected until its
@@ -678,6 +720,15 @@ export function saveAccount(input, existingId = null) {
     // keep-alive HTTP agent instead, there's no comparable "second
     // connection" concept) — harmless to carry the field regardless.
     allowSecondConnection: input.allowSecondConnection ?? prev?.allowSecondConnection ?? false,
+    // Full-text search over this account's message bodies (cache.js#message_fts).
+    // Off by default and opt-in per account, because it is the one cached
+    // structure whose size tracks how much TEXT a mailbox holds rather than how
+    // many messages — most people want it on the one or two mailboxes they
+    // actually search, not on all of them. Owner-only: it decides what gets
+    // written to disk, so it is not something a grantee may flip
+    // (accountOverrides.js is for a viewer's own presentation of a shared
+    // account — label, colour, which folders they see).
+    searchIndex: input.searchIndex ?? prev?.searchIndex ?? false,
     // How this account is watched for new mail (see server/idle.js and
     // sync.js's scheduler):
     //   'poll' — check every pollIntervalMs (the original behavior, and still
@@ -765,6 +816,9 @@ export function deleteAccount(accountId) {
   // the write out of somebody else's file.
   saveOwn(loadOwn().filter((a) => a.id !== accountId));
   deleteAccountCache(currentUser().userKey, accountId);
+  // The filter high-water marks too: a folder path under a REUSED account id
+  // would otherwise inherit a promise that filters had already covered it.
+  try { filterState.forgetAccount(currentUser().userKey, accountId); } catch { /* nothing recorded yet */ }
   // Cached bearer token for an account that no longer exists — harmless, but
   // it would otherwise be handed to a brand-new account that happened to
   // reuse the id, and it's a live credential sitting in memory for nothing.
@@ -865,6 +919,11 @@ export function attachOAuthSignIn(uKey, accountId, t) {
     accessToken: encrypt(t.accessToken),
     expiresAt: t.expiresAt,
     scope: t.scope,
+    // Which OPTIONAL scopes this sign-in was consented to (see
+    // oauth.js#FEATURE_SCOPES) — 'contacts', 'calendar'. Absent on every
+    // account that predates the feature, which is what keeps those asking for
+    // exactly the scopes they always did.
+    features: Array.isArray(t.features) ? t.features : [],
     needsReauth: false,
   };
 

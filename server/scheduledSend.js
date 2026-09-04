@@ -46,6 +46,26 @@ const MAX_AHEAD_MS = 366 * 24 * 3600e3;
 const BACKOFF_MS = [60e3, 5 * 60e3, 15 * 60e3, 3600e3, 3 * 3600e3, 6 * 3600e3];
 const MAX_ATTEMPTS = 16;
 
+/**
+ * A send time, or a 400.
+ *
+ * `Number()` alone is not enough: it maps null and '' to 0, which is perfectly
+ * finite, so `PATCH /api/scheduled/:id` with `{"sendAt": null}` passed the
+ * obvious Number.isFinite check, got clamped to "now" by the Math.max below,
+ * and sent the queued message on the next tick — a malformed request turning
+ * into an immediate send of mail the user had deliberately delayed. Rejected
+ * explicitly here, for both schedule() and reschedule().
+ */
+function validSendAt(value) {
+  if (value === null || value === undefined || value === '') {
+    throw Object.assign(new Error('That send time is not a valid date'), { status: 400 });
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw Object.assign(new Error('That send time is not a valid date'), { status: 400 });
+  if (n > Date.now() + MAX_AHEAD_MS) throw Object.assign(new Error('That is more than a year away'), { status: 400 });
+  return n;
+}
+
 const TICK_MS = 30e3;
 const MAX_SLEEP_MS = 60e3; // never sleep longer than this, so a clock jump can't strand the queue
 
@@ -124,6 +144,11 @@ function summarize(rec) {
     cc: p.cc || '',
     identityId: p.identityId || null,
     attachmentCount: (p.attachments || []).length,
+    // An "undo send" hold rather than a message someone deliberately scheduled.
+    // Same record, same queue, same runner — but the Scheduled view filters
+    // these out (see list()), because a ten-second row that appears and
+    // disappears on every single send is noise, not a queue.
+    undo: !!p.undo,
   };
 }
 
@@ -135,11 +160,7 @@ function summarize(rec) {
  * sent us.
  */
 export function schedule(uKey, payload, sendAt) {
-  const when = Number(sendAt);
-  if (!Number.isFinite(when)) throw Object.assign(new Error('That send time is not a valid date'), { status: 400 });
-  if (when > Date.now() + MAX_AHEAD_MS) {
-    throw Object.assign(new Error('That is more than a year away'), { status: 400 });
-  }
+  const when = validSendAt(sendAt);
   const rec = {
     id: crypto.randomUUID(),
     createdAt: Date.now(),
@@ -160,8 +181,15 @@ export function schedule(uKey, payload, sendAt) {
   return summarize(rec);
 }
 
-export function list(uKey) {
-  return allRecords(uKey).map(summarize);
+/**
+ * The Scheduled view's list. Undo-send holds are left out by default: they are
+ * the same kind of record, but a row that exists for ten seconds after every
+ * send would make the queue unreadable. `includeUndo` is for anything that
+ * genuinely needs the whole queue.
+ */
+export function list(uKey, { includeUndo = false } = {}) {
+  const all = allRecords(uKey).map(summarize);
+  return includeUndo ? all : all.filter((r) => !r.undo);
 }
 
 /**
@@ -228,9 +256,7 @@ export function cancel(uKey, id) {
  */
 export function reschedule(uKey, id, sendAt) {
   assertId(id);
-  const when = Number(sendAt);
-  if (!Number.isFinite(when)) throw Object.assign(new Error('That send time is not a valid date'), { status: 400 });
-  if (when > Date.now() + MAX_AHEAD_MS) throw Object.assign(new Error('That is more than a year away'), { status: 400 });
+  const when = validSendAt(sendAt);
   const rec = readRecord(uKey, id);
   if (!rec) throw Object.assign(new Error('That scheduled message is no longer there'), { status: 404 });
   if (rec.state === 'sending' && !rec.unresolved) {

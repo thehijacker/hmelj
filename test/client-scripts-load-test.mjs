@@ -86,6 +86,10 @@ for (const [name, members] of [
   ['Proofread', ['init', 'open', 'close']],
   ['I18n', ['t']],
   ['API', ['send', 'scheduled', 'cancelScheduled', 'rescheduleScheduled']],
+  // app.js calls all four of these by name from its navigation, so a typo in
+  // the module's return statement takes the whole app down at boot rather than
+  // just breaking the calendar.
+  ['Calendar', ['init', 'open', 'close', 'refresh']],
 ]) {
   let shape = null;
   try { shape = vm.runInContext(`typeof ${name} === 'object' ? Object.keys(${name}) : typeof ${name}`, ctx); }
@@ -94,6 +98,22 @@ for (const [name, members] of [
   if (Array.isArray(shape)) {
     const missing = members.filter((m) => !shape.includes(m));
     ok(!missing.length, `${name} exports ${members.join(', ')}`, missing.length ? `missing: ${missing}` : '');
+  }
+}
+
+// Every script index.html loads must also be precached by the service worker.
+// A missing entry is invisible online and fatal offline: the file simply does
+// not load, its global stays undefined, and whichever line touches it first
+// takes the whole app down at boot rather than degrading the one feature.
+// scheduleUtil.js was missing this way until 2026-08-31.
+console.log('\nservice-worker precache');
+{
+  const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
+  const wanted = [...html.matchAll(/<script src="(\/js\/[^"]+)"/g)].map((m) => m[1]);
+  ok(wanted.length >= 10, `index.html loads ${wanted.length} scripts`);
+  for (const src of wanted) {
+    ok(sw.includes(`'${src}'`), `${src} is precached`);
   }
 }
 

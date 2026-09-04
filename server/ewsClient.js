@@ -700,7 +700,9 @@ export async function getMessageSource(path, uid) {
 
 export async function getMessage(path, uid) {
   const { source, flags } = await getMessageSource(path, uid);
-  return { uid, ...(await parseMessage(source, flags)) };
+  // The account's own authserv-id, so the Authentication-Results reading knows
+  // which server's verdict is the trustworthy one (server/authResults.js).
+  return { uid, ...(await parseMessage(source, flags, { authservId: currentAccount()?.authservId })) };
 }
 
 export async function getMessageHeaders(path, uid) {
@@ -828,6 +830,438 @@ export async function listContacts({ pageSize = 200, maxPages = 25 } = {}) {
     offset += pageSize;
   }
   return out;
+}
+
+/**
+ * The same Contacts folder, as whole ITEMS rather than flattened `{name, email}`
+ * rows — for live sync (server/contactsSync/ewsContacts.js), which needs three
+ * things the import path never did.
+ *
+ *   - the `ItemId`, so a contact can be followed across syncs rather than
+ *     re-imported as a duplicate every time;
+ *   - the `ChangeKey`, which is EWS's ETag: it changes whenever the item does,
+ *     so comparing it is how "what changed" is answered without re-reading
+ *     every contact's contents;
+ *   - one row per CONTACT, not per address, because a card is the unit that
+ *     gets created, updated and deleted.
+ *
+ * Kept separate from listContacts() rather than replacing it: that one feeds the
+ * one-shot import and the compose picker, its shape is what half a dozen call
+ * sites expect, and widening it to carry sync metadata would make every one of
+ * them handle fields they have no use for.
+ *
+ * Read-only, personal Contacts folder only — for why never the GAL, see
+ * listContacts above.
+ */
+export async function listContactItems({ pageSize = 200, maxPages = 25 } = {}) {
+  const acc = currentAccount();
+  const out = [];
+  let offset = 0;
+  for (let page = 0; page < maxPages; page++) {
+    const body = `<m:FindItem Traversal="Shallow">
+    <m:ItemShape>
+      <t:BaseShape>IdOnly</t:BaseShape>
+      <t:AdditionalProperties>
+        <t:FieldURI FieldURI="contacts:DisplayName"/>
+        <t:FieldURI FieldURI="contacts:CompanyName"/>
+        <t:FieldURI FieldURI="contacts:GivenName"/>
+        <t:FieldURI FieldURI="contacts:Surname"/>
+        <t:FieldURI FieldURI="item:LastModifiedTime"/>
+        <t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress1"/>
+        <t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress2"/>
+        <t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress3"/>
+      </t:AdditionalProperties>
+    </m:ItemShape>
+    <m:IndexedPageItemView MaxEntriesReturned="${pageSize}" Offset="${offset}" BasePoint="Beginning"/>
+    <m:ParentFolderIds><t:DistinguishedFolderId Id="contacts"/></m:ParentFolderIds>
+  </m:FindItem>`;
+    const xml = await soapRequest(acc.ews, 'FindItem', body);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.FindItemResponse?.ResponseMessages?.FindItemResponseMessage)[0];
+    checkResponseCode(msg, 'FindItem');
+    const root = msg?.RootFolder;
+    const items = asArray(root?.Items?.Contact);
+    for (const c of items) {
+      const id = c?.ItemId?.['@_Id'];
+      if (!id) continue;
+      out.push({
+        id,
+        // EWS's ETag. An item whose ChangeKey is unchanged is byte-for-byte the
+        // item we already hold, so nothing needs re-reading.
+        changeKey: c?.ItemId?.['@_ChangeKey'] || '',
+        displayName: String(c?.DisplayName || '').trim(),
+        company: String(c?.CompanyName || '').trim(),
+        givenName: String(c?.GivenName || '').trim(),
+        surname: String(c?.Surname || '').trim(),
+        lastModified: String(c?.LastModifiedTime || ''),
+        emails: contactEmails(c?.EmailAddresses?.Entry),
+      });
+    }
+    if (boolOf(root?.['@_IncludesLastItemInRange']) || !items.length) break;
+    offset += pageSize;
+  }
+  return out;
+}
+
+// ---------- calendars ----------
+
+/**
+ * The mailbox's calendar folders. The default one is a DistinguishedFolderId,
+ * so it is listed explicitly rather than searched for — its display name is
+ * localised ("Koledar" on a Slovenian mailbox) and matching on that would work
+ * on exactly one language.
+ */
+export async function listCalendarFolders({ pageSize = 100 } = {}) {
+  const acc = currentAccount();
+
+  // The default calendar, kept under its DISTINGUISHED id — that id is stable
+  // where the opaque FolderId is not, and calendarView() takes it back.
+  //
+  // Its real name and real id are asked for separately, and both matter:
+  //
+  //   the NAME, because Exchange localizes it (a Slovenian mailbox calls it
+  //   "Koledar") and the account's own label — "Služba" — is what the user
+  //   called the mailbox, not what the server calls the folder;
+  //
+  //   the ID, because it is the only sound way to recognize the same folder in
+  //   the FindFolder listing below. Display names are localized, renameable and
+  //   not unique, so matching on them let the default calendar through a second
+  //   time under its opaque id, and the mailbox appeared to have two identical
+  //   calendars.
+  const def = { id: 'calendar', displayName: 'Calendar', distinguished: true, readOnly: false };
+  let defaultRealId = '';
+  try {
+    const xml = await soapRequest(acc.ews, 'GetFolder', `<m:GetFolder>
+      <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
+      <m:FolderIds><t:DistinguishedFolderId Id="calendar"/></m:FolderIds>
+    </m:GetFolder>`);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.GetFolderResponse?.ResponseMessages?.GetFolderResponseMessage)[0];
+    checkResponseCode(msg, 'GetFolder');
+    const f = asArray(msg?.Folders?.CalendarFolder)[0];
+    if (f?.DisplayName) def.displayName = String(f.DisplayName);
+    defaultRealId = f?.FolderId?.['@_Id'] || '';
+  } catch (e) {
+    // Not fatal: without it the name falls back to "Calendar" and the dedupe
+    // below falls back to comparing names, which is what it did before.
+    ilog.debug(`Could not read the default calendar folder (${e.message})`);
+  }
+
+  const out = [def];
+  const body = `<m:FindFolder Traversal="Deep">
+    <m:FolderShape>
+      <t:BaseShape>IdOnly</t:BaseShape>
+      <t:AdditionalProperties>
+        <t:FieldURI FieldURI="folder:DisplayName"/>
+        <t:FieldURI FieldURI="folder:FolderClass"/>
+      </t:AdditionalProperties>
+    </m:FolderShape>
+    <m:IndexedPageFolderView MaxEntriesReturned="${pageSize}" Offset="0" BasePoint="Beginning"/>
+    <m:ParentFolderIds><t:DistinguishedFolderId Id="msgfolderroot"/></m:ParentFolderIds>
+  </m:FindFolder>`;
+  try {
+    const xml = await soapRequest(acc.ews, 'FindFolder', body);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.FindFolderResponse?.ResponseMessages?.FindFolderResponseMessage)[0];
+    checkResponseCode(msg, 'FindFolder');
+    for (const f of asArray(msg?.RootFolder?.Folders?.CalendarFolder)) {
+      const id = f?.FolderId?.['@_Id'];
+      if (!id) continue;
+      // The default calendar is already in the list under its distinguished id;
+      // adding it again under its opaque one would sync everything twice.
+      if (defaultRealId ? id === defaultRealId : String(f.DisplayName || '') === def.displayName) continue;
+      out.push({ id, displayName: String(f.DisplayName || 'Calendar'), distinguished: false, readOnly: false });
+    }
+  } catch (e) {
+    // A mailbox that will not enumerate its folders still has the default
+    // calendar, and that is the one anybody actually wants.
+    ilog.debug(`Could not list calendar folders (${e.message}) — offering the default calendar only`);
+  }
+  return out;
+}
+
+/**
+ * Occurrences in a window, with recurrence ALREADY EXPANDED by Exchange.
+ *
+ * `CalendarView` is what makes that happen: with it, FindItem returns each
+ * occurrence of a recurring series separately, at its real time, with Exchange
+ * applying its own recurrence and timezone rules. The alternative — reading the
+ * series master's Recurrence element and re-implementing those rules here — is
+ * both more code and less correct, and the same reasoning applies as for Graph
+ * (see graphClient.js#calendarView).
+ *
+ * Exchange caps a CalendarView at 1000 items per request regardless of what is
+ * asked for, so the window is walked in slices rather than paged.
+ */
+export async function calendarView(folderId, fromIso, toIso, { maxItems = 1000 } = {}) {
+  const acc = currentAccount();
+  const parent = folderId && folderId !== 'calendar'
+    ? `<t:FolderId Id="${escXml(folderId)}"/>`
+    : '<t:DistinguishedFolderId Id="calendar"/>';
+  const body = `<m:FindItem Traversal="Shallow">
+    <m:ItemShape>
+      <t:BaseShape>IdOnly</t:BaseShape>
+      <t:AdditionalProperties>
+        <t:FieldURI FieldURI="item:Subject"/>
+        <t:FieldURI FieldURI="calendar:Start"/>
+        <t:FieldURI FieldURI="calendar:End"/>
+        <t:FieldURI FieldURI="calendar:IsAllDayEvent"/>
+        <t:FieldURI FieldURI="calendar:Location"/>
+        <t:FieldURI FieldURI="calendar:Organizer"/>
+        <t:FieldURI FieldURI="calendar:LegacyFreeBusyStatus"/>
+        <t:FieldURI FieldURI="calendar:CalendarItemType"/>
+        <t:FieldURI FieldURI="calendar:UID"/>
+        <t:FieldURI FieldURI="item:LastModifiedTime"/>
+      </t:AdditionalProperties>
+    </m:ItemShape>
+    <m:CalendarView StartDate="${escXml(fromIso)}" EndDate="${escXml(toIso)}" MaxEntriesReturned="${maxItems}"/>
+    <m:ParentFolderIds>${parent}</m:ParentFolderIds>
+  </m:FindItem>`;
+  const xml = await soapRequest(acc.ews, 'FindItem', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.FindItemResponse?.ResponseMessages?.FindItemResponseMessage)[0];
+  checkResponseCode(msg, 'FindItem');
+  const out = [];
+  for (const it of asArray(msg?.RootFolder?.Items?.CalendarItem)) {
+    const id = it?.ItemId?.['@_Id'];
+    if (!id || !it?.Start) continue;
+    out.push({
+      id,
+      changeKey: it?.ItemId?.['@_ChangeKey'] || '',
+      // Exchange's UID is the iCalendar UID of the series. Every occurrence of
+      // a series shares it, which is why the occurrence's own start has to be
+      // part of its identity here.
+      uid: String(it.UID || id),
+      subject: String(it.Subject || ''),
+      start: String(it.Start),
+      end: String(it.End || it.Start),
+      allDay: boolOf(it.IsAllDayEvent),
+      location: String(it.Location || ''),
+      organizerName: String(it.Organizer?.Mailbox?.Name || ''),
+      organizerEmail: String(it.Organizer?.Mailbox?.EmailAddress || ''),
+      // OOF/Tentative/Busy block the time; Free does not — the same distinction
+      // iCalendar makes with TRANSP.
+      free: String(it.LegacyFreeBusyStatus || 'Busy') === 'Free',
+      itemType: String(it.CalendarItemType || 'Single'),
+      lastModified: String(it.LastModifiedTime || ''),
+    });
+  }
+  return out;
+}
+
+/**
+ * One calendar item in full: its body, its attendees, and the online-meeting
+ * link Exchange keeps in a field of its own.
+ *
+ * FindItem never returns a body — that is an EWS rule, not an omission in
+ * calendarView above — so the month grid is built without one and this fills it
+ * in when somebody opens an event. One round trip, on demand, rather than
+ * hundreds on every sync.
+ *
+ * `calendar:JoinOnlineMeetingUrl` is Exchange 2013 and later, and an older
+ * server rejects the WHOLE request for naming a property it does not know. So
+ * it is tried once and retried without, rather than costing every pre-2013
+ * mailbox its event details.
+ */
+async function getCalendarItemWith(acc, itemId, extraProps) {
+  const body = `<m:GetItem>
+    <m:ItemShape>
+      <t:BaseShape>IdOnly</t:BaseShape>
+      <t:BodyType>Text</t:BodyType>
+      <t:AdditionalProperties>
+        <t:FieldURI FieldURI="item:Subject"/>
+        <t:FieldURI FieldURI="item:Body"/>
+        <t:FieldURI FieldURI="calendar:Location"/>
+        <t:FieldURI FieldURI="calendar:Organizer"/>
+        <t:FieldURI FieldURI="calendar:RequiredAttendees"/>
+        <t:FieldURI FieldURI="calendar:OptionalAttendees"/>
+        ${extraProps}
+      </t:AdditionalProperties>
+    </m:ItemShape>
+    <m:ItemIds><t:ItemId Id="${escXml(itemId)}"/></m:ItemIds>
+  </m:GetItem>`;
+  const xml = await soapRequest(acc.ews, 'GetItem', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.GetItemResponse?.ResponseMessages?.GetItemResponseMessage)[0];
+  checkResponseCode(msg, 'GetItem');
+  return asArray(msg?.Items?.CalendarItem)[0] || null;
+}
+
+const ONLINE_MEETING_PROPS =
+  '<t:FieldURI FieldURI="calendar:IsOnlineMeeting"/><t:FieldURI FieldURI="calendar:JoinOnlineMeetingUrl"/>';
+
+export async function getCalendarItem(itemId) {
+  const acc = currentAccount();
+  let item = null;
+  try {
+    item = await getCalendarItemWith(acc, itemId, ONLINE_MEETING_PROPS);
+  } catch (e) {
+    ilog.debug(`GetItem with the online-meeting properties failed (${e.message}) — retrying without them`);
+    item = await getCalendarItemWith(acc, itemId, '');
+  }
+  if (!item) return null;
+
+  const people = (node) => asArray(node?.Attendee).map((a) => ({
+    name: String(a?.Mailbox?.Name || ''),
+    address: String(a?.Mailbox?.EmailAddress || ''),
+    status: String(a?.ResponseType || ''),
+  })).filter((p) => p.address);
+
+  // Text was asked for, but a server that ignores BodyType still answers HTML,
+  // and it says which in the attribute rather than in the value.
+  const bodyNode = item.Body;
+  const bodyText = bodyNode && typeof bodyNode === 'object' ? String(bodyNode['#text'] ?? '') : String(bodyNode ?? '');
+  const isHtml = String(bodyNode?.['@_BodyType'] || '').toLowerCase() === 'html';
+
+  return {
+    description: bodyText,
+    descriptionIsHtml: isHtml,
+    location: String(item.Location || ''),
+    joinUrl: String(item.JoinOnlineMeetingUrl || ''),
+    organizer: item.Organizer?.Mailbox?.EmailAddress
+      ? { name: String(item.Organizer.Mailbox.Name || ''), address: String(item.Organizer.Mailbox.EmailAddress) }
+      : null,
+    attendees: [
+      ...people(item.RequiredAttendees),
+      ...people(item.OptionalAttendees).map((p) => ({ ...p, optional: true })),
+    ],
+  };
+}
+
+/* ---------- calendar writes ----------
+ *
+ * EWS updates are stated PROPERTY BY PROPERTY: a `SetItemField` naming the
+ * FieldURI, the type, and the new value — or a `DeleteItemField` to clear one.
+ * There is no "here is the new item" form, so an update is assembled from the
+ * fields that actually changed. That is a feature rather than a chore: an
+ * untouched property is never sent, so an edit cannot clobber something Hmelj
+ * does not model.
+ *
+ * The order of SetItemFields matters to Exchange for a few properties (a
+ * recurrence must follow the start), so the caller builds the list.
+ *
+ * ── Which id addresses what ────────────────────────────────────────────────
+ *   an occurrence's own ItemId   one instance; Exchange makes the exception
+ *   a RecurringMasterItemId      the series and its rule
+ * The second is reached from the first with `<t:RecurringMasterItemId>`, which
+ * is an ID SHAPE rather than a request of its own — GetItem accepts it in
+ * place of an ItemId and answers with the master.
+ */
+
+/** `SendMeetingInvitations` is required on every calendar Create/Update, and
+ *  Exchange rejects the request without it. Hmelj asks Exchange to send them:
+ *  ewsCalendar declares sendsInvitationsItself, so nothing else will. */
+const SEND_TO_ALL = 'SendToAllAndSaveCopy';
+const SEND_TO_CHANGED = 'SendToAllAndSaveCopy';
+
+/** One SetItemField for a calendar property. */
+export const calField = (uri, xml) =>
+  `<t:SetItemField><t:FieldURI FieldURI="${uri}"/><t:CalendarItem>${xml}</t:CalendarItem></t:SetItemField>`;
+export const calDelete = (uri) => `<t:DeleteItemField><t:FieldURI FieldURI="${uri}"/></t:DeleteItemField>`;
+
+export async function createCalendarItem(folderId, itemXml) {
+  const acc = currentAccount();
+  const parent = folderId && folderId !== 'calendar'
+    ? `<t:FolderId Id="${escXml(folderId)}"/>`
+    : '<t:DistinguishedFolderId Id="calendar"/>';
+  const body = `<m:CreateItem SendMeetingInvitations="${SEND_TO_ALL}">
+    <m:SavedItemFolderId>${parent}</m:SavedItemFolderId>
+    <m:Items><t:CalendarItem>${itemXml}</t:CalendarItem></m:Items>
+  </m:CreateItem>`;
+  const xml = await soapRequest(acc.ews, 'CreateItem', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.CreateItemResponse?.ResponseMessages?.CreateItemResponseMessage)[0];
+  checkResponseCode(msg, 'CreateItem');
+  const item = asArray(msg?.Items?.CalendarItem)[0];
+  return { id: item?.ItemId?.['@_Id'] || '', changeKey: item?.ItemId?.['@_ChangeKey'] || '' };
+}
+
+/** The ChangeKey Exchange demands alongside an ItemId on every write. Fetched
+ *  rather than remembered: a stale one is a rejected update, and the item may
+ *  have been touched in Outlook since the last sync. */
+async function changeKeyOf(acc, itemId) {
+  const xml = await soapRequest(acc.ews, 'GetItem', `<m:GetItem>
+    <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+    <m:ItemIds><t:ItemId Id="${escXml(itemId)}"/></m:ItemIds>
+  </m:GetItem>`);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.GetItemResponse?.ResponseMessages?.GetItemResponseMessage)[0];
+  checkResponseCode(msg, 'GetItem');
+  return asArray(msg?.Items?.CalendarItem)[0]?.ItemId?.['@_ChangeKey'] || '';
+}
+
+export async function updateCalendarItem(itemId, fieldsXml) {
+  if (!fieldsXml) return true;
+  const acc = currentAccount();
+  const ck = await changeKeyOf(acc, itemId);
+  const body = `<m:UpdateItem ConflictResolution="AutoResolve"
+      MessageDisposition="SaveOnly" SendMeetingInvitationsOrCancellations="${SEND_TO_CHANGED}">
+    <m:ItemChanges>
+      <t:ItemChange>
+        <t:ItemId Id="${escXml(itemId)}" ChangeKey="${escXml(ck)}"/>
+        <t:Updates>${fieldsXml}</t:Updates>
+      </t:ItemChange>
+    </m:ItemChanges>
+  </m:UpdateItem>`;
+  const xml = await soapRequest(acc.ews, 'UpdateItem', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.UpdateItemResponse?.ResponseMessages?.UpdateItemResponseMessage)[0];
+  checkResponseCode(msg, 'UpdateItem');
+  return true;
+}
+
+export async function deleteCalendarItem(itemId) {
+  const acc = currentAccount();
+  // MoveToDeletedItems, not HardDelete: an event removed by accident should be
+  // recoverable from Deleted Items the same way a message is.
+  const body = `<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="SendToAllAndSaveCopy">
+    <m:ItemIds><t:ItemId Id="${escXml(itemId)}"/></m:ItemIds>
+  </m:DeleteItem>`;
+  const xml = await soapRequest(acc.ews, 'DeleteItem', body);
+  const parsed = xmlParser.parse(xml);
+  const msg = asArray(parsed?.Envelope?.Body?.DeleteItemResponse?.ResponseMessages?.DeleteItemResponseMessage)[0];
+  checkResponseCode(msg, 'DeleteItem');
+  return true;
+}
+
+/**
+ * The series master behind an occurrence: its ItemId and its Recurrence.
+ *
+ * `<t:RecurringMasterItemId OccurrenceId="…"/>` is an ID SHAPE — it goes where
+ * an ItemId goes and Exchange resolves it to the master. Returns null when the
+ * item is not part of a series, which is how a one-off is recognized.
+ */
+export async function recurringMasterOf(occurrenceId) {
+  const acc = currentAccount();
+  const body = `<m:GetItem>
+    <m:ItemShape>
+      <t:BaseShape>IdOnly</t:BaseShape>
+      <t:AdditionalProperties>
+        <t:FieldURI FieldURI="calendar:Recurrence"/>
+        <t:FieldURI FieldURI="calendar:Start"/>
+      </t:AdditionalProperties>
+    </m:ItemShape>
+    <m:ItemIds><t:RecurringMasterItemId OccurrenceId="${escXml(occurrenceId)}"/></m:ItemIds>
+  </m:GetItem>`;
+  try {
+    const xml = await soapRequest(acc.ews, 'GetItem', body);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.GetItemResponse?.ResponseMessages?.GetItemResponseMessage)[0];
+    checkResponseCode(msg, 'GetItem');
+    const item = asArray(msg?.Items?.CalendarItem)[0];
+    if (!item?.ItemId?.['@_Id']) return null;
+    return {
+      id: item.ItemId['@_Id'],
+      changeKey: item.ItemId['@_ChangeKey'] || '',
+      recurrence: item.Recurrence || null,
+      start: String(item.Start || ''),
+    };
+  } catch (e) {
+    // Exchange answers ErrorInvalidIdMalformed for an id that is not an
+    // occurrence — which is the ordinary "this is a one-off" case, not a fault.
+    ilog.debug(`No recurring master for that item (${e.message})`);
+    return null;
+  }
 }
 
 // ---------- flags & actions ----------

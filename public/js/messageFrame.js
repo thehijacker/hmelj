@@ -78,7 +78,18 @@ const MessageFrame = (() => {
   // and is loaded standalone by message.html's popout too).
   const GENERIC_FONT_IDS = new Set(['system-ui', 'serif', 'sans-serif', 'monospace', 'cursive']);
   function fontFamilyCss(font) {
-    const f = cssSafe(font);
+    // A non-generic family is emitted as a QUOTED CSS string, so the three
+    // characters that can end that string early have to go: the quote itself,
+    // a backslash (which would escape the closing one), and a newline (a CSS
+    // string may not span lines). Everything else — including ; { } — is just
+    // an odd character inside a font name and cannot reach the parser.
+    //
+    // cssSafe alone was not enough here: it strips < and >, which is right for
+    // the colour and size values it also guards, and leaves quotes alone. The
+    // value does come from a <select>, but its options include admin-uploaded
+    // font families whose names Hmelj did not choose, and the settings PUT
+    // takes what it is given — so this is the guard, not the dropdown.
+    const f = cssSafe(font).replace(/['"\\\r\n]/g, '');
     return GENERIC_FONT_IDS.has(f) ? f : `'${f}'`;
   }
 
@@ -147,7 +158,7 @@ const MessageFrame = (() => {
       + `<div class="hmelj-quoted">${innerHtml}</div>`;
   }
 
-  function buildDoc({ html, text, fontFamily, fontSize, dark, bg, fg, link, dim, fonts }) {
+  function buildDoc({ html, text, fontFamily, fontSize, dark, bg, fg, link, dim, fonts, fontOverride }) {
     let body;
     if (html) {
       body = html;
@@ -205,6 +216,17 @@ html{scrollbar-color:${dim} transparent;scrollbar-width:thin;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:${dim};border-radius:8px;}
 body{font-family:${fontFamilyCss(fontFamily)},system-ui,sans-serif;font-size:${cssSafe(fontSize)}px;color:${fg};background:${bg};word-wrap:break-word;overflow-wrap:break-word;}
+${fontOverride ? `/* Settings > Reading > "Also use them for formatted mail".
+   Without this the two font controls are only a DEFAULT, and an HTML message
+   almost never falls back to it: the font it wants is on the elements
+   themselves — inline style attributes, its own <style> block, <font> tags,
+   table attributes — all of which outrank the body rule above. So the picker
+   appeared to do nothing on every real email.
+   The SIZE is not forced here: one size for everything would flatten a
+   message's headings and fine print into a single wall. It is scaled
+   proportionally instead, per element, by the script at the end of this
+   document. */
+*,*::before,*::after{font-family:${fontFamilyCss(fontFamily)},system-ui,sans-serif!important;}` : ''}
 pre{white-space:pre-wrap;font-family:inherit;}
 /* pre-wrap breaks at whitespace only, so one long linkified URL (query
    strings in forum/reset mails run well past 80 chars) would push a
@@ -768,11 +790,64 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
       e.preventDefault();
       try { parent.postMessage({ type: 'hmelj-find-open' }, '*'); } catch (err) {}
-    } else if (e.key === 'Escape') {
-      try { parent.postMessage({ type: 'hmelj-find-close' }, '*'); } catch (err) {}
+      return;
     }
+    if (e.key === 'Escape') {
+      try { parent.postMessage({ type: 'hmelj-find-close' }, '*'); } catch (err) {}
+      return;
+    }
+    // Everything else the app binds a shortcut to (public/js/shortcuts.js).
+    // Same problem as Ctrl+F above and the same fix: once the caret is in here
+    // — which is what clicking a message to read it does — keydowns go to THIS
+    // document and the parent's listener never sees them, so j/k/e/Del would
+    // silently stop working exactly when someone is reading. Only the event's
+    // shape is sent, never any content; the parent decides what it means.
+    //
+    // Skipped while the user is selecting text with a modifier held, and for a
+    // caret inside anything typable (a mail can contain a form).
+    if (e.altKey || e.metaKey) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+    try {
+      parent.postMessage({
+        type: 'hmelj-key',
+        key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
+      }, '*');
+    } catch (err) {}
   });
 })();
+${fontOverride ? `
+(function(){
+  // ── Proportional text scaling ─────────────────────────────────────────────
+  // The other half of the font override. Family is forced in CSS above; SIZE
+  // cannot be, because a message states its sizes in px on the elements
+  // themselves and one \`font-size:Npx!important\` for all of them would flatten
+  // a heading, its body and its fine print into one wall of identical text.
+  //
+  // So every element is scaled by the same factor instead: 18 against the
+  // 15px baseline means x1.2, and a 24px heading becomes 28.8px while an 11px
+  // footer becomes 13.2px. The message's own typography survives; it is just
+  // bigger.
+  //
+  // Read EVERY size first, then write. Writing as we walk would corrupt the
+  // pass: a child whose size is stated in em resolves against its parent, so
+  // scaling the parent first and then reading the child would scale that child
+  // twice.
+  var factor = ${Number(fontSize) || 15} / 15;
+  if (Math.abs(factor - 1) < 0.001) return;
+  try {
+    var els = document.querySelectorAll('body, body *');
+    var sizes = [];
+    for (var i = 0; i < els.length; i++) {
+      var px = parseFloat(getComputedStyle(els[i]).fontSize);
+      sizes.push(isFinite(px) ? px : null);
+    }
+    for (var j = 0; j < els.length; j++) {
+      if (sizes[j] == null) continue;
+      els[j].style.setProperty('font-size', (sizes[j] * factor).toFixed(2) + 'px', 'important');
+    }
+  } catch (e) {}
+})();` : ''}
 </script>
 </html>`;
   }
@@ -860,6 +935,11 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
           if (el) el.scrollTop -= +e.data.dy || 0;
         } else if (e.data.type === 'hmelj-link') {
           openLink(e.data.href);
+        } else if (e.data.type === 'hmelj-key') {
+          // A keystroke from inside the body (public/js/shortcuts.js). Same
+          // reasoning as the find branch below: one listener, one place that
+          // knows which frame spoke.
+          for (const cb of keyListeners) cb(e.data);
         } else if (typeof e.data.type === 'string' && e.data.type.indexOf('hmelj-find') === 0) {
           // In-message search (messageFind.js). Routed through this one
           // listener rather than a second window-level one of its own, so the
@@ -904,6 +984,12 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
   const findListeners = new Set();
   /** cb(frame, data) for every hmelj-find* message a body frame sends up. */
   function onFindMessage(cb) { findListeners.add(cb); return () => findListeners.delete(cb); }
+
+  const keyListeners = new Set();
+  /** cb({key, ctrlKey, shiftKey, …}) for a keystroke that happened INSIDE a
+   *  message body. public/js/shortcuts.js is the only subscriber; see the
+   *  forwarder in buildDoc for why this channel has to exist at all. */
+  function onKeyMessage(cb) { keyListeners.add(cb); return () => keyListeners.delete(cb); }
   /** Post one of the find protocol's messages into `frame`. */
   function sendFind(frame, data) {
     try { frame.contentWindow?.postMessage(data, '*'); } catch { /* frame torn down */ }
@@ -920,6 +1006,6 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
     return iframe;
   }
 
-  return { create, buildFontFaceCss, linkifyText, splitQuotedText, onFindMessage, sendFind, openLink, scrollerFor: verticalScrollerFor };
+  return { create, buildFontFaceCss, linkifyText, splitQuotedText, onFindMessage, onKeyMessage, sendFind, openLink, scrollerFor: verticalScrollerFor };
 })();
 if (typeof window !== 'undefined') window.MessageFrame = MessageFrame;

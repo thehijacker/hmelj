@@ -4,7 +4,7 @@ import { sendMail } from './smtpClient.js';
 import { currentUser } from './session.js';
 // cache.js is safe to import here; sync.js is not (it imports this module), which
 // is why folder-cache reconciliation is reported back to the caller instead.
-import { claimFilterSend, releaseFilterSend } from './cache.js';
+import { claimFilterSend, releaseFilterSend, claimFilterApplied, releaseFilterApplied } from './cache.js';
 import * as userLog from './userLog.js';
 import { log } from './log.js';
 
@@ -238,7 +238,7 @@ function orderedActions(actions) {
  * it just detected as new, so filtering those costs nothing extra on top of
  * the sync itself, rather than a whole separate `listMessages` round trip.
  */
-export async function runFilters(folder, { onlyUnseen = false, messages: providedMessages = null } = {}) {
+export async function runFilters(folder, { onlyUnseen = false, messages: providedMessages = null, once = false } = {}) {
   // Always called inside an account's ALS context (sync.js's pollFolder, or
   // the /api/filters/run route via requireAuth's ?account= param) — never
   // undefined in practice, but treat a missing accountId as "matches
@@ -278,6 +278,23 @@ export async function runFilters(folder, { onlyUnseen = false, messages: provide
       else match = (filter.rules || []).every((r) => testRule(msg, r, fullText));
 
       if (!match) continue;
+      // `once`: has this filter already been applied to this message? True
+      // exactly once, forever after false (cache.js#claimFilterApplied). It is
+      // what lets the automatic run reach back over a catch-up window that
+      // overlaps a previous one without filing anything twice — and what makes
+      // a wiped cache, which re-presents every message as new, harmless.
+      //
+      // Deliberately NOT set for the interactive "Run filters now": pressing
+      // that button means "do it again", and a ledger that silently refused
+      // would make the button look broken.
+      // Same key and same identifier as claimSend above, so the two ledgers
+      // agree about what "this message" and "this filter" mean.
+      const claimKey = sendKey(msg, folder, msg.uid);
+      const claimId = filter.id || filter.name;
+      if (once && !claimFilterApplied(currentUser().userKey, currentUser().accountId, claimKey, claimId)) {
+        flog.debug(`${folder}/${msg.uid}: "${filter.name}" already applied — skipping`);
+        continue;
+      }
       applied.push({ uid: msg.uid, subject: msg.subject, filter: filter.name });
 
       let moved = false;
@@ -416,6 +433,11 @@ export async function runFilters(folder, { onlyUnseen = false, messages: provide
             accountId: u.accountId,
           });
           actionFailed = true;
+          // Give the claim back, so a later run may try this filter on this
+          // message again. Same reasoning as releaseSend: a claim that stands
+          // after a failure means the rule silently never runs — the message
+          // is left half-filed and nothing ever comes back for it.
+          if (once) releaseFilterApplied(currentUser().userKey, currentUser().accountId, claimKey, claimId);
           break;
         }
         if (moved) break; // uid no longer valid in this folder

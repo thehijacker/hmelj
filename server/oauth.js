@@ -187,6 +187,70 @@ export const PROVIDERS = {
   },
 };
 
+/**
+ * Scopes that are NOT requested by default, keyed by the feature that needs them.
+ *
+ * ── Why these are not simply added to `scopes` above ─────────────────────────
+ * A token is issued for the scopes that were consented to. Widening the list
+ * every account asks for would mean every EXISTING Google and Microsoft account
+ * is suddenly holding a token that no longer matches, and the honest thing to do
+ * about that is mark them all `needsReauth` — including the accounts of people
+ * who will never open a calendar. That is a whole-instance disruption in
+ * exchange for a feature nobody has asked for yet.
+ *
+ * So they are opt-in, per account: enabling contact or calendar sync on an
+ * account runs one fresh sign-in for the union of base + the features it now
+ * needs, and every other account is untouched.
+ *
+ * Google's `include_granted_scopes: 'false'` stays exactly as it is. That
+ * setting exists so an account gets what it explicitly asked for and not every
+ * scope this client was ever granted — and the union below IS the explicit ask.
+ */
+export const FEATURE_SCOPES = {
+  microsoft: {
+    // Contacts.Read is in the base list already; sync needs to write back.
+    contacts: ['https://graph.microsoft.com/Contacts.ReadWrite'],
+    calendar: ['https://graph.microsoft.com/Calendars.ReadWrite'],
+  },
+  google: {
+    // Google's contacts are reached over CardDAV (see
+    // server/contactsSync/googleContacts.js), which is what this scope covers —
+    // the People API scopes are a different interface and buy nothing here.
+    contacts: ['https://www.googleapis.com/auth/carddav'],
+    calendar: ['https://www.googleapis.com/auth/calendar'],
+  },
+};
+
+/** Which extra features a stored sign-in was consented to. Always an array,
+ *  empty for every account that predates this — which is what makes those
+ *  accounts behave exactly as they did before. */
+export function featuresOf(acc) {
+  const tok = acc?.oauth || acc?.graph || null;
+  return Array.isArray(tok?.features) ? tok.features : [];
+}
+
+/**
+ * The scopes to request for a provider, given the extra features wanted.
+ *
+ * De-duplicated and order-stable: a provider that echoes the scope string back
+ * on refresh should see the same list it granted, and a duplicate entry makes
+ * at least one provider (Microsoft, on some tenants) reject the request.
+ */
+export function scopesFor(providerId, features = []) {
+  const p = PROVIDERS[providerId];
+  if (!p) throw new Error(`Unknown OAuth provider: ${providerId}`);
+  const extra = FEATURE_SCOPES[providerId] || {};
+  const out = [...p.scopes];
+  for (const f of features) for (const sc of extra[f] || []) if (!out.includes(sc)) out.push(sc);
+  return out;
+}
+
+/** Which features this provider can offer at all — so the UI only shows the
+ *  toggle where enabling it would actually do something. */
+export function featuresAvailable(providerId) {
+  return Object.keys(FEATURE_SCOPES[providerId] || {});
+}
+
 /** 'graph' | 'imap' | '' — which credential shape a provider's token takes. */
 export function kindOf(providerId) {
   return PROVIDERS[providerId]?.kind || '';
@@ -368,10 +432,22 @@ export function adminSaveProvider(providerId, { clientId, tenant, clientSecret }
  * nginx/Caddy will actually be carrying.
  */
 export function redirectUriFrom(req) {
-  if (config.publicUrl) return config.publicUrl.replace(/\/+$/, '') + '/oauth/callback';
+  return publicBaseFrom(req) + '/oauth/callback';
+}
+
+/**
+ * The public origin this instance is reachable at, with no trailing slash.
+ *
+ * Extracted from redirectUriFrom because OAuth is no longer the only thing that
+ * needs it: the DAV server has to tell a user which URL to type into their
+ * phone, and deriving that by string-surgery on a redirect URI was one rename
+ * away from producing something subtly wrong.
+ */
+export function publicBaseFrom(req) {
+  if (config.publicUrl) return config.publicUrl.replace(/\/+$/, '');
   const proto = (req?.headers['x-forwarded-proto'] || req?.protocol || 'http').split(',')[0].trim();
   const host = (req?.headers['x-forwarded-host'] || req?.headers.host || 'localhost').split(',')[0].trim();
-  return `${proto}://${host}/oauth/callback`;
+  return `${proto}://${host}`;
 }
 
 /* ---------------- pending flows ---------------- */
@@ -390,7 +466,7 @@ setInterval(() => {
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
-export function startFlow({ userKey: uKey, provider, email, accountId = null, redirectUri }) {
+export function startFlow({ userKey: uKey, provider, email, accountId = null, redirectUri, features = [] }) {
   const p = PROVIDERS[provider];
   if (!p) throw new Error(`Unknown OAuth provider: ${provider}`);
   const c = credsFor(provider);
@@ -411,6 +487,10 @@ export function startFlow({ userKey: uKey, provider, email, accountId = null, re
     codeVerifier,
     redirectUri,
     accountId,
+    // Carried on the flow rather than re-derived at the callback: the token
+    // exchange must request the SAME scope string the authorize step did, and
+    // the account record may not exist yet to read it back off.
+    features: Array.isArray(features) ? features : [],
     createdAt: Date.now(),
     status: 'pending',
   });
@@ -419,7 +499,7 @@ export function startFlow({ userKey: uKey, provider, email, accountId = null, re
   url.searchParams.set('client_id', c.clientId);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('scope', p.scopes.join(' '));
+  url.searchParams.set('scope', scopesFor(provider, features).join(' '));
   url.searchParams.set('state', state);
   // PKCE is sent to Google too, even though its Web-application client also
   // requires the secret — it costs nothing and binds the code to this flow.
@@ -567,7 +647,7 @@ export async function handleCallback({ code, state, error, errorDescription }) {
       code,
       redirect_uri: f.redirectUri,
       code_verifier: f.codeVerifier,
-      scope: PROVIDERS[f.provider].scopes.join(' '),
+      scope: scopesFor(f.provider, f.features || []).join(' '),
     });
     const tokens = tokensFromResponse(json);
     if (!tokens.refreshToken) {
@@ -624,7 +704,11 @@ export function takeFlowTokens(state, uKey) {
   const f = flows.get(state);
   if (!f || f.userKey !== uKey) throw bad('That sign-in has expired or was already used — please sign in again.');
   if (f.status !== 'ok') throw bad(f.error || 'Sign-in has not completed yet.');
-  return { provider: f.provider, email: f.email, accountId: f.accountId, ...f.tokens };
+  // `features` rides along so whoever writes the account record stores WHICH
+  // extra scopes this sign-in was consented to. Without it, the next refresh
+  // asks for the base set again (see refresh()) and quietly drops calendar or
+  // contact access an hour later.
+  return { provider: f.provider, email: f.email, accountId: f.accountId, features: f.features || [], ...f.tokens };
 }
 
 export function markFlowConsumed(state) {
@@ -710,7 +794,11 @@ export async function refresh(acc, ownerKey) {
     json = await postToken(provider, {
       grant_type: 'refresh_token',
       refresh_token: prevRefresh,
-      scope: PROVIDERS[provider].scopes.join(' '),
+      // This account's own scopes, not the provider's base list. An account
+      // that consented to calendar or contact access would otherwise be
+      // narrowed back to the base set on its next refresh — an hour after it
+      // was set up, silently, with the feature simply starting to 403.
+      scope: scopesFor(provider, featuresOf(acc)).join(' '),
     });
   } catch (e) {
     // invalid_grant is terminal: the user revoked consent, changed their

@@ -4,7 +4,7 @@
 //    Network-first keeps self-hosted tweaking painless (edit a file, refresh, see it).
 //  - /api/*: network only — mail data must always be fresh. When offline, list/read
 //    requests get a JSON error the UI shows as a normal error toast.
-const VERSION = 'hmelj-20260829005';
+const VERSION = 'hmelj-20260903023';
 const SHELL = [
   '/',
   '/index.html',
@@ -17,6 +17,11 @@ const SHELL = [
   '/i18n/sl.json',
   '/js/api.js',
   '/js/dialog.js',
+  // Was missing until 2026-08-31 — a pre-existing gap found while adding
+  // calendar.js below. app.js calls ScheduleUtil.ensureHolidaysLoaded() during
+  // its notification setup, so offline this was an undefined global on a path
+  // that runs for everyone, not a missing feature.
+  '/js/scheduleUtil.js',
   '/js/messageFrame.js',
   '/js/messageFind.js',
   '/js/attachmentViewer.js',
@@ -25,6 +30,12 @@ const SHELL = [
   '/js/analytics.js',
   '/js/proofread.js',
   '/js/compose.js',
+  // Before app.js, which calls Calendar.init() at boot: a missing precache
+  // entry means the global is undefined offline and the whole app dies on that
+  // line, not just the calendar.
+  '/js/calendar.js',
+  '/js/shortcuts.js',
+  '/js/composeGuards.js',
   '/js/app.js',
   '/manifest.webmanifest',
   '/icons/icon.svg',
@@ -150,13 +161,22 @@ self.addEventListener('push', (e) => {
     // thing arrive.
     const sentAt = Number(data.sentAt) || 0;
     const staleAfter = Number(data.staleAfterMs) || STALE_PUSH_MS;
-    const stale = !data.test && !data.badgeOnly && sentAt > 0 && Date.now() - sentAt > staleAfter;
+    // A CALENDAR reminder is never collapsed. The collapse exists because a
+    // burst of stale mail notifications is noise standing for mail that is
+    // still in the mailbox; a stale reminder is different in both halves —
+    // there is never a burst of them (the server already refuses to send one
+    // whose moment has passed, see server/calendarReminders.js), and folding
+    // one into "New mail arrived while you were away" would be actively wrong.
+    const isCalendar = data.kind === 'calendar';
+    const stale = !data.test && !data.badgeOnly && !isCalendar && sentAt > 0 && Date.now() - sentAt > staleAfter;
 
     // The launcher/dock/home-screen badge, straight from the payload — this
     // is the only thing that can keep it correct while the app is CLOSED
     // (nothing else runs then), and it's what lets the badge go DOWN after
     // mail is read somewhere else, not just up when mail arrives.
-    await setBadge(data.unreadTotal);
+    // Mail's unread count, and only mail's: a calendar reminder carries no
+    // unreadTotal and must not be able to blank the badge by omission.
+    if (!isCalendar) await setBadge(data.unreadTotal);
     if (stale) {
       await refreshBadgeFromServerThrottled();
       // No action buttons here deliberately: this stands for an unknown
@@ -296,11 +316,37 @@ async function openOrFocusMessage(accountId, folder, uid) {
   return self.clients.openWindow('/?' + params.toString());
 }
 
+/** A calendar reminder's tap targets: snooze it, or open the calendar. There is
+ *  deliberately no "dismiss" — closing the notification already is that, and an
+ *  action that does nothing but close is a button people press expecting more. */
+async function handleCalendarClick(action, data) {
+  if (action === 'snooze') {
+    try {
+      await apiPost('/api/calendar/snooze', {
+        calendarId: data.calendarId, uid: data.uid, start: data.start, minutes: 5,
+      });
+      return; // no window needs to open for this
+    } catch {
+      // Offline, most likely. Falling through to opening the app is better
+      // than a tap that silently does nothing.
+    }
+  }
+  const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const target = clientsList[0];
+  if (target) {
+    target.postMessage({ type: 'hmelj-open-calendar', ...data });
+    return target.focus();
+  }
+  return self.clients.openWindow('/?view=calendar');
+}
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const { accountId, folder, uid } = e.notification.data || {};
-  const action = e.action; // '' for a plain tap; 'read'/'delete' for the action buttons above (Android/desktop only)
+  const data = e.notification.data || {};
+  const { accountId, folder, uid } = data;
+  const action = e.action; // '' for a plain tap; 'read'/'delete'/'snooze' for the action buttons above
   e.waitUntil((async () => {
+    if (data.kind === 'calendar') return handleCalendarClick(action, data);
     if ((action === 'read' || action === 'delete') && folder && uid !== undefined) {
       try {
         // Only when we actually have one: '?account=undefined' is not the same

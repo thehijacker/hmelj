@@ -82,6 +82,39 @@ const API = {
   saveAccount: (a, id) => (id ? API.put('/api/accounts/' + id, a) : API.post('/api/accounts', a)),
   deleteAccount: (id) => API.del('/api/accounts/' + id),
   patchAccount: (id, patch) => API._req('PATCH', '/api/accounts/' + id, patch),
+  // Per-account full-text index: how many messages are indexed, how much of the
+  // index each account accounts for, and whether it has hit its size ceiling.
+  searchIndex: () => API.get('/api/search-index'),
+  // Sidebar-pinned searches. Written as a whole list (like identities), and the
+  // server returns its own normalised version — always adopt THAT, not the list
+  // that was sent, or the client and server disagree about ids and trimming.
+  // Reusable message boilerplate. Same whole-list contract as identities: adopt
+  // the server's normalised response, not the list that was sent.
+  // Export URLs, not fetches: both are plain anchor navigations, so nothing has
+  // to hold a mailbox in memory and the Android shell's DownloadListener sees a
+  // normal download with the session cookie attached (a Blob built in the page
+  // would reach neither).
+  exportSettingsUrl: () => '/api/export/settings',
+  exportMailUrl: (folder, accountId, since) => API._acct(
+    '/api/export/mail?folder=' + encodeURIComponent(folder) + (since ? '&since=' + encodeURIComponent(since) : ''),
+    accountId,
+  ),
+  templates: () => API.get('/api/templates'),
+  saveTemplates: (list) => API.put('/api/templates', list),
+  savedSearches: () => API.get('/api/saved-searches'),
+  saveSavedSearches: (list) => API.put('/api/saved-searches', list),
+  // Snooze (server/snooze.js). The message really moves into the account's
+  // snooze folder — `wakeAt` is when it comes back, `addCalendar` also puts a
+  // reminder in the first writable calendar.
+  // `accountId` is explicit, like refile's, and is not optional in practice: in
+  // the unified view there IS no ambient account, and every row can belong to a
+  // different one, so falling back to API.account sends the request with no
+  // account at all and the server answers "No mail account selected".
+  snooze: (folder, uids, wakeAt, addCalendar = false, accountId) =>
+    API.post(API._acct(`/api/messages/${encodeURIComponent(folder)}/snooze`, accountId), { uids, wakeAt, addCalendar }),
+  snoozed: () => API.get('/api/snoozed'),
+  wakeSnoozed: (id) => API.post(`/api/snoozed/${encodeURIComponent(id)}/wake`, {}),
+  resnooze: (id, wakeAt) => API._req('PATCH', `/api/snoozed/${encodeURIComponent(id)}`, { wakeAt }),
   // Temporary per-folder Mute (sidebar folder right-click → Mute). `until` is epoch ms
   // — absolute, so the phone's and the server's clocks agree on when it lapses without
   // any timezone conversion; null/0 lifts it. Owner-only (the server 403s a grantee).
@@ -143,10 +176,97 @@ const API = {
   // Imports one Exchange account's own Contacts folder. Account-scoped, so it
   // takes the id explicitly rather than following the ambient API.account —
   // Settings can import from an account other than the one being viewed.
+  // ---- app passwords and the DAV server ----
+  // A created password's secret comes back exactly once — there is no route
+  // that can produce it again, by design, so the UI has to show it there and
+  // then and say so.
+  appPasswords: () => API.get('/api/app-passwords'),
+  createAppPassword: (label, scopes) => API.post('/api/app-passwords', { label, scopes }),
+  deleteAppPassword: (id) => API.del('/api/app-passwords/' + encodeURIComponent(id)),
+  davPublished: () => API.get('/api/dav/published'),
+  saveDavPublished: (draft, id) => (id
+    ? API.put('/api/dav/published/' + encodeURIComponent(id), draft)
+    : API.post('/api/dav/published', draft)),
+  deleteDavPublished: (id) => API.del('/api/dav/published/' + encodeURIComponent(id)),
+
+  // ---- calendars ----
+  // Per PERSON, like contacts and for the same reason, so none of these take a
+  // mail account id — a source that borrows one names it inside its own record.
+  calendars: () => API.get('/api/calendars'),
+  discoverCalendarSource: (draft) => API.post('/api/calendars/discover', draft),
+  saveCalendarSource: (draft, id) => (id
+    ? API.put('/api/calendars/sources/' + encodeURIComponent(id), draft)
+    : API.post('/api/calendars/sources', draft)),
+  deleteCalendarSource: (id) => API.del('/api/calendars/sources/' + encodeURIComponent(id)),
+  syncCalendarSource: (id, force = false) => API.post('/api/calendars/sources/' + encodeURIComponent(id) + '/sync', { force }),
+  // Show/hide is its own route rather than a source PUT: it is a one-click
+  // sidebar toggle, and round-tripping the whole source record for it would be
+  // one more chance to send stale sync state back.
+  setCalendarVisible: (id, visible) => API._req('PATCH', '/api/calendars/' + encodeURIComponent(id), { visible }),
+  // A colour of your own for one calendar. An empty string hands it back to the
+  // server's (see the PATCH route's colorLocked note).
+  setCalendarColor: (id, color) => API._req('PATCH', '/api/calendars/' + encodeURIComponent(id), { color }),
+  // Creates the calendar on the source's own server first, then stores it — so
+  // a refusal leaves nothing behind locally. Answers with the whole refreshed
+  // source and calendar lists, since a create also triggers a sync.
+  createCalendar: (sourceId, displayName, color = '') =>
+    API.post('/api/calendars/sources/' + encodeURIComponent(sourceId) + '/calendars', { displayName, color }),
+  // The browser's own zone rides along so the server can resolve floating
+  // events and decide which DAY each occurrence belongs to — neither of which
+  // the browser should be doing for itself (see server/calendarEvents.js).
+  calendarEvents: (from, to, calendarIds = null) => API.get('/api/calendar/events?from=' + from + '&to=' + to
+    + '&tz=' + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || '')
+    + (calendarIds?.length ? '&calendars=' + encodeURIComponent(calendarIds.join(',')) : '')),
+  // ---- writing ----
+  // `scope` is required rather than defaulted on both of these: on a repeating
+  // event 'one', 'future' and 'all' write three genuinely different documents,
+  // and a caller that forgot to ask must not silently get the most destructive
+  // one. The server refuses anything else.
+  createCalendarEvent: (calendarId, event) => API.post('/api/calendar/events', { calendarId, ...event }),
+  updateCalendarEvent: (calendarId, uid, event, { scope = 'all', occurrenceStart = null } = {}) =>
+    API.put(`/api/calendar/event/${encodeURIComponent(calendarId)}/${encodeURIComponent(uid)}`,
+      { ...event, scope, occurrenceStart }),
+  deleteCalendarEvent: (calendarId, uid, { scope = 'all', occurrenceStart = null } = {}) =>
+    API.del(`/api/calendar/event/${encodeURIComponent(calendarId)}/${encodeURIComponent(uid)}`
+      + `?scope=${encodeURIComponent(scope)}${occurrenceStart ? '&start=' + occurrenceStart : ''}`),
+
+  calendarEvent: (calendarId, uid, start = null) => API.get(
+    `/api/calendar/event/${encodeURIComponent(calendarId)}/${encodeURIComponent(uid)}`
+    + (start ? '?start=' + start : '')),
+
+  // ---- live contact sync (CardDAV / Google / Microsoft / Exchange) ----
+  // Sources are per PERSON, not per mail account, so none of these take an
+  // account id — a provider-backed source names the account it borrows a
+  // sign-in from inside its own record instead.
+  contactSources: () => API.get('/api/contact-sources'),
+  // Probes a server and lists what is there WITHOUT saving anything, so a
+  // mistyped password does not leave a broken source behind.
+  discoverContactSource: (draft) => API.post('/api/contact-sources/discover', draft),
+  saveContactSource: (draft, id) => (id
+    ? API.put('/api/contact-sources/' + encodeURIComponent(id), draft)
+    : API.post('/api/contact-sources', draft)),
+  deleteContactSource: (id) => API.del('/api/contact-sources/' + encodeURIComponent(id)),
+  syncContactSource: (id, force = false) => API.post('/api/contact-sources/' + encodeURIComponent(id) + '/sync', { force }),
+  // A synced contact is edited on the server it came from, never through the
+  // bulk PUT of /api/contacts — that route replaces the LOCAL address book and
+  // strips synced rows on purpose.
+  updateSyncedContact: (rowId, patch) => API.put('/api/contact-sources/rows/' + encodeURIComponent(rowId), patch),
+  createSyncedContact: (sourceId, bookId, row) => API.post(
+    `/api/contact-sources/${encodeURIComponent(sourceId)}/books/${encodeURIComponent(bookId)}/cards`, row),
+
   importContactsFromEws: (accountId) => API.post(API._acct('/api/contacts/import/ews', accountId)),
   importContactsFromGraph: (accountId) => API.post(API._acct('/api/contacts/import/graph', accountId)),
   filters: () => API.get('/api/filters'),
   saveFilters: (l) => API.put('/api/filters', l),
+
+  // Settings > Subject — how a subject is rewritten FOR DISPLAY in the list and
+  // in push notifications (server/subjectRules.js). Not account-scoped: one set
+  // per person, each rule naming the accounts it applies to.
+  subjectRules: () => API.get('/api/subject-rules'),
+  saveSubjectRules: (l) => API.put('/api/subject-rules', l),
+  // `rules` is sent along rather than read from disk so the Test panel tests
+  // what is on screen, including edits that have not been saved yet.
+  testSubjectRules: (subject, accountId, rules) => API.post('/api/subject-rules/test', { subject, accountId, rules }),
 
   // Notification scheduler's holiday calendar — built-in Slovenian entries
   // (server/holidays.js) plus the user's own custom ones (server/schedule.js) — see
@@ -228,6 +348,12 @@ const API = {
   attachmentUrl: (folder, uid, index, accountId) =>
     API._acct('/api/message/' + encodeURIComponent(folder) + '/' + encodeURIComponent(uid)
       + '/attachment/' + encodeURIComponent(index), accountId),
+  /** All of one message's attachments as a single .zip, built server-side —
+   *  the parts live there, one fetch each. A plain link, like the single
+   *  attachment above: the browser's own download machinery handles it. */
+  attachmentsZipUrl: (folder, uid, accountId) =>
+    API._acct('/api/message/' + encodeURIComponent(folder) + '/' + encodeURIComponent(uid)
+      + '/attachments.zip', accountId),
   flags: (folder, uids, add, remove, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/flags', accountId), { uids, add, remove }),
   move: (folder, uids, target, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/move', accountId), { uids, target }),
   copy: (folder, uids, target, accountId) => API.post(API._acct('/api/messages/' + encodeURIComponent(folder) + '/copy', accountId), { uids, target }),
@@ -260,7 +386,12 @@ const API = {
   // address — the tokens go straight from the provider into the account
   // record, server-side.
   oauthProviders: () => API.get('/api/oauth/providers'),
-  oauthStart: ({ provider, email, accountId }) => API.post('/api/oauth/start', { provider, email, accountId }),
+  // `features` asks for OPTIONAL extra permissions alongside the mail ones —
+  // 'calendar', 'contacts' (see server/oauth.js#FEATURE_SCOPES). Left out, the
+  // sign-in requests exactly what it always did, which is what keeps every
+  // existing account from being told it needs to sign in again.
+  oauthStart: ({ provider, email, accountId, features }) =>
+    API.post('/api/oauth/start', { provider, email, accountId, features }),
   oauthStatus: (state) => API.get('/api/oauth/status?state=' + encodeURIComponent(state)),
   oauthAttach: (state, accountId) => API.post('/api/oauth/attach', { state, accountId }),
   adminOAuth: () => API.get('/api/admin/oauth'),

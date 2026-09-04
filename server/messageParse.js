@@ -14,14 +14,19 @@ import { receiptAddressOf } from './readReceipt.js';
 import { parseListUnsubscribe, rawHeaderValue } from './unsubscribe.js';
 import { repairQuotedPrintable } from './transferEncoding.js';
 import { parseInvitation } from './icalendar.js';
+import { readAuthResults } from './authResults.js';
 
 /**
  * Full parsed message (subject/from/to/body/attachments/…) from a raw
  * source buffer plus whatever flags (\Seen, \Flagged, …) the caller already
  * has — callers add their own `uid` to the result themselves, since this
  * module has no notion of message identity, only content.
+ *
+ * `authservId` is the optional per-account name of the mail server whose
+ * authentication verdict to trust; without it the topmost one is used, which is
+ * right whenever Hmelj reads a mailbox on the server that did the checking.
  */
-export async function parseMessage(source, flags) {
+export async function parseMessage(source, flags, { authservId = '' } = {}) {
   const parsed = await simpleParser(source);
   // Content-Disposition:inline + a Content-ID header is the usual signal
   // for "this is an embedded image, not a real attachment," but some
@@ -91,6 +96,12 @@ export async function parseMessage(source, flags) {
         rawHeaderValue(parsed.headerLines, 'list-unsubscribe'),
         rawHeaderValue(parsed.headerLines, 'list-unsubscribe-post'),
       ),
+      // Did this really come from where it says? (server/authResults.js.)
+      // Fed headerLines rather than the parsed header map on purpose: that map
+      // collapses repeated headers, and WHICH Authentication-Results came first
+      // is the entire basis for trusting one of them — the receiving server
+      // writes its verdict on top of whatever the sender already put there.
+      auth: readAuthResults(parsed.headerLines, { authservId }),
     },
     attachments,
     flags: [...(flags || [])],
