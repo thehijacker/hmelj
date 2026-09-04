@@ -3094,7 +3094,7 @@ function stopSyncStatusPolling() {
  * "If offline, do nothing; when back online, refresh and notify": Web Push
  * itself needs no help here — the OS/push service queues a notification
  * and delivers it automatically once THIS device reconnects, regardless of
- * whether this page is even open (see the plan doc). What actually needs
+ * whether this page is even open. What actually needs
  * handling is this page's own foreground polling: a plain setInterval kept
  * firing (and failing) every 15s for no benefit while offline, and without
  * an explicit catch-up, the open view would otherwise sit stale until the

@@ -140,8 +140,8 @@ function accountForIdentity(identity) {
 /** No I/O beyond decrypting an already-loaded local record — cheap enough to
  * run synchronously in a request handler before deciding to respond. Split
  * out of sendMail() so server/index.js's /api/send route can resolve (and
- * validate) the account up front, before backgrounding the actual send —
- * see the plan doc. `ownerUser` ({id, username}) must be threaded through to
+ * validate) the account up front, before backgrounding the actual send.
+ * `ownerUser` ({id, username}) must be threaded through to
  * every IMAP/EWS-touching call below (runAsAccount, not runWithAccount) —
  * for a shared account it's its owner, not whoever's sending. */
 export function resolveIdentityAndAccount(payload) {

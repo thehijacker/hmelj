@@ -546,8 +546,8 @@ app.delete('/api/admin/fonts/:id/:style', requireAdmin, (req, res) => {
 // Owner-only guard for the account-mutating routes below — a non-owner
 // (even one this account is shared with) gets a 403 now, not the "silently
 // can't even address it" guarantee storage alone used to provide for free
-// when every account was strictly one-owner-per-file (see the plan doc —
-// sharing is exactly what ends that free guarantee). viewerKey, not the
+// when every account was strictly one-owner-per-file — sharing is exactly
+// what ends that free guarantee. viewerKey, not the
 // possibly ownership-swapped userKey (see session.js's requireAuth), is
 // always the actual requesting login regardless of which account's data
 // they're currently operating against.
@@ -629,7 +629,7 @@ app.put('/api/accounts/:id', requireOwnAccount, wrap(async (req, res) => { const
 app.delete('/api/accounts/:id', requireOwnAccount, (req, res) => { accounts.deleteAccount(req.params.id); sync.reschedule(); res.json({ ok: true }); });
 // Owner writes go straight to the account record, same as always. A
 // non-owner who's actually been granted access instead writes to their own
-// personalization (server/accountOverrides.js — Phase 2 of the plan doc):
+// personalization (server/accountOverrides.js):
 // label/color/hiddenFolders only, and hiddenFolders there means "MY own
 // additional hidden folders," unioned with the owner's at read time
 // (accounts.js#listSharedInAccounts) — never a replacement for the owner's
@@ -1203,9 +1203,9 @@ app.get('/api/sync/status', (req, res) => {
 // move on one device, see it on another almost instantly) not depend on the
 // existing 15s poll's own cadence. See server/events.js for the broadcast
 // side (called from every mutating route below, and from sync.js when the
-// background poller finds new mail) and this session's plan doc for why SSE
-// over a WebSocket (this is one-directional only — no reason for a heavier,
-// bidirectional protocol). Deliberately not wrapped in wrap() — that helper
+// background poller finds new mail). SSE rather than a WebSocket because this
+// channel is one-directional only — there is no reason for a heavier,
+// bidirectional protocol. Deliberately not wrapped in wrap() — that helper
 // assumes a single res.json()/error response, not a stream that outlives
 // the request.
 app.get('/api/events', (req, res) => {
@@ -2395,7 +2395,7 @@ app.delete('/api/folders/:path', wrap(async (req, res) => {
 }));
 app.post('/api/folders/:path/rename', wrap(async (req, res) => {
   const result = await imap.renameFolder(decodeURIComponent(req.params.path), req.body.newPath);
-  events.broadcastForAccount(currentUser().userKey, currentUserAccountId()); // no cache mirror for rename today (see the plan doc) — stale cache rows self-heal on the next background sync same as before, this just wakes other tabs to notice sooner
+  events.broadcastForAccount(currentUser().userKey, currentUserAccountId()); // no cache mirror for rename today — stale cache rows self-heal on the next background sync same as before, this just wakes other tabs to notice sooner
   res.json(result);
 }));
 app.post('/api/folders/:path/empty', wrap(async (req, res) => {

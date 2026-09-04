@@ -43,9 +43,8 @@ function ymd(date) {
 }
 
 // The 12 non-Easter-derived work-free days (dela prost dan), fixed month/day every
-// year — cross-checked this session against the official "15 paid work-free days per
-// calendar year" figure: these 12 + Easter Sunday + Easter Monday + Whit Sunday
-// (Pentecost) = 15. High confidence.
+// year. These 12 + Easter Sunday + Easter Monday + Whit Sunday (Pentecost) = 15,
+// which matches the official "15 paid work-free days per calendar year" figure.
 const SI_FIXED_HOLIDAYS = [
   { month: 1, day: 1, name: 'Novo leto' },
   { month: 1, day: 2, name: 'Novo leto' },

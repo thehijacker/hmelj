@@ -228,10 +228,9 @@ function stripSecrets(a) {
 
 /** This viewer's own accounts only — no shared-in ones. Used by sync.js so a
  * shared account is only ever background-polled once, via its owner's own
- * iteration — see the plan doc for why merging shared-in accounts into the
- * general sync loop would double-poll (and double-connect) every shared
- * mailbox. Everything else that wants "everything I can see" uses
- * listAccounts() below instead. */
+ * iteration: merging shared-in accounts into the general sync loop would
+ * double-poll (and double-connect) every shared mailbox. Everything else that
+ * wants "everything I can see" uses listAccounts() below instead. */
 export function listOwnedAccounts() {
   return loadOwn().map(stripSecrets);
 }

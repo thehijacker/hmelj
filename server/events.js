@@ -1,6 +1,6 @@
 // Hmelj — Server-Sent Events: the "something changed, go check" channel that
 // makes cross-device sync feel instant instead of waiting for the next poll
-// tick (see server/index.js's GET /api/events and the plan doc). Deliberately
+// tick (see server/index.js's GET /api/events). Deliberately
 // coarse-grained: every broadcast carries no payload beyond the event type
 // itself — public/js/app.js already has reconcileMessages()/reconcileFolders()
 // (built for the existing 15s poll), which cheaply re-fetch and no-op if

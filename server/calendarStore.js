@@ -32,10 +32,10 @@ const clog = log.scope('calendar-store');
 /** Where a source's sign-in comes from: 'own' means it carries its own
  *  username/password, 'account' means it borrows a mail account's OAuth token.
  *
- *  All four are read-only in this phase. Writing (create/edit/delete, and the
- *  local calendars that only make sense once you can put something in them) is
- *  a separate phase — see the plan document. `writable` is here already so the
- *  UI has one place to ask rather than growing its own list later. */
+ *  `writable` says whether Hmelj can change a source's events at all, which
+ *  is one question the UI asks in one place rather than each caller growing
+ *  its own list of kinds. See server/calendarWrite.js for what writing a
+ *  given kind actually involves. */
 export const SOURCE_KINDS = {
   // A calendar that lives in Hmelj itself. No server, no credentials — its
   // events are .ics files in DATA_DIR, beside the scheduled-send queue and for

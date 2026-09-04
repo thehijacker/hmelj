@@ -301,7 +301,7 @@ async function refreshBadgeFromServer() {
  * open a fresh one that'll do the same once it boots (see the
  * msgAccount/msgFolder/msgUid handling at the bottom of app.js). This is
  * the default tap behavior, and — on platforms without action-button
- * support (notably iOS Safari, see the plan doc) — the ONLY behavior. */
+ * support (notably iOS Safari) — the ONLY behavior. */
 async function openOrFocusMessage(accountId, folder, uid) {
   const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const target = clientsList[0];

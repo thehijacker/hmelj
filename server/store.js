@@ -398,8 +398,8 @@ export const store = {
   // A user's own holidays, on top of (not instead of) server/holidays.js's hardcoded
   // Slovenian calendar — see holidays.js#resolveHolidaysForYear. [{id, month, day, name,
   // workFree}], no year: recurs every year automatically, same as the built-in entries.
-  // Lets a non-Slovenian user (this project being open-source and self-hosted — see the
-  // plan doc) build their own country's holiday list without editing any code.
+  // Lets a non-Slovenian user — this project being open-source and self-hosted —
+  // build their own country's holiday list without editing any code.
   // Explicit-userKey pair for the same reason as getHolidayOverridesFor above.
   getCustomHolidaysFor: (uKey) => loadFor(uKey, 'custom-holidays', []),
   saveCustomHolidaysFor(uKey, list) { saveFor(uKey, 'custom-holidays', list); return list; },

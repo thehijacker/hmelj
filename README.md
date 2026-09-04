@@ -263,9 +263,14 @@ one interface in `mailClient.js`), `smtpClient.js`, `cache.js` (SQLite), `sync.j
 poller), `idle.js` (live watchers), `filters.js`, `push.js`, `oauth.js`, `calendar*.js` and
 `dav/` (calendars, contacts, and Hmelj's own CalDAV/CardDAV server), `snooze.js`,
 `scheduledSend.js`, `export.js`, and a handful of pure modules with their own tests —
-`searchQuery.js`, `authResults.js`, `subjectRules.js`, `icalendar.js`, `vcard.js`. `public/` is the vanilla-JS front end. `Android/` is the WebView
-shell. `summary.md` is the engineering notebook — architecture decisions, a file map,
-and the gotchas worth knowing before changing anything.
+`searchQuery.js`, `authResults.js`, `subjectRules.js`, `icalendar.js`, `vcard.js`.
+`public/` is the vanilla-JS front end. `Android/` is the WebView shell.
+
+Every module opens with a comment saying what it is for and which of its decisions are
+load-bearing — why the search index is contentless, why a snooze queue lives in
+`DATA_DIR` and a reminder ledger does not, why filters are not pushed to the server as
+Sieve. The suite beside it in `test/` is the other half of that explanation: the tests
+are written to be read, and several of them record the bug that produced them.
 
 ---
 

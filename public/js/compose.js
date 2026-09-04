@@ -1343,9 +1343,8 @@ const Compose = (() => {
       const btn = document.getElementById('btn-send');
       // Only guards against a double-click firing two sends in the brief
       // window before the server acks — /api/send now responds as soon as
-      // it's validated the request, not after the actual send completes
-      // (see the plan doc), so there's no multi-second wait to show a
-      // spinner for anymore.
+      // it's validated the request, not after the actual send completes,
+      // so there's no multi-second wait to show a spinner for anymore.
       btn.disabled = true;
       try {
         // previousUid: the server replaces this compose window's own

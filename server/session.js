@@ -371,8 +371,8 @@ export function requireAuth(req, res, next) {
   if (!s) return res.status(401).json({ error: 'Not authenticated' });
   req.user = s;
   const accountId = req.query.account || null; // mail routes pass ?account=<id>
-  // Ownership swap for a shared mail account (see server/accounts.js and the
-  // plan doc): if `accountId` isn't this login's own, but was shared TO
+  // Ownership swap for a shared mail account (see server/accounts.js):
+  // if `accountId` isn't this login's own, but was shared TO
   // them, every mail-layer function downstream (imapClient.js's connection
   // pool, every cache.js table) already trusts `userKey` uniformly for
   // partitioning — so operating this one request under the OWNER's userKey

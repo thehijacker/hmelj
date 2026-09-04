@@ -457,7 +457,7 @@ const Settings = (() => {
     // Microsoft keeps its sign-in in `graph`, a Gmail/XOAUTH2 IMAP account in
     // `oauth` (see server/accounts.js) — everything below is identical for both.
     const signIn = a.graph || a.oauth;
-    // A shared-in account (someone else's, shared to us — see the plan doc)
+    // A shared-in account (someone else's, shared to us)
     // never shows credentials/server-setting controls at all: no Edit, no
     // Folders (special-folder mapping + hidden-folders are owner-only in
     // this first pass — a per-viewer override for hidden folders is a
@@ -2653,7 +2653,7 @@ const Settings = (() => {
     body().innerHTML = `<p class="set-hint" style="grid-column:auto">Loading…</p>`;
     await loadFoldersFor(foldersAccountId);
 
-    // A shared account's viewer (not its owner — see the plan doc's Phase 2)
+    // A shared account's viewer, as opposed to its owner,
     // only gets to personalize which folders show in THEIR OWN sidebar
     // (server/accountOverrides.js) — special-folder mapping, folder create/
     // rename/delete/empty all stay owner-only (they touch the real shared
