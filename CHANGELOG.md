@@ -4,6 +4,43 @@ All notable changes to Hmelj are recorded here. Versions follow
 [semantic versioning](https://semver.org/): the major number changes when an upgrade needs
 manual work, the minor when features are added, the patch for fixes.
 
+## 1.0.9 — 2026-09-05
+
+### Contact groups
+A group is a name for a set of addresses — "the board", "the team". Type its name into
+To, Cc or Bcc, pick it from the suggestions, and the field holds one token (`👥 Team`)
+instead of eight addresses.
+
+- The expansion happens on the **server**, once, when the message is actually handed over.
+  Nothing downstream — the scheduled-send queue, the SMTP/EWS/Graph send paths, the
+  address book's own "learn who I write to" — ever sees a group; they all see ordinary
+  recipients. A message held back by undo-send or queued for later keeps the membership
+  the group had when Send was pressed.
+- Sending to a group that no longer exists, or to one with nobody in it, is **refused**
+  with a sentence naming it, rather than quietly going to fewer people than intended.
+  Saving a draft is not refused — that happens automatically, so the token simply stays in
+  the field.
+- Edited in **Settings › Contacts**: name a group, tick contacts and *Add to group*, or
+  open one and search the address book for people to put in it. A group may also hold an
+  address that is not a contact at all. `✉` starts a message to one.
+- Members are stored as addresses rather than as contact ids, so a group can mix
+  hand-typed and synced contacts and survives a synced card being re-fetched. Groups are
+  per Hmelj user, like filters and saved searches, and are included in the settings export.
+
+### Backspace deletes a whole recipient
+In To, Cc and Bcc, Backspace at a recipient boundary now selects that whole recipient —
+address or group — the way Outlook selects a chip; a second press removes it. Previously
+unpicking a group meant one press per letter of its name. Backspace in the middle of an
+address still deletes a character, so fixing a typo works as before, and Delete keeps its
+own meaning (remove this contact from the address book).
+
+### Unread counts on saved searches
+Every pinned search in the sidebar now carries the same unread badge the folders beside it
+do. Counted server-side off the local cache, in the request that already feeds the folder
+badges — no extra round trip and no IMAP. A search the cache cannot answer on its own (a
+`body:` term over an account with no full-text index) shows no badge rather than a wrong
+one.
+
 ## 1.0.8 — 2026-09-04
 
 ### Offline mode

@@ -9,10 +9,20 @@ const state = {
   lastAccount: null, // last specific (non-'all') account visited — Compose's default context
   identities: [],
   contacts: [],
+  // Named sets of addresses (server/contactGroups.js). Read by compose's
+  // recipient autocomplete, which offers each one as a single `👥 Name` token;
+  // the server is what turns that back into addresses, at send.
+  contactGroups: [],
   // Searches pinned to the sidebar (server/store.js#getSavedSearches). Loaded
   // once at startup and re-read after every edit; each one is re-RUN on open,
   // so nothing here is a cached result.
   savedSearches: [],
+  // Unread per saved search, keyed by its id — the badges on the 🔎 sidebar
+  // rows. Filled by refreshUnread() from /api/unread, which counts them off the
+  // same cache read the folder badges come from. A search the cache cannot
+  // answer (a `body:` term with no full-text index) has NO KEY here, which is
+  // deliberately different from having a 0: that row shows no badge at all.
+  savedSearchUnread: {},
   // Which saved search the list is currently showing, if any. Deliberately NOT
   // folded into currentFolder: a saved search runs against a REAL folder (or the
   // unified view), and everything from the message fetch to "Move to…" reads
@@ -2197,7 +2207,32 @@ async function refreshUnread() {
   for (const a of state.accounts) {
     if (Object.prototype.hasOwnProperty.call(data.accounts, a.id)) a.unseen = data.accounts[a.id];
   }
+  // Older servers don't send this key at all; keeping the last numbers rather
+  // than blanking every badge is the same choice the catch above makes.
+  if (data.savedSearches) {
+    state.savedSearchUnread = data.savedSearches;
+    paintSavedSearchCounts();
+  }
   renderAccounts();
+}
+
+/** Moves the saved-search badges without redrawing the sidebar — the same
+ *  in-place patch reconcileFolders does for the folder rows, and for the same
+ *  reason: this runs on every reconcile, and rebuilding the list would drop
+ *  whatever the user was hovering or mid-long-press on. */
+function paintSavedSearchCounts() {
+  for (const s of state.savedSearches || []) {
+    const li = $(`#folder-list li[data-path="${CSS.escape(savedSearchPath(s.id))}"]`);
+    if (!li) continue;
+    const n = state.savedSearchUnread?.[s.id];
+    const span = li.querySelector('.f-count');
+    if (n) {
+      if (span) span.textContent = n;
+      else li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
+    } else if (span) {
+      span.remove();
+    }
+  }
 }
 
 async function openFolder(path, page = 1) {
@@ -2295,7 +2330,14 @@ function appendSavedSearchRows(ul) {
     if (state.savedSearchId === s.id) li.classList.add('active');
     // data-no-i18n on the name for the same reason the subject cell carries it
     // (see buildRow): this is the user's own words, not part of the interface.
-    li.innerHTML = `<span class="f-icon">🔎</span><span data-no-i18n>${esc(s.name)}</span>`;
+    // The unread count, drawn with the same `.f-count` chip the folder rows and
+    // the Scheduled row use — a saved search sits among them in this list, and
+    // a row that is the only one without a number reads as "nothing new" rather
+    // than as "not counted". A search with NO entry (see state.savedSearchUnread)
+    // gets no chip, which is how "the cache cannot answer this one" looks.
+    const unseen = state.savedSearchUnread?.[s.id];
+    li.innerHTML = `<span class="f-icon">🔎</span><span data-no-i18n>${esc(s.name)}</span>`
+      + (unseen ? `<span class="f-count">${unseen}</span>` : '');
     li.title = s.query;
     li.addEventListener('click', () => openSavedSearch(s));
     bindLongPress(li, (x, y) => showSavedSearchMenu(s, x, y));
@@ -6672,9 +6714,11 @@ async function boot() {
 
   state.identities = await API.identities();
   state.contacts = await API.contacts();
-  // Non-fatal: a failure here costs the sidebar its saved-search rows, which
-  // is not a reason to stop the app from loading mail.
+  // Non-fatal, both: a failure here costs the sidebar its saved-search rows or
+  // the composer its group tokens, neither of which is a reason to stop the app
+  // from loading mail.
   state.savedSearches = await API.savedSearches().catch(() => []);
+  state.contactGroups = await API.contactGroups().catch(() => []);
   Compose.setTemplates(await API.templates().catch(() => []));
   await refreshSnoozed();
 

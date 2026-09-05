@@ -26,6 +26,7 @@ import {
 } from './session.js';
 import * as accounts from './accounts.js';
 import { addContacts, learnRecipients } from './contacts.js';
+import { expandPayloadGroups } from './contactGroups.js';
 import * as contactSources from './contactSources.js';
 import * as vcard from './vcard.js';
 import * as contactsSync from './contactsSync/index.js';
@@ -2177,7 +2178,8 @@ function vcardFor(contacts) {
 }
 
 /** Everything except the mail: settings, identities, filters, subject rules,
- *  saved searches, templates, contacts (JSON and vCard), local calendars.
+ *  saved searches, templates, contacts (JSON and vCard), contact groups,
+ *  local calendars.
  *  Mail ACCOUNTS are deliberately excluded — see export.js#settingsArchive. */
 app.get('/api/export/settings', wrap(async (req, res) => {
   const viewerKey = currentUser().viewerKey;
@@ -2202,6 +2204,7 @@ app.get('/api/export/settings', wrap(async (req, res) => {
     savedSearches: store.getSavedSearches(),
     templates: store.getTemplates(),
     contacts,
+    contactGroups: store.getContactGroups(),
     // A contact ROW is one name + one address (server/contacts.js); a vCard
     // holds all of a person's addresses, so the rows are regrouped by name on
     // the way out rather than emitting one card per address.
@@ -2295,6 +2298,20 @@ app.get('/api/saved-searches', (req, res) => {
 // The list is normalised by the store rather than here — see store.js's
 // normalizeSavedSearches for what it repairs and what it drops.
 app.put('/api/saved-searches', (req, res) => res.json(store.saveSavedSearches(req.body)));
+
+// ---------- contact groups ----------
+//
+// Whole-list read and write, like saved searches above: a handful of them,
+// edited together on one pane, and a PUT of the array is the only write that
+// cannot leave two of them disagreeing about their order. The list is shaped by
+// server/contactGroups.js#normalizeContactGroups on the way in — including the
+// duplicate-name disambiguation the send path depends on — so the client must
+// adopt the response rather than the list it sent.
+app.get('/api/contact-groups', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(store.getContactGroups());
+});
+app.put('/api/contact-groups', (req, res) => res.json(store.saveContactGroups(req.body)));
 
 // ---------- filters ----------
 app.get('/api/filters', (req, res) => res.json(store.getFilters()));
@@ -2469,7 +2486,17 @@ app.get('/api/unread', wrap(async (req, res) => {
   // See /api/unified/:box's own comment on why this is needed — polled every couple
   // seconds by the client specifically because it changes constantly.
   res.set('Cache-Control', 'no-store');
-  res.json({ ...unread.unreadForCurrentUser(), at: new Date().toISOString() });
+  const viewerKey = currentUser().viewerKey || currentUser().userKey;
+  res.json({
+    ...unread.unreadForCurrentUser(),
+    // The sidebar's 🔎 rows, counted from the same cache read the folder badges
+    // come from — see unread.js#savedSearchUnreadFor for why a badge may never
+    // reach past it. Additive: an older client ignores the key. Deliberately
+    // NOT on the SSE payload or the push badge, which carry one number for a
+    // launcher icon and have no sidebar to paint.
+    savedSearches: unread.savedSearchUnreadFor(viewerKey, accounts.listAccounts()),
+    at: new Date().toISOString(),
+  });
 }));
 /**
  * Re-reads the folder tree from the server and writes it over the cached one.
@@ -4214,6 +4241,13 @@ scheduledSend.setHooks({
 
 app.post('/api/drafts', wrap(async (req, res) => {
   const acc = accounts.currentAccount(); // route is called with ?account=<identity's account>
+  // Groups are resolved here too, so a draft written to the mail server holds
+  // real addresses rather than `To: 👥 Team` — which is not an address, and
+  // which every other client reading that Drafts folder would choke on.
+  // Non-strict, unlike the send path: a draft save is automatic (it happens
+  // whenever a composer closes), so an unresolvable group must never be a
+  // reason to lose what somebody wrote. See contactGroups.js#expandPayloadGroups.
+  expandPayloadGroups(req.body, store.getContactGroups(), { strict: false });
   const uid = await saveDraft(req.body, acc, req.body.previousUid);
   res.json({ ok: true, uid });
 }));
@@ -4263,6 +4297,20 @@ async function markOriginal(target) {
 
 app.post('/api/send', wrap(async (req, res) => {
   const payload = req.body;
+  // Groups first, before anything else looks at the recipients. From here down
+  // — the "add a recipient" check, the undo/scheduled queue, sendMail, the EWS
+  // and Graph send paths, learnRecipients — nothing knows groups exist; they
+  // all see ordinary addresses. See server/contactGroups.js.
+  //
+  // One consequence worth knowing: a message held back by undo-send or queued
+  // for later keeps the membership the group had WHEN SEND WAS PRESSED. Editing
+  // the group afterwards does not change who the queued message goes to, which
+  // is the same promise the composer's own recipient list makes.
+  try {
+    expandPayloadGroups(payload, store.getContactGroups());
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
   if (!payload?.to) return res.status(400).json({ error: 'Add at least one recipient' });
   let acc, ownerUser;
   try {

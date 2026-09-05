@@ -985,6 +985,10 @@ const Compose = (() => {
       // field must never be able to do that, whatever it is confirmed with. It
       // is removable from Settings › Contacts, where the row says which server
       // it lives on.
+      //
+      // A GROUP row carries no `contact` either, so the same test skips it: a
+      // group is edited in Settings › Contacts, and deleting one from here
+      // would take away a list somebody built rather than one dead address.
       const del = contactSuggestOptions[contactSuggestIndex]?.contact;
       if (!del || del.synced) return;
       // First press arms the highlighted row and shows the confirm in place of
@@ -1010,6 +1014,76 @@ const Compose = (() => {
       paintContactSuggestRows();
     }
   }
+  /**
+   * Where the recipient containing `caret` starts — the index just past the
+   * separator in front of it, or 0 for the first one.
+   *
+   * Quote-aware, deliberately: the comma in `"Novak, Bo" <bo@x.si>` is part of
+   * somebody's name, not a separator, and a plain lastIndexOf(',') cuts that
+   * person in half. Same thing addressparser knows on the server side (see
+   * server/contactGroups.js, which relies on exactly this).
+   */
+  function recipientStart(value, caret) {
+    let start = 0;
+    let inQuotes = false;
+    for (let i = 0; i < caret; i++) {
+      const ch = value[i];
+      if (ch === '"') inQuotes = !inQuotes;
+      else if (!inQuotes && (ch === ',' || ch === ';')) start = i + 1;
+    }
+    return start;
+  }
+
+  /**
+   * Backspace at a recipient boundary takes the WHOLE recipient, not a letter
+   * of it — what Outlook does with its chips, and what these fields could not
+   * do because they are plain <input>s holding one long string.
+   *
+   * Reported after picking a group from the suggestions: the dropdown commits
+   * `👥 Družina, ` and leaves the caret past the separator, so Backspace ate
+   * "a", "n", "i"… one press at a time, and unpicking a group meant eleven of
+   * them.
+   *
+   * Two rules keep this from getting in the way of ordinary editing:
+   *
+   *   - It only fires AT A BOUNDARY — when everything between the previous
+   *     separator and the caret is whitespace. Backspace in the middle of an
+   *     address still deletes a character, because that is what fixing a typo
+   *     needs, and there is no way to tell a finished address from one being
+   *     typed towards.
+   *   - The first press SELECTS the recipient rather than deleting it, exactly
+   *     as Outlook selects a chip. This is data somebody typed: showing what
+   *     the next press will take is worth one keystroke. The second press is
+   *     then the browser's own delete-the-selection, so nothing here has to
+   *     handle it — and typing instead simply replaces it.
+   *
+   * Backspace only, not Delete: Delete already means "remove this contact from
+   * the address book" while the dropdown is open (see onContactSuggestKeydown),
+   * and one key cannot mean two destructive things.
+   */
+  function onRecipientBackspace(e, inputEl) {
+    if (e.key !== 'Backspace' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const value = inputEl.value;
+    const caret = inputEl.selectionStart;
+    // A range is already selected — including the one a previous press made.
+    // Backspace means "delete that", which is the default.
+    if (caret !== inputEl.selectionEnd) return;
+    const start = recipientStart(value, caret);
+    if (value.slice(start, caret).trim()) return; // mid-recipient: ordinary character delete
+    if (!start) return;                           // nothing in front of the caret to take
+    const prevStart = recipientStart(value, start - 1);
+    const prev = value.slice(prevStart, start - 1);
+    if (!prev.trim()) return;                     // an empty segment (", ,") — let it collapse a character at a time
+    e.preventDefault();
+    // From the recipient's first non-space character through the caret, so the
+    // separator and the space after it go with it and the field is left clean
+    // rather than ending in a stray comma.
+    inputEl.setSelectionRange(prevStart + (prev.length - prev.trimStart().length), caret);
+    // The box is offering matches for an empty segment's worth of nothing, and
+    // it would sit over the selection we just made.
+    closeContactSuggest();
+  }
+
   /** Matches for whatever's currently being typed in `inputEl` — a
    * To/Cc/Bcc field can hold several addresses, so only the text after the
    * last separator (the one actually being typed right now) drives
@@ -1022,7 +1096,10 @@ const Compose = (() => {
    * what keeps focusing an empty field from popping up every contact. */
   function updateContactSuggestions(inputEl) {
     const value = inputEl.value;
-    const splitAt = Math.max(value.lastIndexOf(','), value.lastIndexOf(';')) + 1;
+    // recipientStart rather than a lastIndexOf pair, so this and the Backspace
+    // handler above agree on where a recipient begins — and so a quoted display
+    // name containing a comma stops being read as two half-recipients.
+    const splitAt = recipientStart(value, value.length);
     const prefix = value.slice(0, splitAt);
     const typed = value.slice(splitAt).trim().toLowerCase();
     if (!typed) { closeContactSuggest(); return; }
@@ -1040,10 +1117,35 @@ const Compose = (() => {
       const full = name ? `${name} <${email}>` : email;
       return { label: full, value: prefix ? `${prefix} ${full}` : full, ...extra };
     };
+    // Contact groups (server/contactGroups.js). Matched on the group's NAME —
+    // it has no address of its own, and it is the name the server resolves at
+    // send time. What goes into the field is the token, not the addresses: the
+    // field stays readable, and the expansion happens once, on the server, so
+    // the scheduled queue and every send backend only ever see real addresses.
+    const groups = (state.contactGroups || [])
+      .filter((g) => String(g.name || '').toLowerCase().includes(typed))
+      .slice(0, 10);
+    const groupRow = (g) => {
+      const token = `👥 ${g.name}`;
+      const n = (g.members || []).length;
+      // Translated as one whole string ("3 people"), not as a number glued to a
+      // translated word — Slovenian does not inflect the noun the way English
+      // does. See the `^(\d+) people$` regex in the language files.
+      return {
+        label: `${token} — ${I18n.t(n === 1 ? '1 person' : `${n} people`)}`,
+        value: prefix ? `${prefix} ${token}` : token,
+        // No `contact`, so Delete and the right-click menu both skip this row
+        // on the guard they already have — a group is not removable from here.
+        group: g,
+      };
+    };
     const options = [
       // Yours first: a small, fixed, high-signal set — CC'ing yourself is
       // common enough that it shouldn't be at the bottom of twenty contacts.
       ...own.map((o) => row(o.name, o.email, { own: true })),
+      // Then groups: there are few of them, and one is worth more than any
+      // single contact when it matches what is being typed.
+      ...groups.map(groupRow),
       // `contact` rides along so a row can be deleted as well as picked (see
       // removeContact) — the label alone can't be mapped back to a stored row.
       ...matches.map((c) => row(c.name, c.email, { contact: c })),
@@ -1578,6 +1680,10 @@ const Compose = (() => {
       // Arrow keys / Enter / Tab / Escape while the dropdown is open — see
       // onContactSuggestKeydown, which no-ops entirely when it isn't.
       inputEl.addEventListener('keydown', (e) => onContactSuggestKeydown(e, inputEl));
+      // Backspace takes a whole recipient at a boundary, dropdown or no
+      // dropdown — hence a listener of its own rather than another arm inside
+      // the one above, which exists only for while the box is open.
+      inputEl.addEventListener('keydown', (e) => onRecipientBackspace(e, inputEl));
     });
     // The keyboard opening/closing (or any other viewport change) can leave
     // an already-open suggestion box positioned against a viewport that no

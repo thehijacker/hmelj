@@ -18,6 +18,9 @@ the documentation site scales them, and these are just what the placeholders are
 | `attachments.png` | The attachment preview overlay showing an image or PDF |
 | `analytics.png` | Mailbox analytics — the Overview tab |
 | `contacts.png` | Settings › Contacts, with the address book and suggestions |
+| `contact-groups.png` | Settings › Contacts, the Groups card — a group named, with its member editor open over the address book |
+| `compose-group.png` | The composer with a group offered in the recipient dropdown, and the `👥 Name` token already in To |
+| `saved-search-unread.png` | The sidebar with unread counts on the 🔎 saved-search rows, beside the folder counts |
 | `calendar-month.png` | The calendar month view, with each calendar in its own colour |
 | `calendar-week.png` | The week view — the time grid, with an event spanning two columns |
 | `calendar-event.png` | The event form, with the repeat and reminder pickers visible |

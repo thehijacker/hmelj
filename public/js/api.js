@@ -221,6 +221,12 @@ const API = {
   saveTemplates: (list) => API.put('/api/templates', list),
   savedSearches: () => API.get('/api/saved-searches'),
   saveSavedSearches: (list) => API.put('/api/saved-searches', list),
+  // Named sets of addresses the composer can address as one token (see
+  // server/contactGroups.js). Same whole-list contract as saved searches, and
+  // the response matters more than usual: the server disambiguates duplicate
+  // names, and the token resolves BY NAME.
+  contactGroups: () => API.get('/api/contact-groups'),
+  saveContactGroups: (list) => API.put('/api/contact-groups', list),
   // Snooze (server/snooze.js). The message really moves into the account's
   // snooze folder — `wakeAt` is when it comes back, `addCalendar` also puts a
   // reminder in the first writable calendar.

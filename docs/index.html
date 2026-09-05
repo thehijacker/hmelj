@@ -150,7 +150,14 @@
 <li><a data-scroll="filters-downtime" data-section="filters" href="#filters-downtime">Mail that arrived while Hmelj was off</a></li>
 </ul>
 </li>
-<li><a data-section="contacts" href="#contacts">Contacts</a></li>
+<li>
+<a data-section="contacts" href="#contacts">Contacts</a>
+<ul class="nav-sub">
+<li><a data-scroll="contacts-auto" data-section="contacts" href="#contacts-auto">Learned automatically</a></li>
+<li><a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">Groups</a></li>
+<li><a data-scroll="contacts-import" data-section="contacts" href="#contacts-import">Importing</a></li>
+</ul>
+</li>
 <li>
 <a data-section="calendar" href="#calendar">Calendar</a>
 <ul class="nav-sub">
@@ -391,6 +398,8 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Before it goes out</strong> — "you said it was attached", and "you replied to one of nine"</li>
 <li><strong>Spell checking</strong> as you type — Slovenian and English, detected automatically</li>
 <li><strong>Contact autocomplete</strong>, learned from the mail you actually send</li>
+<li><strong>Contact groups</strong> — one name in To, Cc or Bcc stands for a whole set of addresses</li>
+<li><strong>Backspace takes a whole recipient</strong> at a boundary, group or person, the way Outlook does</li>
 </ul>
 </div>
 
@@ -404,7 +413,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Swipe gestures</strong> on mobile, with a configurable direction</li>
 <li><strong>Search</strong> — Gmail-style syntax, cached-first with a one-click "search everywhere"</li>
 <li><strong>Search inside messages</strong> — a local full-text index, opt-in per account, with a size ceiling</li>
-<li><strong>Saved searches</strong> — pinned in the sidebar, re-run live every time you open one</li>
+<li><strong>Saved searches</strong> — pinned in the sidebar with their own unread count, re-run live every time you open one</li>
 <li><strong>Snooze</strong> — the message really moves out and comes back when you asked, with an optional calendar reminder</li>
 <li><strong>Keyboard shortcuts</strong> — Gmail's letters and Outlook's <kbd>Del</kbd> / <kbd>Ctrl+Q</kbd> / <kbd>Ctrl+U</kbd>, <kbd>?</kbd> for the list</li>
 <li><strong>Mailbox analytics</strong> — where the quota went, who sends the most, what is safe to delete</li>
@@ -421,6 +430,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Reminders</strong> delivered as push, whether or not Hmelj is open</li>
 <li><strong>Invitations</strong> — Accept / Tentative / Decline, replying or not</li>
 <li><strong>Address book</strong> — learned from your own mail, imported from Google CSV or vCard, or pulled from Microsoft and Exchange</li>
+<li><strong>Groups</strong> — name a set of addresses and write to all of them by typing that name</li>
 <li><strong>Hmelj as a CalDAV/CardDAV server</strong> — subscribe a phone or another app, with per-device app passwords and busy-only sharing</li>
 </ul>
 </div>
@@ -447,7 +457,7 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Per-user error log</strong> — filters that failed, mail that could not be sent, servers unreachable</li>
 <li><strong>Instant cross-device sync</strong> over Server-Sent Events</li>
 <li><strong>Themes</strong> light / dark / system, plus custom colours; resizable columns</li>
-<li><strong>Export</strong> — settings, filters, contacts and calendars as one zip; mail as streamed mbox, one folder at a time</li>
+<li><strong>Export</strong> — settings, filters, contacts, groups and calendars as one zip; mail as streamed mbox, one folder at a time</li>
 <li><strong>English and Slovenščina</strong>, switchable per user</li>
 </ul>
 </div>
@@ -1762,8 +1772,43 @@ row per message.
 <li><strong>Cc</strong> and <strong>Bcc</strong>, revealed on demand.</li>
 <li><strong>Priority</strong> and <strong>Request a read receipt</strong>, per message.</li>
 <li><strong>Attachments</strong> — pick files or drag them in. Forwarding carries the original's attachments.</li>
-<li>Recipient fields autocomplete from your address book, and from your own identity and account addresses (badged <em>you</em>, and never stored as contacts).</li>
+<li>Recipient fields autocomplete from your address book, from your
+<a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">contact
+groups</a>, and from your own identity and account addresses (badged <em>you</em>, and
+never stored as contacts).</li>
 </ul>
+
+<h3>The recipient fields</h3>
+<p>
+  Start typing in <strong>To</strong>, <strong>Cc</strong> or <strong>Bcc</strong> and the
+  suggestions appear: your own addresses first, then any matching
+  <a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">group</a>,
+  then contacts. <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>Enter</kbd> or <kbd>Tab</kbd> takes
+  the highlighted one, <kbd>Esc</kbd> closes the list without leaving the field.
+</p>
+<p>
+  A group goes in as a single token — <code>👥 Družina</code> — and is turned into real
+  addresses when the message is sent.
+</p>
+<p>
+  <strong><kbd>Backspace</kbd> takes a whole recipient</strong>, group or person, when the
+  cursor sits just after one: the first press highlights it, the second removes it, exactly
+  as it works with Outlook's chips. Typing instead simply replaces it. In the middle of an
+  address <kbd>Backspace</kbd> still deletes one character, so correcting a typo works as
+  it always did.
+</p>
+<p>
+  <kbd>Delete</kbd> is different on purpose: with the suggestion list open it means
+  <em>remove this contact from my address book</em>, and it asks twice — one press arms the
+  highlighted row, the second removes it. A right-click or long-press on a row offers the
+  same thing as a menu. Neither works on a group or on a contact synced from another
+  server; those are removed in Settings → Contacts, where the row says where it lives.
+</p>
+
+<figure>
+<img alt="A contact group in the composer" data-src="screenshots/compose-group.png" decoding="async" loading="lazy"/>
+<figcaption>A group offered in the recipient list, and the token it leaves in To</figcaption>
+</figure>
 <p>
   Where the quoted original goes on a reply — <strong>below</strong> your reply,
   <strong>above</strong> it, or <strong>not at all</strong> — is a setting. The signature
@@ -2011,6 +2056,28 @@ messages</a>.
   <strong>Settings → Saved searches</strong>.
 </p>
 
+<h3>Unread counts</h3>
+<p>
+  Each pinned search carries the same unread badge as the folders above it, so
+  <em>anything new in Invoices?</em> is answered without opening it. The number is worked
+  out on the server, from the local cache, in the same request that already feeds the folder
+  badges — it costs no extra round trip and never asks your mail server.
+</p>
+<p>
+  That has one visible consequence, and it is deliberate. The count reaches exactly as far
+  as the cache does — the newest messages of each folder, the same window every folder badge
+  already uses. A search Hmelj cannot answer from the cache on its own, meaning a
+  <code>body:</code> term over an account with
+  <a data-scroll="search-index" data-section="search" href="#search-index">no full-text
+  index</a>, shows <strong>no badge at all</strong> rather than a number that would be
+  wrong. Opening it still searches properly.
+</p>
+
+<figure>
+<img alt="Unread counts on saved searches" data-src="screenshots/saved-search-unread.png" decoding="async" loading="lazy"/>
+<figcaption>Saved searches counted like folders, under them in the sidebar</figcaption>
+</figure>
+
 <a class="back-top" href="#about">↑ Top</a>
 </section>
 
@@ -2067,6 +2134,13 @@ messages</a>.
 <p>
   They work with the caret inside a message body too, even though that body is a sandboxed
   frame with a document of its own — keystrokes are handed back out to the app.
+</p>
+<p>
+  Nothing here fires while you are typing in a field, so <kbd>Backspace</kbd> in the
+  composer's <strong>To</strong>, <strong>Cc</strong> and <strong>Bcc</strong> means
+  something else entirely — it
+  <a data-scroll="compose-editor" data-section="compose" href="#compose-editor">takes a
+  whole recipient</a> rather than deleting a message.
 </p>
 <p>
   The calendar has its own small set, listed under
@@ -2186,6 +2260,61 @@ Receiving mail is not consent to be in someone's address book.</li>
   Both can be turned off in Settings → Contacts. A contact can also be deleted straight
   from the composer's autocomplete list.
 </p>
+
+<h2 id="contacts-groups">Groups</h2>
+<p>
+  A <strong>group</strong> is a name for a set of addresses — <em>Družina</em>, <em>the
+  board</em>, <em>the team</em>. Type that name into <strong>To</strong>,
+  <strong>Cc</strong> or <strong>Bcc</strong>, pick it from the suggestions, and the field
+  holds one short token instead of eight addresses:
+</p>
+<pre><code>To:  👥 Družina, </code></pre>
+<p>
+  Hmelj puts the people in when the message is actually sent. The addresses appear in the
+  message that goes out and in the copy saved to Sent, exactly as if you had typed them —
+  everyone still sees who else got it, so a group is a shortcut for you, not a way to hide
+  the recipient list. Put the group in <strong>Bcc</strong> if that is what you want.
+</p>
+
+<figure>
+<img alt="Settings → Contacts, the Groups card" data-src="screenshots/contact-groups.png" decoding="async" loading="lazy"/>
+<figcaption>Groups live on the Contacts tab, above the address book they are made from</figcaption>
+</figure>
+
+<h3>Making one</h3>
+<p><strong>Settings → Contacts</strong>, in the <strong>Groups</strong> card at the top:</p>
+<ul>
+<li><strong>+ New group</strong>, then give it a name. The name is what you will type, so
+it has to be unique — Hmelj adds a number if you reuse one rather than leaving two groups
+answering to the same word.</li>
+<li>Click the <strong>N people</strong> button to open a group and search the address book
+for people to put in it. You can also type an address that is not a contact at all.</li>
+<li>Or go the other way: tick contacts in the list below and use <strong>Add to
+group</strong>.</li>
+<li><strong>✉</strong> starts a message to a group. <strong>✕</strong> removes the group —
+never the contacts in it.</li>
+</ul>
+<p>
+  Groups are saved with the rest of the tab, by <strong>Save</strong>. A group you have
+  just made cannot be written to until then: the token is resolved by the server, and it
+  has not been told about the group yet.
+</p>
+
+<h3>Things worth knowing</h3>
+<ul>
+<li><strong>A group holds addresses, not contacts.</strong> Renaming or re-syncing a
+contact does not disturb any group they are in, and a group can mix people from your own
+address book with people from a synced one.</li>
+<li><strong>Sending to a group that no longer exists is refused</strong>, by name, rather
+than quietly going to fewer people than you meant. So is sending to an empty one.</li>
+<li><strong>A draft is never refused.</strong> Drafts save on their own whenever a composer
+closes, so an unresolvable name is simply left in the field for you to fix.</li>
+<li><strong>A scheduled or held-back message keeps the membership the group had when you
+pressed Send.</strong> Editing the group afterwards does not change who that message goes
+to.</li>
+<li>Groups are yours, like filters and saved searches — two people sharing a mailbox do not
+share them — and they are included in the settings export.</li>
+</ul>
 
 <h2 id="contacts-import">Importing</h2>
 <ul>
@@ -2829,7 +2958,8 @@ holiday list will not be yours.
 
 <h2 id="set-saved">Saved searches</h2>
 <p>Rename, reorder and delete them — see
-<a data-scroll="search-saved" data-section="search" href="#search-saved">Saved searches</a>.</p>
+<a data-scroll="search-saved" data-section="search" href="#search-saved">Saved searches</a>,
+which also covers the unread count each one carries in the sidebar.</p>
 
 <h2 id="set-templates">Templates</h2>
 <p>Reusable snippets, inserted while writing with the 📋 toolbar button — see
@@ -2842,7 +2972,9 @@ holiday list will not be yours.
 <p>See <a data-scroll="notif-schedule" data-section="notifications" href="#notif-schedule">Quiet hours &amp; the scheduler</a>.</p>
 
 <h2 id="set-contacts">Contacts</h2>
-<p>See <a data-section="contacts" href="#contacts">Contacts</a>.</p>
+<p>See <a data-section="contacts" href="#contacts">Contacts</a>. This tab carries the
+address book itself, the two learn-as-you-go switches, synced address books, and
+<a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">groups</a>.</p>
 
 <h2 id="set-calendars">Calendars</h2>
 <p>See <a data-section="calendar" href="#calendar">Calendar</a> — which calendars are synced,
@@ -2963,6 +3095,7 @@ account's <strong>Search inside messages</strong> switch with its live index siz
 <li>your settings, identities and signatures</li>
 <li>filters, subject rules, saved searches and templates</li>
 <li>contacts — as JSON and as vCard, so any address book can import them</li>
+<li>contact groups</li>
 <li>calendars that live in Hmelj, as <code>.ics</code></li>
 </ul>
 <p>

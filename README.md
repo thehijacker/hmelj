@@ -40,6 +40,8 @@ Mailbox passwords are encrypted at rest with AES-256-GCM. Nothing phones home.
 | ![Analytics](docs/screenshots/analytics.png) | ![Settings](docs/screenshots/settings-general.png) | ![Dark](docs/screenshots/dark.png) |
 | **Calendar** | **Keyboard shortcuts** | **Snooze** |
 | ![Calendar](docs/screenshots/calendar-month.png) | ![Shortcuts](docs/screenshots/shortcuts.png) | ![Snooze](docs/screenshots/snooze.png) |
+| **Contact groups** | **A group in the composer** | **Saved-search counts** |
+| ![Contact groups](docs/screenshots/contact-groups.png) | ![A group in the composer](docs/screenshots/compose-group.png) | ![Saved-search counts](docs/screenshots/saved-search-unread.png) |
 
 > Every screenshot above is a blank placeholder for now — see
 > [`docs/screenshots/README.md`](docs/screenshots/README.md) for what each one should show.
@@ -123,7 +125,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Attachments** — preview overlay for images/PDF/audio/video, or *Download all* as one zip
 - **Search** with Gmail-style syntax — `from:`, `-word`, `"phrase"`, `is:starred` — cached-first with a one-click *Search everywhere*
 - **Search inside messages** — an optional local full-text index, per account, that answers `body:` in milliseconds; accented and unaccented spellings match each other
-- **Saved searches** — pin a question to the sidebar; opening one re-runs it, so it is never stale
+- **Saved searches** — pin a question to the sidebar with its own unread count; opening one re-runs it, so it is never stale
 - **Snooze** — the message really moves into a `Snoozed` folder and comes back when you asked, marked unread, optionally with a calendar reminder for the same moment. A missed wake-up still fires when the server is back
 - **Keyboard shortcuts** — Gmail's letters (`j`/`k`, `r`, `e`, `s`, `z`, `c`, `/`) and Outlook's <kbd>Del</kbd>, <kbd>Ctrl+Q</kbd> and <kbd>Ctrl+U</kbd>; press `?` for the list
 - **Mailbox analytics** — where the quota went, who sends the most, what is safe to delete (and it counts Gmail labels honestly)
@@ -135,6 +137,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Create and edit** — repeats, all-day events, attendees, time-zone-correct display, and *Add to calendar* straight from a message
 - **Reminders** delivered as push, whether or not Hmelj is open
 - **Contacts** — address book, learned from the mail you actually send, with Google-CSV and vCard import and a direct pull from Microsoft or Exchange
+- **Contact groups** — name a set of addresses, then type that name into To, Cc or Bcc; Hmelj puts the people in when the message goes out. Backspace at a recipient boundary takes the whole name, group or person, the way Outlook does
 - **Hmelj as a CalDAV/CardDAV server** — subscribe a phone or another app, with per-device app passwords and busy-only sharing
 
 ### Notifications
@@ -150,7 +153,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Admin panel** — users, sign-up control, OAuth clients, account presets, custom fonts
 - **Per-user error log** in plain language, separate from server debug noise
 - **Instant cross-device sync** over Server-Sent Events
-- **Export everything** — settings, identities, filters, saved searches, templates, contacts and local calendars as one zip; mail as streamed mbox, one folder at a time, in the format Thunderbird imports
+- **Export everything** — settings, identities, filters, saved searches, templates, contacts, contact groups and local calendars as one zip; mail as streamed mbox, one folder at a time, in the format Thunderbird imports
 - **PWA** install on desktop and mobile, plus a native Android APK
 - **English and Slovenščina**
 

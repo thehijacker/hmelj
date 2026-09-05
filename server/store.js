@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { currentUser } from './session.js';
+import { normalizeContactGroups } from './contactGroups.js';
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 
@@ -297,6 +298,21 @@ export const store = {
   getContactsFor: (uKey) => loadFor(uKey, 'contacts', []),
   saveContactsFor(uKey, list) { saveFor(uKey, 'contacts', list); return list; },
 
+  // Named sets of addresses — "the board", "the team" — that the composer can
+  // address as one token (see server/contactGroups.js, which owns the shape and
+  // the expansion). Stored as ADDRESSES rather than contact ids on purpose, so
+  // a group can mix hand-typed and synced contacts and survives a synced card
+  // being re-fetched under a new composite id.
+  //
+  // Per Hmelj user, like filters and saved searches: two people sharing a
+  // mailbox do not share who they think "the team" is.
+  getContactGroups: () => load('contact-groups', []),
+  saveContactGroups(list) {
+    const clean = normalizeContactGroups(list);
+    save('contact-groups', clean);
+    return clean;
+  },
+
   getFilters: () => load('filters', []),
   saveFilters(list) { save('filters', list); return list; },
 
@@ -332,6 +348,11 @@ export const store = {
   },
 
   getSavedSearches: () => load('saved-searches', []),
+  // Explicit-userKey variant, for the same reason getSettingsFor exists:
+  // server/unread.js counts a saved search's unread mail for the VIEWER while
+  // ALS may already be swapped into a shared account's owner, and it is the
+  // viewer's own pinned searches that are being counted.
+  getSavedSearchesFor: (uKey) => loadFor(uKey, 'saved-searches', []),
   saveSavedSearches(list) {
     const clean = normalizeSavedSearches(list);
     save('saved-searches', clean);

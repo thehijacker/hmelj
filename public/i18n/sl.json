@@ -1261,7 +1261,23 @@
     "Stopped early — the server didn’t keep up. What was saved is kept.": "Ustavljeno predčasno — strežnik ni dohajal. Kar je bilo shranjeno, ostane.",
     "Offline — showing saved mail": "Brez povezave — prikazana je shranjena pošta",
     "Hmelj can’t reach the server, so it can’t check for new mail. Everything on screen is a copy saved on this device.": "Hmelj ne doseže strežnika, zato ne more preveriti nove pošte. Vse na zaslonu je kopija, shranjena v tej napravi.",
-    "It will catch up on its own as soon as the connection is back.": "Ko bo povezava spet vzpostavljena, se bo samodejno posodobil."
+    "It will catch up on its own as soon as the connection is back.": "Ko bo povezava spet vzpostavljena, se bo samodejno posodobil.",
+    "Groups": "Skupine",
+    "New group": "Nova skupina",
+    "Group name": "Ime skupine",
+    "Group": "Skupina",
+    "No groups yet.": "Ni še nobene skupine.",
+    "A group is a name for several addresses. Type its name in To, Cc or Bcc and pick it — Hmelj puts the people in when the message is sent.": "Skupina je ime za več naslovov. Njeno ime vpišite v polje Za, Kp ali Skp in jo izberite — Hmelj vstavi ljudi ob pošiljanju sporočila.",
+    "1 person": "1 oseba",
+    "Give the group a name first": "Skupini najprej dajte ime",
+    "Remove this group?": "Odstranim to skupino?",
+    "Nobody in this group yet.": "V tej skupini še ni nikogar.",
+    "Search contacts, or type an address": "Iščite po stikih ali vpišite naslov",
+    "Done": "Končano",
+    "Add to group": "Dodaj v skupino",
+    "Name for this group": "Ime te skupine",
+    "Could not save the contact groups": "Skupin stikov ni bilo mogoče shraniti",
+    "Save this group first — Hmelj fills the people in when the message is sent.": "Skupino najprej shranite — Hmelj vstavi ljudi ob pošiljanju sporočila."
   },
   "prefixes": [
     [
@@ -1485,6 +1501,26 @@
     [
       "^Sent to (\\d+) device\\(s\\) — check the server log for per-device results$",
       "Poslano na $1 naprav — rezultati za posamezno napravo so v dnevniku strežnika"
+    ],
+    [
+      "^(\\d+) people$",
+      "$1 oseb"
+    ],
+    [
+      "^Add (\\d+) contact\\(s\\) to which group\\?$",
+      "V katero skupino naj dodam $1 stikov?"
+    ],
+    [
+      "^Added (\\d+) to \"(.*)\"$",
+      "Dodanih $1 v \"$2\""
+    ],
+    [
+      "^There is no contact group called \"(.*)\"$",
+      "Skupine stikov \"$1\" ni."
+    ],
+    [
+      "^The contact group \"(.*)\" has nobody in it$",
+      "V skupini stikov \"$1\" ni nikogar."
     ]
   ]
 }

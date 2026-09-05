@@ -1,6 +1,6 @@
 {
   "name": "hmelj",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Self-hosted, Gmail-style webmail client for IMAP/SMTP, Gmail, Microsoft 365 and Exchange",
   "keywords": [
     "webmail",

@@ -5,6 +5,9 @@ const Settings = (() => {
   let identities = [];
   let filters = [];
   let contacts = [];
+  // Named sets of addresses (server/contactGroups.js), drafted like `contacts`
+  // above: edited here, written on this tab's Save.
+  let contactGroups = [];
   // Mirrors server/accounts.js's ACCOUNT_COLORS — the palette offered in the
   // wizard, and what the server would pick by round-robin if none is sent.
   const ACCOUNT_COLORS = ['#0b57d0', '#0f9d58', '#e37400', '#a142f4', '#d93025', '#00897b', '#f6bf26', '#5f6368'];
@@ -3427,6 +3430,249 @@ const Settings = (() => {
   // matching" still covers matches that aren't currently drawn.
   const CT_RENDER_CAP = 200;
 
+  /* ---------- contact groups (server/contactGroups.js) ----------
+   *
+   * A group is a NAME and a set of addresses. It lives on this tab rather than
+   * in a tab of its own because it is made out of what is on this tab, and the
+   * two are edited in one sitting: tick four contacts, add them to a group.
+   *
+   * Members are stored as addresses, not as contact ids — a synced contact's id
+   * is derived from its card and changes when the card is re-synced
+   * (server/contactSources.js#allRowsFor), so a group keyed on ids would
+   * quietly lose people. It also means a group can hold an address that is not
+   * in the address book at all, which is what a hand-typed one is.
+   *
+   * Drafted like the contact list itself: edits ride along on the tab's Save,
+   * and the server's normalised answer is adopted afterwards (it disambiguates
+   * duplicate names, which the `👥 Name` token depends on being unique).
+   */
+  const GROUP_MARK = '👥';
+
+  /** "3 people" / "1 person", translated. Built as one whole string rather
+   *  than a number glued to a translated word, because Slovenian does not
+   *  inflect the noun the way English does — see the `^(\d+) people$` regex in
+   *  the language files. */
+  function peopleLabel(n) {
+    return I18n.t(n === 1 ? '1 person' : `${n} people`);
+  }
+
+  /** How a member address is shown: with the contact's name when we know one,
+   *  bare otherwise. Resolved at RENDER time rather than stored, so a contact
+   *  renamed on this same tab is renamed in every group they are in. */
+  function memberLabel(email) {
+    const c = contacts.find((x) => String(x.email || '').toLowerCase() === email);
+    return c && c.name ? `${c.name} <${email}>` : email;
+  }
+
+  /** Reads the group name inputs back out of the DOM. Same deferred-pane
+   *  contract as the contact rows: typed edits are collected on Save, and any
+   *  action that RE-RENDERS the card has to collect first or lose them. */
+  function collectGroups() {
+    for (const row of body().querySelectorAll('#ct-groups [data-group]')) {
+      const g = contactGroups.find((x) => x.id === row.dataset.group);
+      if (g) g.name = row.querySelector('.cg-name').value;
+    }
+  }
+
+  function renderGroupsCard() {
+    const host = document.getElementById('ct-groups');
+    if (!host) return;
+    host.innerHTML = `
+      <div class="row" style="gap:8px">
+        <strong>${esc(I18n.t('Groups'))}</strong>
+        <span class="spacer"></span>
+        <button type="button" class="link-btn" id="cg-add">+ ${esc(I18n.t('New group'))}</button>
+      </div>
+      <div class="set-hint">${esc(I18n.t('A group is a name for several addresses. Type its name in To, Cc or Bcc and pick it — Hmelj puts the people in when the message is sent.'))}</div>
+      ${contactGroups.length ? `<div class="card-list" style="margin-top:8px">${contactGroups.map((g) => `
+        <div class="card" data-group="${escAttr(g.id)}"><div class="row">
+          <span class="f-icon">${GROUP_MARK}</span>
+          <input class="cg-name grow" value="${escAttr(g.name)}" placeholder="${escAttr(I18n.t('Group name'))}">
+          <button type="button" class="link-btn cg-members">${esc(peopleLabel(g.members.length))}</button>
+          <button type="button" class="link-btn cg-write" title="${escAttr(I18n.t('New message'))}">✉</button>
+          <button type="button" class="link-btn cg-del">✕</button>
+        </div></div>`).join('')}</div>`
+        : `<p class="set-hint" style="margin-top:8px">${esc(I18n.t('No groups yet.'))}</p>`}`;
+
+    const groupOf = (el) => contactGroups.find((x) => x.id === el.closest('[data-group]').dataset.group);
+
+    document.getElementById('cg-add').addEventListener('click', () => {
+      collectGroups();
+      contactGroups.push({ id: uid(), name: '', members: [] });
+      renderGroupsCard();
+      const input = host.querySelector('[data-group]:last-child .cg-name');
+      input?.scrollIntoView({ block: 'nearest' });
+      input?.focus();
+    });
+    host.querySelectorAll('.cg-members').forEach((b) => b.addEventListener('click', async () => {
+      collectGroups();
+      await editGroupMembers(groupOf(b));
+      renderGroupsCard();
+    }));
+    host.querySelectorAll('.cg-write').forEach((b) => {
+      const g = groupOf(b);
+      b.addEventListener('click', () => {
+        collectGroups();
+        const name = String(g.name || '').trim();
+        if (!name) { toast(I18n.t('Give the group a name first')); return; }
+        // What goes into To is the TOKEN, not the addresses — the server is
+        // what expands it, at send (see server/contactGroups.js). Which is
+        // exactly why an unsaved group cannot be written to yet: the server has
+        // never heard of that name, so the send would be refused. Say so rather
+        // than closing Settings over the top of the edit that caused it.
+        if (!(state.contactGroups || []).some((x) => x.name === name)) {
+          toast(I18n.t('Save this group first — Hmelj fills the people in when the message is sent.'), 5000);
+          return;
+        }
+        close();
+        Compose.open({ to: `${GROUP_MARK} ${name}` });
+      });
+    });
+    host.querySelectorAll('.cg-del').forEach((b) => b.addEventListener('click', async () => {
+      const g = groupOf(b);
+      if (!await Dialog.confirm(
+        `${I18n.t('Remove this group?')} "${g.name || I18n.t('Group')}"`,
+        { title: I18n.t('Remove'), okLabel: I18n.t('Remove'), danger: true })) return;
+      collectGroups();
+      contactGroups = contactGroups.filter((x) => x.id !== g.id);
+      renderGroupsCard();
+    }));
+  }
+
+  /**
+   * Who is in one group. A dialog rather than an inline expansion: a group of
+   * thirty would push the whole contact list off the screen, and this is a
+   * "sort this list out" job rather than something glanced at.
+   *
+   * Members are added from the address book by searching it, or typed in by
+   * hand — a group may legitimately contain somebody who is not a contact.
+   */
+  async function editGroupMembers(g) {
+    let members = [...g.members];
+    const rowsHtml = () => (members.length
+      ? members.map((m) => `<div class="row" data-member="${escAttr(m)}" style="gap:8px">
+          <span class="grow">${esc(memberLabel(m))}</span>
+          <button type="button" class="link-btn cg-drop">✕</button>
+        </div>`).join('')
+      : `<p class="set-hint">${esc(I18n.t('Nobody in this group yet.'))}</p>`);
+    // Contacts not already in, matched the same way the tab's own search box
+    // matches (name or address, any substring).
+    const matchesFor = (q) => {
+      const inGroup = new Set(members);
+      const needle = q.trim().toLowerCase();
+      if (!needle) return [];
+      return contacts
+        .filter((c) => c.email && !inGroup.has(String(c.email).toLowerCase())
+          && `${c.name} ${c.email}`.toLowerCase().includes(needle))
+        .slice(0, 20);
+    };
+
+    const result = await Dialog.form(
+      `${GROUP_MARK} ${g.name || I18n.t('Group')}`,
+      `<div class="cg-editor">
+        <div id="cg-members" class="card-list" style="margin-bottom:10px">${rowsHtml()}</div>
+        <input id="cg-search" class="dialog-input" type="search" autocomplete="off"
+          placeholder="${escAttr(I18n.t('Search contacts, or type an address'))}">
+        <div id="cg-matches" class="card-list" style="margin-top:8px"></div>
+      </div>`,
+      {
+        okLabel: I18n.t('Done'),
+        getValue: () => members,
+        onOpen: (root) => {
+          const list = root.querySelector('#cg-members');
+          const matchBox = root.querySelector('#cg-matches');
+          const search = root.querySelector('#cg-search');
+          const paintMembers = () => {
+            list.innerHTML = rowsHtml();
+            list.querySelectorAll('.cg-drop').forEach((b) => b.addEventListener('click', () => {
+              members = members.filter((m) => m !== b.closest('[data-member]').dataset.member);
+              paintMembers();
+              paintMatches();
+            }));
+          };
+          const add = (email) => {
+            const addr = String(email || '').trim().toLowerCase();
+            if (!addr.includes('@') || members.includes(addr)) return;
+            members.push(addr);
+            search.value = '';
+            paintMembers();
+            paintMatches();
+            search.focus();
+          };
+          function paintMatches() {
+            const typed = search.value;
+            const found = matchesFor(typed);
+            // A typed address that matches nobody is still addable — that is
+            // how somebody who is not in the address book gets into a group.
+            const raw = typed.trim().toLowerCase();
+            const offerRaw = raw.includes('@') && !members.includes(raw)
+              && !found.some((c) => String(c.email).toLowerCase() === raw);
+            matchBox.innerHTML = [
+              ...(offerRaw ? [`<button type="button" class="link-btn cg-pick" data-email="${escAttr(raw)}">+ ${esc(raw)}</button>`] : []),
+              ...found.map((c) => `<button type="button" class="link-btn cg-pick" data-email="${escAttr(c.email)}">+ ${esc(c.name ? `${c.name} <${c.email}>` : c.email)}</button>`),
+            ].join('');
+            matchBox.querySelectorAll('.cg-pick').forEach((b) =>
+              b.addEventListener('click', () => add(b.dataset.email)));
+          }
+          search.addEventListener('input', paintMatches);
+          // Enter inside the search box adds the top match instead of closing
+          // the dialog — which is what the dialog's own Enter handler would
+          // otherwise do, mid-edit, on the first person added.
+          search.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            const first = matchBox.querySelector('.cg-pick');
+            if (!first) return;
+            e.preventDefault();
+            e.stopPropagation();
+            add(first.dataset.email);
+          });
+          paintMembers();
+          paintMatches();
+        },
+      },
+    );
+    if (result) g.members = result;
+  }
+
+  /** "Add to group" for the ticked contacts — the reason the Groups card sits
+   *  on this tab at all. Offers the existing groups plus a new one. */
+  async function addSelectedToGroup() {
+    collectContacts();
+    collectGroups();
+    const picked = contacts.filter((c) => ctSelected.has(c.id) && c.email);
+    if (!picked.length) return;
+    const choice = await Dialog.choose(
+      I18n.t(`Add ${picked.length} contact(s) to which group?`),
+      {
+        title: I18n.t('Add to group'),
+        buttons: [
+          ...contactGroups.filter((g) => String(g.name || '').trim())
+            .map((g) => ({ label: `${GROUP_MARK} ${g.name}`, value: g.id })),
+          { label: `+ ${I18n.t('New group')}`, value: '__new__', primary: true },
+        ],
+      },
+    );
+    if (!choice) return;
+    let group;
+    if (choice === '__new__') {
+      const name = await Dialog.prompt(I18n.t('Name for this group'));
+      if (!name) return;
+      group = { id: uid(), name: name.trim(), members: [] };
+      contactGroups.push(group);
+    } else {
+      group = contactGroups.find((g) => g.id === choice);
+      if (!group) return;
+    }
+    const before = group.members.length;
+    for (const c of picked) {
+      const addr = String(c.email).trim().toLowerCase();
+      if (!group.members.includes(addr)) group.members.push(addr);
+    }
+    toast(I18n.t(`Added ${group.members.length - before} to "${group.name}"`));
+    ctSelected.clear();
+    renderContacts();
+  }
+
   /* ---------- live contact sync (server/contactsSync/*) ----------
    *
    * A "source" is one server's worth of address books: a CardDAV URL with its
@@ -3729,6 +3975,7 @@ const Settings = (() => {
           ${graphAccounts.length > 1 ? sel('ct-graph-account', graphAccounts.map((a) => [a.id, a.label]), graphAccounts[0].id) : ''}` : ''}
         <span class="set-hint" id="ct-import-status" style="margin:0"></span>
       </p>
+      <div class="card" id="ct-groups" style="margin-bottom:14px"></div>
       <div class="card" id="ct-sources" style="margin-bottom:14px"></div>
       <div class="card" style="margin-bottom:14px">
         <label class="mini-toggle" style="gap:6px">${chk('ct-autoadd', draft.autoAddContacts !== false)} <span>${I18n.t('Add people I send to')}</span></label>
@@ -3746,6 +3993,7 @@ const Settings = (() => {
         ${matches.length > shown.length ? `<button type="button" class="link-btn" id="ct-select-matching">${I18n.t('Select all matching')} (${matches.length})</button>` : ''}
         ${selectedCount ? `<span class="set-hint" style="margin:0">${selectedCount} ${I18n.t('selected')}</span>
           <button type="button" class="link-btn" id="ct-clear-sel">${I18n.t('Clear selection')}</button>
+          <button type="button" class="link-btn" id="ct-to-group">${I18n.t('Add to group')}</button>
           <span class="spacer"></span>
           <button type="button" class="btn-sm danger" id="ct-del-sel">${I18n.t('Delete selected')}</button>` : ''}
       </div>
@@ -3807,6 +4055,7 @@ const Settings = (() => {
       collectContacts();
       renderContacts();
     });
+    document.getElementById('ct-to-group')?.addEventListener('click', addSelectedToGroup);
     body().querySelectorAll('.ct-pick').forEach((b) => b.addEventListener('change', () => {
       if (b.checked) ctSelected.add(b.dataset.id); else ctSelected.delete(b.dataset.id);
       // Repaint for the count/Delete button, keeping any in-progress field edits.
@@ -3900,6 +4149,9 @@ const Settings = (() => {
       el.addEventListener('change', () => commitSyncedRow(el.closest('.card')));
     });
 
+    // ---- groups ----
+    renderGroupsCard();
+
     // ---- synced address books ----
     renderContactSources();
     if (ctSources === null) loadContactSources().then(renderContactSources);
@@ -3987,6 +4239,8 @@ const Settings = (() => {
     // exist (the server would not have sent it) and filtering on `email` alone
     // would delete one the moment a search hid it mid-edit.
     contacts = contacts.filter((c) => c.synced || c.email);
+    // The group name inputs sit on this same tab and are drafted the same way.
+    collectGroups();
     // The two address-book upkeep toggles are ordinary settings that happen to
     // live on this tab, so they ride along in `draft` like every other one —
     // save() writes settings and contacts in the same pass.
@@ -5022,6 +5276,7 @@ const Settings = (() => {
     filters = await API.filters();
     subjectRules = await API.subjectRules();
     savedSearches = structuredClone(state.savedSearches || []);
+    contactGroups = structuredClone(state.contactGroups || []);
     templates = await API.templates().catch(() => []);
     savedSubjectKey = subjectKey(subjectRules);
     // Every rule closed and no filter on each open, the same reasoning the
@@ -5150,6 +5405,19 @@ const Settings = (() => {
     // sending them here would be asking contacts.json to store a mirror it must
     // never hold (see server/contactSources.js's header).
     state.contacts = await API.saveContacts(contacts.filter((c) => !c.synced));
+    // After the contacts, and adopting the server's answer for the same reason
+    // saved searches do: it drops junk members and disambiguates duplicate
+    // names, and the `👥 Name` token the composer writes resolves BY NAME — so
+    // the client and the server must agree on what each group is called.
+    // Published to `state` as well as the draft, or an open composer would not
+    // offer a group until the next full page load (same reasoning as
+    // adoptImportedContacts).
+    try {
+      state.contactGroups = await API.saveContactGroups(contactGroups);
+      contactGroups = structuredClone(state.contactGroups);
+    } catch (e) {
+      toast(I18n.t('Could not save the contact groups') + ': ' + e.message, 5000);
+    }
     Compose.setIdentities(state.identities);
     // Picks up the spell-check toggle without a reload — an open composer
     // either starts underlining or hands itself back to the browser right away.

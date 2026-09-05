@@ -1261,7 +1261,23 @@
     "Stopped early — the server didn’t keep up. What was saved is kept.": "Stopped early — the server didn’t keep up. What was saved is kept.",
     "Offline — showing saved mail": "Offline — showing saved mail",
     "Hmelj can’t reach the server, so it can’t check for new mail. Everything on screen is a copy saved on this device.": "Hmelj can’t reach the server, so it can’t check for new mail. Everything on screen is a copy saved on this device.",
-    "It will catch up on its own as soon as the connection is back.": "It will catch up on its own as soon as the connection is back."
+    "It will catch up on its own as soon as the connection is back.": "It will catch up on its own as soon as the connection is back.",
+    "Groups": "Groups",
+    "New group": "New group",
+    "Group name": "Group name",
+    "Group": "Group",
+    "No groups yet.": "No groups yet.",
+    "A group is a name for several addresses. Type its name in To, Cc or Bcc and pick it — Hmelj puts the people in when the message is sent.": "A group is a name for several addresses. Type its name in To, Cc or Bcc and pick it — Hmelj puts the people in when the message is sent.",
+    "1 person": "1 person",
+    "Give the group a name first": "Give the group a name first",
+    "Remove this group?": "Remove this group?",
+    "Nobody in this group yet.": "Nobody in this group yet.",
+    "Search contacts, or type an address": "Search contacts, or type an address",
+    "Done": "Done",
+    "Add to group": "Add to group",
+    "Name for this group": "Name for this group",
+    "Could not save the contact groups": "Could not save the contact groups",
+    "Save this group first — Hmelj fills the people in when the message is sent.": "Save this group first — Hmelj fills the people in when the message is sent."
   },
   "prefixes": [
     [
@@ -1485,6 +1501,26 @@
     [
       "^Sent to (\\d+) device\\(s\\) — check the server log for per-device results$",
       "Sent to $1 device(s) — check the server log for per-device results"
+    ],
+    [
+      "^(\\d+) people$",
+      "$1 people"
+    ],
+    [
+      "^Add (\\d+) contact\\(s\\) to which group\\?$",
+      "Add $1 contact(s) to which group?"
+    ],
+    [
+      "^Added (\\d+) to \"(.*)\"$",
+      "Added $1 to \"$2\""
+    ],
+    [
+      "^There is no contact group called \"(.*)\"$",
+      "There is no contact group called \"$1\""
+    ],
+    [
+      "^The contact group \"(.*)\" has nobody in it$",
+      "The contact group \"$1\" has nobody in it"
     ]
   ]
 }

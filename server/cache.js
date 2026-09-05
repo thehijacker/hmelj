@@ -1580,6 +1580,24 @@ function rowToMessage(r) {
 const TID_EXPR = `COALESCE(NULLIF(thread_id, ''), 'u:' || folder || char(0) || uid)`;
 
 /** Flat (one row per message) page — what both list queries have always done. */
+/**
+ * Just the number — how many rows a listing's WHERE clause matches.
+ *
+ * The `countOnly` option on queryUnified/queryFolder exists for the sidebar's
+ * badges (server/unread.js), which want a count and never a page. Worth its own
+ * path rather than asking for a one-row page and reading `total` off it: that
+ * would still run the ORDER BY … LIMIT select, and in conversation mode the
+ * whole three-statement grouping pass, to build a row nobody looks at.
+ *
+ * Deliberately counts MESSAGES even where the listing would group them into
+ * conversations: a badge says how much unread mail there is, which is the same
+ * question a folder's own unread count answers, and counting conversations
+ * would make the two disagree on the same mail.
+ */
+function countMessages({ where, params }) {
+  return db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE ${where}`).get(...params).n;
+}
+
 function pageMessages({ where, params, page, pageSize }) {
   const total = db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE ${where}`).get(...params).n;
   const rows = db.prepare(`SELECT * FROM messages WHERE ${where} ORDER BY date DESC LIMIT ? OFFSET ?`)
@@ -1695,7 +1713,7 @@ const EXCLUDED_INBOX_USE = ['\\Trash', '\\Junk', '\\Drafts', '\\Sent'];
  * `accounts` is [{id, label, color, sentFolder}] for the requesting user's
  * mail accounts (cache.js has no notion of accounts on its own).
  */
-export function queryUnified(userKey, accounts, { box, page = 1, pageSize = 50, q = '', unreadOnly = false, flaggedOnly = false, mutedPairs = null, threaded = false }) {
+export function queryUnified(userKey, accounts, { box, page = 1, pageSize = 50, q = '', unreadOnly = false, flaggedOnly = false, mutedPairs = null, threaded = false, countOnly = false }) {
   if (!accounts.length) return { total: 0, messages: [] };
   const ids = accounts.map((a) => a.id);
   const placeholders = ids.map(() => '?').join(',');
@@ -1764,6 +1782,8 @@ export function queryUnified(userKey, accounts, { box, page = 1, pageSize = 50, 
     params.push(...built.params);
   }
 
+  if (countOnly) return { total: countMessages({ where, params }), messages: [] };
+
   // Grouped per ACCOUNT as well as per conversation: a Message-ID is globally
   // unique, so the same mail delivered to two of the user's accounts would
   // otherwise merge into one row belonging to neither, and every action on it
@@ -1816,7 +1836,7 @@ export function queryUnified(userKey, accounts, { box, page = 1, pageSize = 50, 
  * every open — the poller already pays that cost once in the background,
  * on its own schedule, instead of blocking whoever's waiting on a click.
  */
-export function queryFolder(userKey, accountId, folder, { page = 1, pageSize = 50, q = '', unreadOnly = false, flaggedOnly = false, subtreeDelimiter = null, showDeleted = false, threaded = false, threadFolders = [], convoFolders = [], indexed = false } = {}) {
+export function queryFolder(userKey, accountId, folder, { page = 1, pageSize = 50, q = '', unreadOnly = false, flaggedOnly = false, subtreeDelimiter = null, showDeleted = false, threaded = false, threadFolders = [], convoFolders = [], indexed = false, countOnly = false } = {}) {
   // `subtreeDelimiter` widens the read to this folder AND everything nested under
   // it — what the starred view (flaggedOnly, from /api/messages/:folder's
   // `flagged=1`) means by "starred in Work": the whole Work tree, not just its top
@@ -1847,6 +1867,8 @@ export function queryFolder(userKey, accountId, folder, { page = 1, pageSize = 5
     where += ` AND (${built.sql})`;
     params.push(...built.params);
   }
+
+  if (countOnly) return { total: countMessages({ where, params }), realTotal: null, page, pageSize, messages: [] };
 
   const homeFolders = new Set([folder]);
   // `threadFolders` is what the LISTING reads (this folder + Sent);
