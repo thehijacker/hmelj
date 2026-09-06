@@ -9,6 +9,17 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### The unread stripe is thicker
+The line down the left of an unread row went from 3px to 5px. With the App font set to
+Bold it is not one of two signals but the only one — every row is bold then, so the stripe
+carries the whole job on its own, and 3px of a muted accent (sepia's is a brown barely
+darker than the row behind it) was not enough for that.
+
+### The message list is no longer adrift between a tight edge and a loose one
+The gap to the reading pane was 30px against 14px on the sidebar side, because the 6px
+drag handle sits inside it and the flex gap was being counted twice. Both sides are 14px
+now.
+
 ### Priority is a button now
 Three choices are worth *seeing*, and a dropdown can only show them as words. The footer
 carries one button whose glyph and colour say what is set: **↑ red** for high, **↓ green**

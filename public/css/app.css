@@ -486,8 +486,17 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .user-menu-arrow { color: var(--text-dim); font-size: calc(11px * var(--ui-scale)); flex: 0 0 auto; }
 
 /* ---------- content ---------- */
-.content { flex: 1; display: flex; min-width: 0; padding: 0 12px 12px 0; gap: 12px; }
-.content.pane-bottom { flex-direction: column; }
+/* gap: 4px, not 12 — because #resizer-list sits BETWEEN the two panes and is
+   6px of its own, so the real distance from the message list to the reading
+   pane is gap + 6 + gap. At 12 that was 30px, against 14px on the other side of
+   the list (the sidebar's own 8px right padding plus the same 6px resizer), and
+   the list looked adrift between a tight edge and a loose one. 4px makes the
+   two sides 14px each — the same gap, measured the same way.
+   Vertical (pane-bottom) keeps 12px: #resizer-list is hidden in that layout, so
+   the gap is the WHOLE separation there and 4px would leave the two panes
+   almost touching. */
+.content { flex: 1; display: flex; min-width: 0; padding: 0 12px 12px 0; gap: 4px; }
+.content.pane-bottom { flex-direction: column; gap: 12px; }
 .content.pane-off .reading-pane { display: none; }
 
 .msg-list-pane {
@@ -581,7 +590,7 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 }
 .msg-row {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px 8px 11px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent;
+  padding: 8px 14px 8px 11px; border-bottom: 1px solid var(--border); border-left: 5px solid transparent;
   cursor: pointer; background: var(--read-bg); color: var(--text-dim);
 }
 /* font-weight alone used to be the whole signal — invisible once the App
@@ -591,7 +600,13 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    that setting entirely; `bolder` (not a fixed 600) keeps stepping unread
    one weight heavier than whatever the base is, rather than colliding with
    it — 400->700 normally, but also 700->900 if the base itself is Bold, so
-   unread still reads as heavier either way instead of the same or lighter. */
+   unread still reads as heavier either way instead of the same or lighter.
+
+   The stripe is 5px rather than 3 for exactly that reason: with the App font
+   set to Bold it is not one of two signals, it is the ONLY one, and 3px of a
+   muted accent (sepia's is a brown barely darker than its own row background)
+   is not enough to carry that alone. The 2px it takes from the row is repaid
+   several times over by the gap change above. */
 .msg-row.unread { background: var(--unread-bg); color: var(--text); font-weight: bolder; border-left-color: var(--accent); }
 .msg-row:hover { box-shadow: inset 0 0 0 999px var(--hover); }
 .msg-row.selected { background: var(--accent-soft); color: var(--text); }
