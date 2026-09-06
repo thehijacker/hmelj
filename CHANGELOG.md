@@ -4,7 +4,10 @@ All notable changes to Hmelj are recorded here. Versions follow
 [semantic versioning](https://semver.org/): the major number changes when an upgrade needs
 manual work, the minor when features are added, the patch for fixes.
 
-## 1.1.2 — 2026-09-06
+Work that has not been released yet collects under **Unreleased**. The version number is
+set when the release is tagged — entries are never given one in advance.
+
+## Unreleased
 
 ### Priority is a button now
 Three choices are worth *seeing*, and a dropdown can only show them as words. The footer
@@ -19,8 +22,6 @@ writing area stopped a few hundred pixels down and the **Send row sat stranded i
 middle of the screen** with blank space beneath it. The message now stretches to meet the
 footer, and the footer sits on the bottom edge where it belongs — and both can still give
 way when the on-screen keyboard opens.
-
-## 1.1.1 — 2026-09-06
 
 ### Dark mode: mail you could not read
 A message that writes `color:#000` on its own text kept doing so after the background
