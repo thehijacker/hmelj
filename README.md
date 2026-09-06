@@ -117,7 +117,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Templates** — reusable snippets, inserted at the caret, above your signature, written with the composer's own formatting toolbar
 - **Before it goes out** — "you said it was attached, and nothing is", and "you replied to one of nine". Both read English and Slovenian, including forms typed without šumniki, and both read only your own text — never the quoted original
 - **Attachments** by button, by drag-and-drop, or by pasting — a screenshot pasted into the body goes inline, sent as a real embedded part rather than a `data:` URL that most webmail would strip
-- **Draft autosave**, Cc/Bcc, priority, read-receipt request. The composer also remembers whether you keep it enlarged
+- **Draft autosave**, Cc/Bcc, read-receipt request, and a **priority** button whose arrow and colour say which of the three is set. The composer also remembers whether you keep it enlarged, and fills the screen on a phone
 - **Spell checking** as you type — Slovenian and English, detected automatically
 - **Contact autocomplete**, learned from the mail you actually send
 

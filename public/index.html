@@ -380,11 +380,12 @@
       </span>
       <input type="file" id="c-file" multiple hidden>
       <button class="icon-btn" id="btn-attach" title="Attach files">📎</button>
-      <select id="c-priority" title="Priority">
-        <option value="normal">Normal priority</option>
-        <option value="high">High priority</option>
-        <option value="low">Low priority</option>
-      </select>
+      <!-- A button rather than a <select>: three choices that are worth SEEING at
+           a glance, and a select can only ever show them as words. The glyph and
+           its colour say which one is set (compose.js#setPriority); `value` is
+           still where the answer lives, which is why payload() reads it exactly
+           as it did when this was a select. -->
+      <button id="c-priority" class="icon-btn prio-btn" value="normal" data-priority="normal" title="Priority" data-no-i18n>≡</button>
       <label class="mini-toggle" title="Request read receipt"><input type="checkbox" id="c-receipt"> Receipt</label>
       <span class="spacer"></span>
       <button class="icon-btn" id="btn-draft-save" title="Save draft now">💾</button>

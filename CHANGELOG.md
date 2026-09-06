@@ -4,6 +4,22 @@ All notable changes to Hmelj are recorded here. Versions follow
 [semantic versioning](https://semver.org/): the major number changes when an upgrade needs
 manual work, the minor when features are added, the patch for fixes.
 
+## 1.1.2 — 2026-09-06
+
+### Priority is a button now
+Three choices are worth *seeing*, and a dropdown can only show them as words. The footer
+carries one button whose glyph and colour say what is set: **↑ red** for high, **↓ green**
+for low, and a plain dim **≡** for normal — the default nearly every message goes out at,
+and a default that colours itself is one that keeps asking to be looked at. Clicking it
+offers the three.
+
+### On a phone the composer fills the screen
+Full page meant full page for the window but not for its contents: on a short message the
+writing area stopped a few hundred pixels down and the **Send row sat stranded in the
+middle of the screen** with blank space beneath it. The message now stretches to meet the
+footer, and the footer sits on the bottom edge where it belongs — and both can still give
+way when the on-screen keyboard opens.
+
 ## 1.1.1 — 2026-09-06
 
 ### Dark mode: mail you could not read

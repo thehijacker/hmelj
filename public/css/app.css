@@ -1257,10 +1257,14 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    right there. These just buy back enough room that a 560px desktop compose
    window doesn't need to. */
 .compose-footer { gap: 6px; }
-.compose-footer #c-priority {
-  font-size: calc(12px * var(--ui-scale)); padding: 5px 4px;
-  min-width: 0; flex: 0 1 auto; /* min-width:0 is what actually lets a select shrink */
-}
+/* Priority. The glyph says which of the three is set and the colour says how
+   loudly: red for high, green for low, and NOTHING for normal — that is the
+   default almost every message goes out at, and a default that colours itself
+   is a default that keeps asking to be looked at. */
+.prio-btn { font-size: calc(16px * var(--ui-scale)); line-height: 1; padding: 5px 8px; flex: 0 0 auto; }
+.prio-btn[data-priority="normal"] { color: var(--text-dim); }
+.prio-btn[data-priority="high"] { color: var(--danger); }
+.prio-btn[data-priority="low"] { color: var(--ok, #0f9d58); }
 /* Shrinkable as a last resort, after the spacer has collapsed and the select has
    given what it can — so a large --ui-scale trims this label rather than pushing
    the row wider than the window. */
@@ -2177,6 +2181,20 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
   .compose-window.large:not(.minimized) .compose-footer {
     padding-bottom: calc(10px + var(--sab)); /* likewise for the home-indicator strip */
   }
+  /* Full page means full page. The window is height:100% here, but .compose-body
+     was sizing to its own content — so on a short message the writing area
+     stopped a few hundred pixels down and the Send row sat stranded in the
+     MIDDLE of the screen with blank space under it. Reported exactly that way.
+     Giving the body the leftover space and the editor the leftover inside THAT
+     pins the footer to the bottom edge and stretches the message to meet it,
+     which is the same fix for both halves of the complaint.
+     min-height:0 on each: a flex item's default min-height is its content, and
+     without overriding it neither can shrink when the on-screen keyboard opens
+     — the footer would be pushed off the bottom instead. */
+  .compose-window.large:not(.minimized) .compose-body { flex: 1 1 auto; min-height: 0; }
+  .compose-window.large:not(.minimized) .compose-editor,
+  .compose-window.large:not(.minimized) .compose-editor-plain { flex: 1 1 auto; min-height: 120px; }
+  .compose-window.large:not(.minimized) .compose-footer { flex: 0 0 auto; }
 
   /* The formatting toolbar scrolls sideways instead of wrapping. Three rows of
      buttons plus an on-screen keyboard leaves almost no message visible, and on

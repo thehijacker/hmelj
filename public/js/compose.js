@@ -94,6 +94,34 @@ const Compose = (() => {
   // ten you actually use is a different tool from one that is not.
   const EMOJI_RECENT_KEY = 'hmelj-emoji-recent';
   const EMOJI_RECENT_MAX = 24;
+  /**
+   * The three priorities, as the button shows them.
+   *
+   * `↑ ≡ ↓` is one family varying only in direction, which reads as a scale at
+   * 20px in a way three different symbols would not. Normal is deliberately
+   * NOT orange in a green/amber/red set: it is the default that almost every
+   * message is sent at, and a default that colours itself is a default that
+   * keeps asking to be looked at. Red and green are for the two that are
+   * actually a choice.
+   */
+  const PRIORITIES = [
+    { value: 'high', glyph: '↑', label: 'High priority' },
+    { value: 'normal', glyph: '≡', label: 'Normal priority' },
+    { value: 'low', glyph: '↓', label: 'Low priority' },
+  ];
+
+  /** Puts one on the button. `value` stays the source of truth — payload()
+   *  reads it exactly as it did when this control was a <select>. */
+  function setPriority(value) {
+    const btn = document.getElementById('c-priority');
+    if (!btn) return;
+    const p = PRIORITIES.find((x) => x.value === value) || PRIORITIES[1];
+    btn.value = p.value;
+    btn.textContent = p.glyph;
+    btn.dataset.priority = p.value;
+    btn.title = I18n.t(p.label);
+  }
+
   // Whether the composer opens enlarged on THIS machine. A dedicated key rather
   // than a device setting: this is window position, the same kind of thing
   // Dialog's own `hmelj.dialogExpanded` and the remembered Settings tab keep —
@@ -524,7 +552,7 @@ const Compose = (() => {
     document.getElementById('c-cc').value = cc;
     document.getElementById('c-bcc').value = '';
     document.getElementById('c-subject').value = subject;
-    document.getElementById('c-priority').value = 'normal';
+    setPriority('normal');
     document.getElementById('c-receipt').checked = !!state.settings.requestReadReceipt;
     document.getElementById('compose-title').textContent = subject || 'New message';
     document.getElementById('draft-status').textContent = '';
@@ -713,7 +741,7 @@ const Compose = (() => {
     // deliberately resets (attachments, replyMeta) — restored after, not before.
     document.getElementById('c-bcc').value = p.bcc || '';
     if (p.cc || p.bcc) document.querySelectorAll('.cc-row').forEach((r) => (r.hidden = false));
-    document.getElementById('c-priority').value = p.priority || 'normal';
+    setPriority(p.priority || 'normal');
     document.getElementById('c-receipt').checked = !!p.readReceipt;
     attachments = (p.attachments || []).map((a) => ({ ...a }));
     restoreInlineImages();
@@ -2509,6 +2537,15 @@ const Compose = (() => {
       // Inline only when dropped INTO the message body; onto the header or the
       // attachment strip means "attach this".
       acceptFiles(files, { inline: editor.contains(e.target) });
+    });
+
+    document.getElementById('c-priority').addEventListener('click', (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      const current = e.currentTarget.value;
+      openCtxMenu(PRIORITIES.map((p) => ({
+        label: `${p.glyph}  ${I18n.t(p.label)}${p.value === current ? '  ✓' : ''}`,
+        onClick: () => { setPriority(p.value); dirty = true; },
+      })), r.left, r.bottom + 4);
     });
 
     document.getElementById('btn-send-later').addEventListener('click', (e) => {

@@ -239,5 +239,48 @@ console.log('\nthe bar says what the caret is inside');
     'selectionchange is watched exactly once, not once per editor wired');
 }
 
+console.log('\nthe priority control');
+{
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(`${extract('const PRIORITIES = [', 'PRIORITIES')}\nglobalThis.__p = PRIORITIES;`, sandbox);
+  const P = sandbox.__p;
+  eq(P.length, 3, 'three of them');
+  eq(P.map((x) => x.value).join(','), 'high,normal,low', 'ordered loudest first, the way the menu reads');
+  ok(P.every((x) => x.glyph && x.label), 'each has a glyph and a name');
+  ok(new Set(P.map((x) => x.glyph)).size === 3, 'and the glyphs are distinguishable');
+
+  // `value` is what payload() reads, exactly as it did when this was a <select>
+  // — a <button> carries one too, which is what made the switch a markup change
+  // rather than a change to how a message is built.
+  ok(html.includes('<button id="c-priority"') && html.includes('value="normal"'),
+    'the control is a button carrying value="normal"');
+  ok(src.includes("priority: document.getElementById('c-priority').value"),
+    'and payload() still just reads .value');
+  ok(!/setPriority\(\)/.test(src) && src.includes('function setPriority'), 'setPriority is what keeps the label in step');
+  // Normal is the default nearly every message goes out at. A default that
+  // colours itself is a default that keeps asking to be looked at.
+  ok(/\.prio-btn\[data-priority="high"\] \{ color: var\(--danger\)/.test(css), 'high is red');
+  ok(/\.prio-btn\[data-priority="low"\] \{ color: var\(--ok/.test(css), 'low is green');
+  ok(/\.prio-btn\[data-priority="normal"\] \{ color: var\(--text-dim\)/.test(css), 'and normal is not coloured at all');
+}
+
+console.log('\nfull page on a phone means the footer is AT the bottom');
+{
+  // The window is height:100% there, but .compose-body sized to its own
+  // content — so on a short message the Send row sat stranded in the middle of
+  // the screen with blank space under it.
+  ok(/\.compose-window\.large:not\(\.minimized\) \.compose-body \{ flex: 1 1 auto; min-height: 0/.test(css),
+    'the body takes the leftover height');
+  ok(/\.compose-window\.large:not\(\.minimized\) \.compose-editor,[\s\S]{0,120}flex: 1 1 auto/.test(css),
+    'and the editor takes the leftover inside it, so the message stretches to meet the footer');
+  ok(/\.compose-window\.large:not\(\.minimized\) \.compose-footer \{ flex: 0 0 auto/.test(css),
+    'while the footer itself never shrinks');
+  // A flex item's default min-height is its content; without overriding it
+  // nothing can shrink when the on-screen keyboard opens.
+  ok(/\.compose-window\.large:not\(\.minimized\) \.compose-editor,[\s\S]{0,140}min-height: 120px/.test(css),
+    'both can still shrink when the keyboard takes half the screen');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
