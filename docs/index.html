@@ -122,6 +122,7 @@
 <a data-section="compose" href="#compose">Composing</a>
 <ul class="nav-sub">
 <li><a data-scroll="compose-editor" data-section="compose" href="#compose-editor">The editor</a></li>
+<li><a data-scroll="compose-signatures" data-section="compose" href="#compose-signatures">Signatures</a></li>
 <li><a data-scroll="compose-attach" data-section="compose" href="#compose-attach">Attachments and images</a></li>
 <li><a data-scroll="compose-drafts" data-section="compose" href="#compose-drafts">Drafts</a></li>
 <li><a data-scroll="compose-schedule" data-section="compose" href="#compose-schedule">Scheduled sending</a></li>
@@ -387,7 +388,9 @@ Stalwart — and then Hmelj can read it.
 <div class="feature-card">
 <h3>✏️ Composing</h3>
 <ul>
-<li><strong>Rich HTML or plain text</strong> — bold, italic, lists, links, fonts, colours</li>
+<li><strong>Rich HTML or plain text</strong> — font, size, colour and highlight, bold/italic/underline/strikethrough, lists, links, quote, code block, indent, alignment, a horizontal rule</li>
+<li><strong>Emoji picker</strong> with categories and a Recent row, working in plain text too</li>
+<li><strong>Several signatures per identity</strong>, chosen per message while writing</li>
 <li><strong>Multiple identities</strong> per account, each with its own signature and signature policy</li>
 <li><strong>Reply / Reply all / Forward</strong>, quote above, below, or not at all</li>
 <li><strong>Attachments</strong>, Cc/Bcc, priority, read-receipt request</li>
@@ -1563,6 +1566,28 @@ locked off rather than offered as a false choice.
 <figcaption>The chip on a message that passed, and the banner on one that did not</figcaption>
 </figure>
 
+<h3>Dark mode and unreadable mail</h3>
+<p>
+  A lot of HTML mail hard-codes its own colours — black text, a white panel — on the
+  assumption that it will be read on white. In the dark theme that arrives as black text on
+  a near-black background.
+</p>
+<p>
+  Hmelj repairs it, on two passes. Backgrounds an element sets for itself are dropped in
+  favour of the theme's, <em>except</em> where doing so would strand that element's own text
+  (white on grey is deliberate, and stripping the grey leaves white on white). Then every
+  piece of text is measured against <strong>what it actually ends up sitting on</strong>,
+  and only the ones that genuinely fail are repainted in the theme's own colour — the link
+  colour, inside a link.
+</p>
+<p>
+  The test is contrast, not the theme, so the same pass fixes white-on-white in the light
+  theme. Mail that was already readable is left exactly as its sender wrote it. Where it
+  does step in, the sender's colour choice is replaced rather than nudged: keeping the hue
+  would mean inventing a colour they did not pick either, and the result is at least the
+  colour the rest of the message is in.
+</p>
+
 <h2 id="read-images">External images</h2>
 <p>
   Remote images are the standard way a sender learns you opened their mail. Settings →
@@ -1767,16 +1792,80 @@ row per message.
 <h2 id="compose-editor">The editor</h2>
 <ul>
 <li><strong>Rich HTML or plain text</strong>, per message; the default is a setting.</li>
-<li>Bold, italic, lists, links, font family, size and colour.</li>
+<li>Font, size, text colour and highlight, <strong>B</strong> / <em>I</em> / <u>U</u> / <s>S</s>, bulleted and numbered lists, and links.</li>
 <li><strong>From</strong> chooses the identity — and with it, which account actually sends.</li>
 <li><strong>Cc</strong> and <strong>Bcc</strong>, revealed on demand.</li>
 <li><strong>Priority</strong> and <strong>Request a read receipt</strong>, per message.</li>
 <li><strong>Attachments</strong> — pick files or drag them in. Forwarding carries the original's attachments.</li>
+<li>An <strong>emoji picker</strong>, with categories and a <em>Recent</em> row that fills up with the ones you actually use.</li>
+<li>The buttons <strong>light up for the formatting the cursor is inside</strong>, so the bar says what you are standing in rather than only what you can turn on.</li>
+<li><strong>⋯</strong> holds everything used less often: quote, code block, indent and outdent, alignment, a horizontal line, clear formatting, templates, and which signature this message uses.</li>
 <li>Recipient fields autocomplete from your address book, from your
 <a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">contact
 groups</a>, and from your own identity and account addresses (badged <em>you</em>, and
 never stored as contacts).</li>
 </ul>
+
+<figure>
+<img alt="The composer's formatting toolbar with a picker open" data-src="screenshots/compose-toolbar.png" decoding="async" loading="lazy"/>
+<figcaption>Font, size, colour and emoji open as pickers; ⋯ holds the rest</figcaption>
+</figure>
+
+<div class="callout">
+  <strong>What comes out is the old, boring markup on purpose</strong> —
+  <code>&lt;font size&gt;</code>, <code>&lt;font color&gt;</code>, <code>&lt;b&gt;</code> —
+  rather than the CSS a web editor would emit. It is not fashionable and it is what
+  Outlook renders without argument, which is the only test that matters for something
+  somebody else opens. A quote and a code block carry their styling inline for the same
+  reason: the person reading has none of Hmelj's stylesheets.
+</div>
+
+<p>
+  On a phone the toolbar <strong>scrolls sideways</strong> rather than wrapping onto three
+  rows — the message is what matters on a small screen, and a swipe to reach the last two
+  buttons costs less than two thirds of the writing area. The spell-check language and the
+  <em>Plain</em> switch sit outside the scrolling part, because they say what the composer
+  currently <em>is</em> and should not be able to scroll out of sight.
+</p>
+<p>
+  In <strong>plain text</strong> mode the formatting controls grey out, as there is nothing
+  for them to do — except <strong>emoji</strong>, which stays available. An emoji is a
+  character, not formatting.
+</p>
+<p>
+  On a desktop the composer <strong>remembers whether you keep it enlarged</strong> and
+  opens that way next time. On a phone it is always full-page, which is not remembered and
+  not negotiable — a 560px floating panel is unusable there.
+</p>
+
+<h2 id="compose-signatures">Signatures</h2>
+<p>
+  An identity can have <strong>several</strong> — a full one for new mail, a two-line one
+  for replies, one for a different language. They are edited in
+  <strong>Settings → Identities</strong>, on the identity they belong to: name each one,
+  mark one <em>Default</em>, and add or remove them freely.
+</p>
+<p>
+  The default is what a message starts with. To use a different one, open <strong>⋯ →
+  Signature</strong> in the composer and pick it — the one already in the message is
+  replaced, not added to, and <em>None</em> takes it out altogether. That choice applies to
+  the message you are writing and is forgotten afterwards; it does not change the identity.
+</p>
+<div class="callout">
+  Picking a signature by hand works <strong>even when the identity is set not to add one
+  automatically</strong>. <em>Signature used</em> — on new messages, on new and replies,
+  every time, never — answers "should Hmelj put one in by itself". Asking for one is not
+  Hmelj putting one in by itself.
+</div>
+<p>
+  An identity that has always had a single signature keeps it, as its one entry, named
+  <em>Signature</em>. Nothing needs migrating by hand.
+</p>
+
+<figure>
+<img alt="Several signatures on one identity" data-src="screenshots/signatures.png" decoding="async" loading="lazy"/>
+<figcaption>Settings → Identities: name them, and mark one Default</figcaption>
+</figure>
 
 <h3>The recipient fields</h3>
 <p>
@@ -1912,7 +2001,14 @@ one timestamp risks the message coming back subtly different from the one you ap
 <p>
   Text you send over and over — a standard reply, a set of directions to the office, a
   disclaimer. Write them in <strong>Settings → Templates</strong>, then insert one while
-  composing with the <strong>📋</strong> button in the toolbar.
+  composing from the <strong>⋯</strong> menu.
+</p>
+<p>
+  They are written with <strong>the composer's own toolbar</strong> — the same font, size,
+  colour, lists, links, quote and code block — because a template is going into a message,
+  so the options for writing one are the options for writing the other. The same editor is
+  used for <a data-scroll="compose-signatures" data-section="compose" href="#compose-signatures">signatures</a>,
+  with two extra buttons those need: insert an image, and edit the HTML source.
 </p>
 <p>
   A template lands <em>where your text is</em> — at the caret, above the signature and above

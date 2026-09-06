@@ -4,6 +4,75 @@ All notable changes to Hmelj are recorded here. Versions follow
 [semantic versioning](https://semver.org/): the major number changes when an upgrade needs
 manual work, the minor when features are added, the patch for fixes.
 
+## 1.1.1 — 2026-09-06
+
+### Dark mode: mail you could not read
+A message that writes `color:#000` on its own text kept doing so after the background
+became the dark theme's, leaving black on near-black. The reading frame now checks each
+piece of text against **what it actually sits on** and replaces the colour only where the
+contrast genuinely fails — so it fixes white-on-white in the light theme by the same test,
+and leaves alone every message that was already legible. Inside a link the theme's link
+colour is used, so a repaired link still reads as one. This is the other half of the
+background pass that was already there.
+
+### The toolbar says what the caret is inside
+**Bold, italic, underline, strikethrough, the lists and the alignments now light up** when
+the cursor is inside that formatting. Before, the bar was write-only: the only way to find
+out whether a word was italic was to press the button and watch what happened.
+
+### The Bold button un-bolded
+With the App font weight set to 500 or 700, the composer inherited it — so the browser read
+what you typed as already bold and **Bold** turned it off. The editor now writes at normal
+weight regardless of the interface, which is also more honest: that weight came from the
+app's own stylesheet and never travelled with the mail. The editor's font family is reset
+for the same reason.
+
+### Templates are edited with the composer's toolbar
+The template editor was a plain box with no formatting controls at all, so a template could
+hold formatting there was no way to produce. Templates and signatures now use **the same
+toolbar as the composer** — one definition, built once and used in all three places, plus
+the two buttons only Settings needs (insert an image, edit the HTML source).
+
+## 1.1.0 — 2026-09-05
+
+### A real formatting toolbar
+The composer had bold, italic, underline, two list buttons, a link and a font dropdown.
+It now has what a mail composer is expected to have.
+
+- **Font and size** as pickers rather than a native dropdown — the font list draws each
+  name in its own face. **Text colour and highlight** from one swatch panel.
+  **Strikethrough** beside B/I/U.
+- **⋯** holds what is used less often: **quote**, **code block**, **indent / outdent**,
+  **alignment**, a **horizontal line**, clear formatting, templates, and which signature
+  the message uses.
+- An **emoji picker** with categories and a *Recent* row that fills with the ones you
+  actually use. It stays available in **plain-text** mode, where the rest of the bar greys
+  out — an emoji is a character, not formatting.
+- What comes out is deliberately the old presentational markup (`<font size>`,
+  `<font color>`, `<b>`) rather than CSS: it is what Outlook renders without argument.
+  Quotes and code blocks carry their styling inline, because the person reading has none
+  of Hmelj's stylesheets. A quote you make by hand and the quote on a reply are now
+  styled from one definition, so they look identical.
+- **On a phone the toolbar scrolls sideways** instead of wrapping onto three rows — the
+  message area is what matters on a small screen. The spell-check language and the *Plain*
+  switch stay outside the scrolling part, since they are state rather than actions.
+
+### Several signatures per identity
+An identity can have more than one — a full sign-off for new mail, a short one for
+replies. Named and edited in **Settings › Identities**, one marked *Default*.
+
+- Pick which one a message uses from **⋯ → Signature** while writing; the one already in
+  the message is replaced rather than added to, and *None* removes it. The choice applies
+  to that message only.
+- An explicit pick works even when the identity is set not to add a signature
+  automatically — that setting answers "should Hmelj add one by itself", and being asked
+  is not by itself.
+- Existing single signatures migrate on their own, as one entry named *Signature*.
+
+### The composer remembers its size
+On a desktop, whether you keep it enlarged. On a phone it stays full-page always — never
+remembered, since a 560px floating panel is unusable there.
+
 ## 1.0.9 — 2026-09-05
 
 ### Contact groups

@@ -403,6 +403,72 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
       el.style.setProperty('background-color', 'transparent', 'important');
     }
   }
+  // ── and then the TEXT ──────────────────────────────────────────────────
+  //
+  // The other half of the same problem, and the one that actually loses you the
+  // message: a mail that writes color:#000 on its own paragraphs keeps writing
+  // it after the background above has become the dark theme's, so the text is
+  // black on near-black and effectively invisible. Reported exactly that way.
+  //
+  // The rule is contrast, not theme: this fixes white-on-white in the light
+  // theme by the same test, and a message that inherits its colour (the common
+  // case) already computes to the theme's own foreground and is left alone.
+  //
+  // What it costs: where the text really is unreadable, the sender's colour
+  // choice is replaced by the theme's rather than adjusted towards it. Keeping
+  // the hue would mean inventing a colour they did not choose either, and this
+  // way the result is at least the colour the rest of the message is in. Inside
+  // a link the theme's LINK colour is used instead, so a recoloured link still
+  // reads as one.
+  // Whether this element has text of its OWN, rather than only in children.
+  // A wrapper has no contrast problem of its own, and recolouring one would
+  // cascade onto children that were perfectly readable.
+  function hasOwnText(el) {
+    for (var n = el.firstChild; n; n = n.nextSibling) {
+      if (n.nodeType === 3 && n.nodeValue && n.nodeValue.trim()) return true;
+    }
+    return false;
+  }
+  function applyThemeText() {
+    var themeBg = parseColor(${JSON.stringify(bg)});
+    // Parsed only to be sure the theme colours are usable at all — if either
+    // cannot be read there is nothing sensible to measure against or to
+    // replace with, and doing nothing is the right answer.
+    if (!themeBg || !parseColor(${JSON.stringify(fg)})) return;
+
+    // What an element's text actually sits on: up the tree until something
+    // paints, since a transparent background shows whatever is behind it and
+    // therefore says nothing about what the text is over. Memoised on the way
+    // up, because a table-based newsletter is deep and every element would
+    // otherwise re-walk its whole ancestry — this keeps the pass linear.
+    var bgCache = new Map();
+    function effectiveBg(el) {
+      var chain = [];
+      var n = el;
+      var found = null;
+      while (n && n.nodeType === 1) {
+        if (bgCache.has(n)) { found = bgCache.get(n); break; }
+        var c = parseColor(getComputedStyle(n).backgroundColor);
+        if (c && c.a > 0.5) { found = c; break; }
+        chain.push(n);
+        n = n.parentElement;
+      }
+      if (!found) found = themeBg;
+      for (var j = 0; j < chain.length; j++) bgCache.set(chain[j], found);
+      return found;
+    }
+
+    var els = document.body.querySelectorAll('*');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (!el.firstChild || !hasOwnText(el)) continue;
+      var color = parseColor(getComputedStyle(el).color);
+      if (!color || color.a === 0) continue;
+      if (contrastRatio(color, effectiveBg(el)) >= 4.5) continue;
+      var inLink = el.closest && el.closest('a[href]');
+      el.style.setProperty('color', inLink ? ${JSON.stringify(link)} : ${JSON.stringify(fg)}, 'important');
+    }
+  }
   document.addEventListener('click', function (e) {
     var a = e.target.closest && e.target.closest('a[href]');
     if (!a) return;
@@ -410,6 +476,9 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
     try { parent.postMessage({ type: 'hmelj-link', href: a.href }, '*'); } catch (err) {}
   });
   applyThemeBackgrounds();
+  // After the backgrounds, never before: what a piece of text has to be legible
+  // AGAINST is whatever the pass above just left behind it.
+  applyThemeText();
 })();
 (function(){
   // Pinch/double-tap-to-zoom IN for detail (unrelated to fit now — there's

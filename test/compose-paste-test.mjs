@@ -217,8 +217,14 @@ console.log('\na reopened draft does not get a second signature');
   // open() appends the current identity's signature. editDraft() hands it a
   // body that already ENDS in one — the one whose author saved it — so every
   // reopen added another, and the next one after that a third.
-  ok(src.includes('if (adoptExistingSignature()) return;'),
+  ok(src.includes('if (!force && adoptExistingSignature()) return;'),
     'applySignatureForIdentity stands down when the body already carries a signature');
+  // `force` is the one case that must NOT stand down: an identity can have
+  // several signatures now, and picking one from the composer's ⋯ menu is a
+  // request to REPLACE the signature the user is looking at. Adopting it there
+  // would make that menu do nothing at all.
+  ok(/applySignatureForIdentity\(id, composeContext, \{ sigId, force: true \}\)/.test(src),
+    'except when a signature was explicitly picked, which is a request to replace the one already there');
   ok(src.includes('insertedSignatureNode = existing;'),
     'and adopts it, so a later identity switch REPLACES that signature rather than stacking one under it');
   ok(src.includes('const existing = host.querySelector(`:scope > .${SIGNATURE_WRAP}`);'),

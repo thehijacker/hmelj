@@ -349,23 +349,23 @@
            must land in the message body, not on Bold. Bold/Italic/Underline
            still have their native Ctrl+B/I/U in the contenteditable, and
            everything here stays mouse/touch operable as before. -->
+      <!-- Two parts, and the split is load-bearing on a phone: .tb-scroll holds
+           the ACTIONS and scrolls sideways when they don't fit (see the mobile
+           media query in app.css), while the language chip and the Plain toggle
+           sit outside it because they are STATE — they say what the composer
+           currently is, and something you read rather than reach for must not
+           be able to scroll out of sight. -->
       <div class="editor-toolbar" id="editor-toolbar">
-        <button data-cmd="bold" title="Bold" tabindex="-1"><b>B</b></button>
-        <button data-cmd="italic" title="Italic" tabindex="-1"><i>I</i></button>
-        <button data-cmd="underline" title="Underline" tabindex="-1"><u>U</u></button>
-        <button data-cmd="insertUnorderedList" title="Bullet list" tabindex="-1">•≡</button>
-        <button data-cmd="insertOrderedList" title="Numbered list" tabindex="-1">1≡</button>
-        <button data-cmd="createLink" title="Insert link" tabindex="-1">🔗</button>
-        <button data-cmd="removeFormat" title="Clear formatting" tabindex="-1">⌫ᴬ</button>
-        <select id="c-font" title="Font" tabindex="-1"></select>
+        <!-- Filled by compose.js#init from richToolbarHtml(), which also builds
+             the signature and template editors in Settings — one definition, so
+             "the options I have when writing a message" cannot quietly become
+             three different sets of buttons. -->
+        <div class="tb-scroll"></div>
+        <span class="spacer"></span>
         <!-- Spell-check language. Shows the auto-detected code (dimmed) until
              it's pinned; hidden entirely when spell checking is off or the
              browser has no Custom Highlight API. See public/js/proofread.js. -->
         <button id="c-lang" class="pf-lang pf-lang-auto" title="Spell-check language" tabindex="-1" hidden>AUTO</button>
-        <!-- Insert a saved template at the caret. Hidden until there is at
-             least one to insert (see compose.js#refreshTemplates). -->
-        <button id="c-template" type="button" title="Insert a template" tabindex="-1" hidden>📋</button>
-        <span class="spacer"></span>
         <label class="mini-toggle" title="Plain text mode"><input type="checkbox" id="c-plain" tabindex="-1"> Plain</label>
       </div>
       <div id="c-editor" class="compose-editor" contenteditable="true"></div>

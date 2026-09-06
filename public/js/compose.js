@@ -36,10 +36,77 @@ const Compose = (() => {
   // .quote-header already did.
   const BODY_CLASS = 'compose-body';
   const QUOTE_CLASS = 'quoted-block';
+  // The inline style a quote carries into the sent mail. ONE constant, used by
+  // both the ❝ Quote button and quoteBlock()'s reply quoting, so a quote you
+  // made and a quote Hmelj made are the same object in the recipient's client.
+  // Inline because they have none of our CSS — a bare <blockquote> is styled by
+  // whatever their client happens to think, which in Outlook is nothing at all.
+  const QUOTE_STYLE = 'margin:0 0 0 8px;padding-left:10px;border-left:2px solid #8ab4f8;color:inherit';
+  // Same reasoning for a code block. white-space:pre-wrap rather than plain pre:
+  // a <pre> in a 560px composer that a phone opens at 360px would otherwise
+  // scroll sideways forever on the one line somebody pasted from a terminal.
+  const CODE_STYLE = 'margin:8px 0;padding:8px 10px;background:#f1f3f4;border-radius:6px;'
+    + "font-family:'Courier New',Courier,monospace;font-size:13px;white-space:pre-wrap;word-break:break-word";
+
+  // Gmail's four, and its names for them. execCommand('fontSize') only speaks
+  // 1–7, so these are the four of those seven that are far enough apart to be
+  // worth offering. `px` is for the picker's own preview only — what reaches the
+  // message is <font size="N">.
+  const SIZES = [
+    { size: 2, label: 'Small', px: 13 },
+    { size: 3, label: 'Normal', px: 16 },
+    { size: 5, label: 'Large', px: 24 },
+    { size: 6, label: 'Huge', px: 32 },
+  ];
+
+  // Two rows of ten, dark to light, plus the greys. Kept small on purpose: a
+  // full colour wheel in a mail composer is a way to make text nobody can read,
+  // and every one of these is legible on white.
+  const TEXT_COLORS = [
+    '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
+    '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff',
+    '#e6b8af', '#f4cccc', '#fce5cd', '#fff2cc', '#d9ead3', '#d0e0e3', '#c9daf8', '#cfe2f3', '#d9d2e9', '#ead1dc',
+    '#a61c00', '#cc0000', '#e69138', '#f1c232', '#6aa84f', '#45818e', '#3c78d8', '#3d85c6', '#674ea7', '#a64d79',
+  ];
+  // Highlights are the pale half only — a dark highlight under dark text is
+  // unreadable, and the picker should not offer a way to get there.
+  const HILITE_COLORS = [
+    '#ffffff', '#f3f3f3', '#efefef', '#d9d9d9', '#cccccc',
+    '#fce5cd', '#fff2cc', '#ffff00', '#d9ead3', '#00ff00',
+    '#d0e0e3', '#c9daf8', '#cfe2f3', '#00ffff', '#d9d2e9',
+    '#ead1dc', '#f4cccc', '#e6b8af', '#ff9900', '#ffcccc',
+  ];
+
+  // A curated set, not a full Unicode table: a picker is for finding one
+  // quickly, and 3,600 emoji sorted by codepoint is not that. Grouped the way
+  // people look for them, common-first within each group.
+  const EMOJI = [
+    ['Smileys', '😀😃😄😁😆😅🤣😂🙂🙃😉😊😇🥰😍🤩😘😗😚😙🥲😋😛😜🤪😝🤗🤭🤔🤐😐😑😶😏😒🙄😬😮‍💨😌😔😪🤤😴😷🤒🤕🤢🤮🥵🥶😵🤯🤠🥳😎🤓🧐😕😟🙁😮😯😲😳🥺😦😧😨😰😥😢😭😱😖😣😞😓😩😫🥱😤😡🤬😈💀💩'],
+    ['People', '👋🤚🖐✋🖖👌🤌🤏✌🤞🤟🤘🤙👈👉👆👇☝👍👎✊👊🤛🤜👏🙌👐🤲🤝🙏✍💅🤳💪🦾🦵🦶👂👃🧠🦷🦴👀👁👅👄💋👶🧒👦👧🧑👨👩🧓👴👵🙍🙎🙅🙆💁🙋🧏🙇🤦🤷👮🕵💂🥷👷🤴👸👳👲🧕🤵👰🤰🤱👼🎅🤶🦸🦹'],
+    ['Nature', '🐶🐱🐭🐹🐰🦊🐻🐼🐨🐯🦁🐮🐷🐸🐵🙈🙉🙊🐒🐔🐧🐦🐤🦆🦅🦉🦇🐺🐗🐴🦄🐝🐛🦋🐌🐞🐜🦂🐢🐍🦎🐙🦑🦐🦀🐡🐠🐟🐬🐳🐋🦈🐊🐅🐆🦓🦍🐘🦏🐪🐫🦒🐃🐄🐎🐖🐏🐑🐐🦌🐕🐩🐈🐓🦃🕊🐇🐁🐀🌲🌳🌴🌵🌾🌿☘🍀🍁🍂🍃🌷🌹🌺🌸🌼🌻'],
+    ['Food', '🍏🍎🍐🍊🍋🍌🍉🍇🍓🫐🍈🍒🍑🥭🍍🥥🥝🍅🍆🥑🥦🥬🥒🌶🌽🥕🧄🧅🥔🍠🥐🥯🍞🥖🥨🧀🥚🍳🧈🥞🧇🥓🥩🍗🍖🌭🍔🍟🍕🥪🥙🌮🌯🥗🥘🍝🍜🍲🍛🍣🍱🥟🦪🍤🍙🍚🍘🍥🥠🥮🍢🍡🍧🍨🍦🥧🧁🍰🎂🍮🍭🍬🍫🍿🍩🍪☕🍵🧃🥤🍶🍺🍻🥂🍷🥃🍸🍹🧉'],
+    ['Travel', '🚗🚕🚙🚌🚎🏎🚓🚑🚒🚐🚚🚛🚜🛴🚲🛵🏍🚨🚔🚍🚘🚖🚡🚠🚟🚃🚋🚞🚝🚄🚅🚈🚂🚆🚇🚊🚉✈🛫🛬🛩💺🚀🛸🚁🛶⛵🚤🛥🛳⛴🚢⚓🚧⛽🚏🗺🗿🗽🗼🏰🏯🏟🎡🎢🎠⛲⛱🏖🏝🏜🌋⛰🏔🗻🏕⛺🏠🏡🏘🏚🏗🏭🏢🏬🏣🏤🏥🏦🏨🏪🏫🏩💒🏛⛪🕌🕍🛕🕋'],
+    ['Activity', '⚽🏀🏈⚾🥎🎾🏐🏉🥏🎱🪀🏓🏸🏒🏑🥍🏏🥅⛳🪁🏹🎣🤿🥊🥋🎽🛹🛷⛸🥌🎿⛷🏂🪂🏋🤼🤸⛹🤺🤾🏌🏇🧘🏄🏊🤽🚣🧗🚵🚴🏆🥇🥈🥉🏅🎖🏵🎗🎫🎟🎪🤹🎭🩰🎨🎬🎤🎧🎼🎹🥁🎷🎺🎸🪕🎻🎲♟🎯🎳🎮🎰🧩'],
+    ['Objects', '⌚📱💻⌨🖥🖨🖱🖲🕹🗜💽💾💿📀📼📷📸📹🎥📞☎📟📠📺📻🎙⏱⏲⏰🕰⌛⏳📡🔋🔌💡🔦🕯🧯🛢💸💵💴💶💷💰💳💎⚖🧰🔧🔨⚒🛠⛏🔩⚙🧱⛓🧲🔫💣🧨🪓🔪🗡⚔🛡🚬⚰⚱🏺🔮📿🧿💈⚗🔭🧬🔬🕳💊💉🩸🧷🧹🧺🧻🚽🚿🛁🛀🧼🪒🧽🧴🛎🔑🗝🚪🪑🛋🛏🛌🧸🖼🛍🛒🎁🎈🎏🎀🎊🎉🎎🏮🎐🧧✉📩📨📧💌📥📤📦🏷📪📫📬📭📮📯📜📃📄📑📊📈📉🗒🗓📆📅🗑📇🗃🗳🗄📋📁📂🗂🗞📰📓📔📒📕📗📘📙📚📖🔖🧷🔗📎🖇📐📏🧮📌📍✂🖊🖋✒🖌🖍📝✏🔍🔎🔏🔐🔒🔓'],
+    ['Symbols', '❤🧡💛💚💙💜🖤🤍🤎💔❣💕💞💓💗💖💘💝💟☮✝☪🕉☸✡🔯🕎☯☦🛐⛎♈♉♊♋♌♍♎♏♐♑♒♓🆔⚛🉑☢☣📴📳🈶🈚🈸🈺🈷✴🆚💮🉐㊙㊗🈴🈵🈹🈲🅰🅱🆎🆑🅾🆘❌⭕🛑⛔📛🚫💯💢♨🚷🚯🚳🚱🔞📵🚭❗❕❓❔‼⁉🔅🔆〽⚠🚸🔱⚜🔰♻✅🈯💹❇✳❎🌐💠Ⓜ🌀💤🏧🚾♿🅿🈳🈂🛂🛃🛄🛅🚹🚺🚼🚻🚮🎦📶🈁🔣ℹ🔤🔡🔠🆖🆗🆙🆒🆕🆓0️⃣1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣8️⃣9️⃣🔟'],
+  ];
+  // Last-used-first, this device only. An emoji picker whose first row is the
+  // ten you actually use is a different tool from one that is not.
+  const EMOJI_RECENT_KEY = 'hmelj-emoji-recent';
+  const EMOJI_RECENT_MAX = 24;
+  // Whether the composer opens enlarged on THIS machine. A dedicated key rather
+  // than a device setting: this is window position, the same kind of thing
+  // Dialog's own `hmelj.dialogExpanded` and the remembered Settings tab keep —
+  // not a preference worth syncing to the server and pushing onto a phone.
+  const COMPOSE_LARGE_KEY = 'hmelj-compose-large';
   // What signatureHtml() wraps a signature in: ONE node, so switching identity
   // removes the whole thing, spacing included — and so a signature already in
   // the body (a reopened draft) can be recognised rather than duplicated.
   const SIGNATURE_WRAP = 'signature-wrap';
+  // "no signature on this message" as a chosenSignatureId value. A sentinel
+  // rather than null, because null already means something else and means it
+  // usefully — "nobody has chosen, use the identity's default".
+  const NO_SIGNATURE = '__none__';
   let identities = [];
   // {filename, contentType, contentBase64} — plus {cid, inline:true} for an
   // image pasted or dropped into the body, which travels as a normal
@@ -66,8 +133,21 @@ const Compose = (() => {
   let plainQuoteTail = ''; // plain mode: the quoted original's text, as it sits at the END of the textarea — see quotedTailText
   let inFlightSave = null; // the Promise from a saveDraftNow() currently in flight, or null — see requestClose/discardDraft
   let closing = false; // a requestClose() is already deciding (awaiting an in-flight save, or with its prompt up) — see requestClose
+  let currentFont = 'system-ui'; // what the toolbar's Aa button last applied — the state the old <select> kept in its .value
+  // Which of the identity's signatures THIS message uses, when the user has
+  // picked one from the ⋯ menu. null means "whatever the identity says",
+  // which is the answer for every message nobody picks for. Reset by open().
+  let chosenSignatureId = null;
 
   const el = () => document.getElementById('compose-window');
+
+  /** Phone-width, where the composer is always full-page. One definition, used
+   *  by open() and by the enlarge button, so the two cannot disagree about
+   *  which screens the remembered size applies to. */
+  const isNarrow = () => matchMedia('(max-width: 900px)').matches;
+  const wantsLarge = () => {
+    try { return localStorage.getItem(COMPOSE_LARGE_KEY) === '1'; } catch { return false; }
+  };
 
   function setIdentities(list) {
     identities = list;
@@ -168,16 +248,46 @@ const Compose = (() => {
     return htmlToText(q.outerHTML);
   }
 
-  function signatureHtml(id, context /* new | reply */) {
-    if (!id?.signature) return '';
+  /** One identity's signatures, always an array. The server normalises this
+   *  shape on every read and write (store.js#normalizeIdentities) — this is the
+   *  belt to that's braces, for an identity that reached the composer some
+   *  other way (a draft reopened against a list fetched before the migration). */
+  function signaturesOf(id) {
+    return Array.isArray(id?.signatures) ? id.signatures : [];
+  }
+
+  /** Which signature a message uses: the one explicitly picked for THIS message,
+   *  else the identity's default, else its first. */
+  function signatureFor(id, sigId = chosenSignatureId) {
+    const list = signaturesOf(id);
+    if (!list.length) return null;
+    if (sigId === NO_SIGNATURE) return null;
+    return list.find((s) => s.id === sigId)
+      || list.find((s) => s.id === id.defaultSignatureId)
+      || list[0];
+  }
+
+  /**
+   * `force` skips the signatureOn check.
+   *
+   * That setting answers "should one be added on its own", and picking one out
+   * of the ⋯ menu is not on its own — refusing to insert a signature somebody
+   * has just asked for, because the identity is configured not to add one
+   * automatically, would read as the menu being broken.
+   */
+  function signatureHtml(id, context /* new | reply */, { sigId = chosenSignatureId, force = false } = {}) {
+    const sig = signatureFor(id, sigId);
+    if (!sig?.html) return '';
     const on = id.signatureOn || 'new-reply'; // new | new-reply | always | never
-    if (on === 'never') return '';
-    if (on === 'new' && context !== 'new') return '';
+    if (!force) {
+      if (on === 'never') return '';
+      if (on === 'new' && context !== 'new') return '';
+    }
     // Signatures written with the old plain-text editor still have literal
     // `\n` line breaks and need converting; ones from the newer rich HTML
     // editor (Settings > Identities) already contain real markup and should
     // pass through untouched.
-    const body = /<[a-z][\s\S]*>/i.test(id.signature) ? id.signature : id.signature.replace(/\n/g, '<br>');
+    const body = /<[a-z][\s\S]*>/i.test(sig.html) ? sig.html : sig.html.replace(/\n/g, '<br>');
     // The "-- " (dash-dash-space) delimiter is a long-standing email
     // convention (RFC 3676) — some mail clients use it to auto-strip a
     // signature when quoting on reply, and lightly de-emphasize text after
@@ -202,8 +312,8 @@ const Compose = (() => {
    * since edited or deleted it, this leaves their content alone rather than
    * silently clobbering it; the new identity's signature is still appended
    * after whatever's there, just without removing anything first. */
-  function applySignatureForIdentity(id, context) {
-    const sig = signatureHtml(id, context);
+  function applySignatureForIdentity(id, context, { sigId = chosenSignatureId, force = false } = {}) {
+    const sig = signatureHtml(id, context, { sigId, force });
     // A body that ALREADY carries a signature is a message coming back to be
     // edited — a draft reopened, or a cancelled undo-send. The one it has is
     // the one its author saved, so it is adopted rather than added to; without
@@ -213,7 +323,10 @@ const Compose = (() => {
     // Adopted, not merely skipped: `insertedSignatureNode` is what lets a later
     // identity switch replace the signature instead of stacking another one
     // under it, and after a reopen that pointer would otherwise be null.
-    if (adoptExistingSignature()) return;
+    // …but not when the user has just PICKED one: they are looking at the
+    // signature they want replaced, and adopting it would make the menu do
+    // nothing at all.
+    if (!force && adoptExistingSignature()) return;
     if (isPlain()) {
       const ta = document.getElementById('c-editor-plain');
       const text = ta.value;
@@ -289,8 +402,10 @@ const Compose = (() => {
    *  empty menu is worse than no button. */
   function setTemplates(list) {
     templates = Array.isArray(list) ? list : [];
-    const btn = document.getElementById('c-template');
-    if (btn) btn.hidden = !templates.length;
+    // No button to show or hide any more — templates moved into the ⋯ menu,
+    // which asks `templates.length` each time it opens (see openMoreMenu). The
+    // rule is the same one this function used to enforce: nothing on offer,
+    // nothing shown.
   }
 
   /**
@@ -316,6 +431,11 @@ const Compose = (() => {
     } else {
       const ed = document.getElementById('c-editor');
       const host = ed.querySelector(`:scope > .${BODY_CLASS}`) || ed;
+      // Reached from the ⋯ menu now, which took focus off the editor on its way
+      // open — so the caret has to be put back before it can be found, or every
+      // template would take the "caret isn't in the body" path below and land at
+      // the end of the message instead of where the user left off.
+      restoreEditorRange();
       const sel = window.getSelection();
       const inBody = sel?.rangeCount && host.contains(sel.getRangeAt(0).commonAncestorContainer);
       if (inBody) {
@@ -344,6 +464,36 @@ const Compose = (() => {
     })), x, y);
   }
 
+  /**
+   * Swap this message's sign-off. Only offered when the identity has more than
+   * one (see openMoreMenu) — with a single signature there is nothing to choose
+   * between, and the entry would open a menu with one entry and "None".
+   */
+  function showSignatureMenu(x, y) {
+    const id = currentIdentity();
+    const list = signaturesOf(id);
+    if (!list.length) return;
+    const active = signatureFor(id);
+    const pick = (sigId) => {
+      chosenSignatureId = sigId;
+      // force: the pick IS the instruction, whatever signatureOn says.
+      applySignatureForIdentity(id, composeContext, { sigId, force: true });
+      dirty = true;
+    };
+    openCtxMenu([
+      ...list.map((s) => ({
+        // The user's own words — not run through I18n, same as the template
+        // menu: a signature called "Kratki" must not be looked up.
+        // esc: openCtxMenu injects its labels as HTML (it runs them through
+        // I18n.t), so escaping belongs here rather than there — the same rule
+        // showContactRowMenu's own comment states for a contact's name.
+        label: `${active?.id === s.id ? '✓ ' : '  '}${esc(s.name)}`,
+        onClick: () => pick(s.id),
+      })),
+      { label: chosenSignatureId === NO_SIGNATURE ? '✓ None' : '  None', onClick: () => pick(NO_SIGNATURE) },
+    ], x, y);
+  }
+
   function open({ to = '', cc = '', subject = '', bodyHtml = '', context = 'new', identityId = null } = {}) {
     const w = el();
     w.hidden = false;
@@ -356,9 +506,15 @@ const Compose = (() => {
     // Mobile opens straight into the enlarged (full-page) state — a 560px
     // floating panel pinned bottom-right is unusable on a phone, and
     // .compose-window.large already means "full page size" inside the 900px
-    // media query (see app.css). Desktop keeps the small floating window and
-    // the enlarge button toggles either one back the other way.
-    el().classList.toggle('large', matchMedia('(max-width: 900px)').matches);
+    // media query (see app.css). Unconditional there, and deliberately not
+    // remembered: a phone must never be able to persist "small" and then open
+    // into a panel it cannot use.
+    //
+    // On a DESKTOP the enlarge button's last answer is remembered instead of
+    // reset every time, which is the whole reason this reads a stored value at
+    // all — somebody who works in the big window was re-enlarging it on every
+    // single message.
+    el().classList.toggle('large', isNarrow() || wantsLarge());
     closeContactSuggest();
     renderAttachments();
     const idSel = document.getElementById('c-identity');
@@ -378,6 +534,12 @@ const Compose = (() => {
     composeContext = context;
     insertedSignatureNode = null;
     insertedSignaturePlainText = '';
+    // The body below is about to be replaced wholesale, so a range saved while
+    // writing the last message points at nodes that are on their way out.
+    savedRange = null;
+    // Per message, not per session: the sign-off you chose for one mail is not
+    // an instruction about the next one.
+    chosenSignatureId = null;
     if (plain) {
       document.getElementById('c-editor-plain').value = htmlToText(bodyHtml);
       plainQuoteTail = quotedTailText(bodyHtml);
@@ -423,7 +585,7 @@ const Compose = (() => {
     // draft byte-for-byte as they wrote it.
     const inner = msg.html || `<pre>${MessageFrame.linkifyText(msg.text)}</pre>`;
     return `<br><div class="quote-header">On ${esc(when)}, ${esc(who)} wrote:</div>
-<blockquote style="margin:0 0 0 8px;padding-left:10px;border-left:2px solid #8ab4f8;color:inherit">${inner}</blockquote>`;
+<blockquote style="${QUOTE_STYLE}">${inner}</blockquote>`;
   }
 
   /** `pos` defaults to the reply setting but is passed explicitly by forward(),
@@ -1084,6 +1246,541 @@ const Compose = (() => {
     closeContactSuggest();
   }
 
+  /* ---------- the formatting toolbar ----------
+   *
+   * Three pieces, in dependency order: keeping the editor's selection alive
+   * across a click that happens somewhere else, running a command with the
+   * right markup dialect, and the little anchored panel the pickers draw into.
+   */
+
+  /**
+   * The editor selection, saved so a control OUTSIDE the editor can act on it.
+   *
+   * The plain toolbar buttons get away with `mousedown → preventDefault`, which
+   * stops the editor being blurred at all. That does not survive a POPOVER: the
+   * click that runs the command happens in a different element, a frame later,
+   * with the editor long since blurred — and `document.execCommand` acts on the
+   * focused element's selection, so without this every picker would format the
+   * top of the document instead of what was selected.
+   *
+   * Saved on pointerdown anywhere in the toolbar (before focus moves), restored
+   * immediately before the command runs. Same shape as the createLink handler
+   * below and as settings.js#wireSignatureEditors, which both solved this once
+   * already for a dialog.
+   */
+  let savedRange = null;
+
+  /**
+   * Which contenteditable the toolbar engine is currently acting on.
+   *
+   * The composer's own editor is only one of three: Settings' signature and
+   * template editors get the SAME toolbar (see wireRichEditor, exported at the
+   * bottom of this file), because "the options I have when writing a message"
+   * is exactly what somebody expects when writing a template. Everything below
+   * therefore asks `editorEl()` rather than reaching for `#c-editor` by name.
+   */
+  let activeEditor = null;
+  const editorEl = () => activeEditor || document.getElementById('c-editor');
+  // editor -> { toolbar, onChange, menu } for each wired editor. A WeakMap, so
+  // a Settings editor that has been re-rendered away takes its entry with it.
+  const wiredEditors = new WeakMap();
+
+  function saveEditorRange() {
+    const ed = editorEl();
+    const sel = window.getSelection();
+    if (!sel?.rangeCount) return;
+    const r = sel.getRangeAt(0);
+    // Only a selection that is actually IN the editor. A caret left in the
+    // subject line, or in the page behind, is not something to restore into —
+    // and restoring it would run the command against whatever it points at.
+    if (ed.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
+  }
+
+  /** Puts the saved selection back and focuses the editor. Separate from
+   *  withEditorSelection because insertTemplate needs the caret back without
+   *  running a command through it. */
+  function restoreEditorRange() {
+    const ed = editorEl();
+    ed.focus();
+    // `contains`, not merely "is there one": open() rebuilds the editor's whole
+    // contents, so a range saved while writing the LAST message points at nodes
+    // that have since been thrown away. Handing one of those to addRange puts
+    // the caret nowhere and the command that follows would act on nothing.
+    if (!savedRange || !ed.contains(savedRange.commonAncestorContainer)) return;
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+  }
+
+  /** Runs `fn` with the editor focused and its saved selection back in place. */
+  function withEditorSelection(fn) {
+    restoreEditorRange();
+    fn();
+    // The command moved/replaced it; re-save so a second picker in a row acts
+    // on where the first one left off rather than on a stale range.
+    saveEditorRange();
+    const wired = wiredEditors.get(editorEl());
+    // `dirty` belongs to the COMPOSER; a signature editor has its own idea of
+    // what to do when its content changes (write the hidden field Settings
+    // saves from). Each editor says so when it is wired.
+    if (wired) wired.onChange?.();
+    else dirty = true;
+    syncToolbarState();
+  }
+
+  /**
+   * One execCommand, with `styleWithCSS` set per command.
+   *
+   * The default is wrong for two of them, and what comes out is markup somebody
+   * else's mail client has to render:
+   *
+   *   - **indent/outdent MUST use CSS.** With styleWithCSS off, Chrome
+   *     implements indent by wrapping the selection in a `<blockquote>` — which
+   *     is indistinguishable from what the ❝ Quote button makes, so indenting
+   *     inside a quote, or quoting something indented, would produce a mess
+   *     neither button could undo.
+   *   - **alignment MUST use CSS**, or it emits the deprecated `align=`
+   *     attribute, which fewer clients honour than `text-align`.
+   *
+   * Everything else deliberately uses the OLD dialect: `<font face>`,
+   * `<font size>`, `<font color>`, `<b>`, `<i>`. That is what the font control
+   * has always emitted here, one convention in one file beats two, and Outlook
+   * renders presentational tags without argument. `font` is already in the
+   * reading pane's allowedTags (server/index.js), so it survives being read back.
+   */
+  const CSS_COMMANDS = new Set(['indent', 'outdent', 'justifyLeft', 'justifyCenter', 'justifyRight', 'hiliteColor']);
+
+  function exec(cmd, value = null) {
+    withEditorSelection(() => {
+      try { document.execCommand('styleWithCSS', false, CSS_COMMANDS.has(cmd)); } catch { /* not everywhere */ }
+      document.execCommand(cmd, false, value);
+    });
+  }
+
+  /**
+   * `formatBlock` plus the inline style the result has to carry.
+   *
+   * A bare `<blockquote>` or `<pre>` is styled by the reader's client, which for
+   * Outlook means not at all — so a quote would arrive as an ordinary paragraph
+   * and a code block as ordinary text. formatBlock is still what makes the
+   * block (it handles a multi-paragraph selection properly, which hand-built
+   * insertHTML does not); this only dresses what it made.
+   */
+  function formatBlockStyled(tag, style) {
+    withEditorSelection(() => {
+      try { document.execCommand('styleWithCSS', false, false); } catch { /* ignore */ }
+      document.execCommand('formatBlock', false, tag);
+      const sel = window.getSelection();
+      let node = sel?.anchorNode;
+      const ed = editorEl();
+      while (node && node !== ed) {
+        if (node.nodeType === 1 && node.tagName.toLowerCase() === tag) { node.setAttribute('style', style); return; }
+        node = node.parentNode;
+      }
+    });
+  }
+
+  /* ---------- the anchored picker panel ----------
+   * openCtxMenu (app.js) is a list of text buttons and is exactly right for the
+   * ⋯ menu, which is one. It cannot draw a swatch grid or an emoji grid, so the
+   * four pickers use this instead: the same transparent backdrop and the same
+   * safe-area clamp, around arbitrary HTML.
+   */
+  let panelEl = null;
+  let panelBackdrop = null;
+
+  function closeToolbarPanel() {
+    panelEl?.remove();
+    panelBackdrop?.remove();
+    panelEl = panelBackdrop = null;
+  }
+
+  /**
+   * Opens `html` in a panel under `anchorEl`. Returns the element so the caller
+   * can wire its own clicks.
+   *
+   * Positioned AFTER it is in the document, like openCtxMenu and
+   * positionContactSuggest: its size is not knowable until the browser has laid
+   * it out, and clamping against a guess is how a panel ends up half off a
+   * phone screen. Clamped into the safe area rather than the viewport, for the
+   * reason openCtxMenu's own comment gives — in landscape the cutout and the
+   * navigation bar are on the sides.
+   */
+  function openToolbarPanel(anchorEl, html) {
+    closeToolbarPanel();
+    panelBackdrop = document.createElement('div');
+    panelBackdrop.className = 'ctx-menu-backdrop';
+    // mousedown, not click: a click would land after the button's own handler
+    // had already reopened the panel, so tapping the same button twice would
+    // never close it.
+    panelBackdrop.addEventListener('mousedown', closeToolbarPanel);
+    document.body.appendChild(panelBackdrop);
+
+    panelEl = document.createElement('div');
+    panelEl.className = 'compose-popover';
+    panelEl.innerHTML = html;
+    document.body.appendChild(panelEl);
+
+    const inset = safeInsets();
+    const r = panelEl.getBoundingClientRect();
+    const a = anchorEl.getBoundingClientRect();
+    const left = inset.left + 8, right = inset.right + 8, top = inset.top + 8, bottom = inset.bottom + 8;
+    panelEl.style.left = Math.max(left, Math.min(a.left, innerWidth - right - r.width)) + 'px';
+    // Below the button when it fits, above it when it does not — a picker on the
+    // toolbar of a composer sitting at the bottom of the screen usually does not.
+    const below = a.bottom + 4;
+    panelEl.style.top = (below + r.height <= innerHeight - bottom ? below : Math.max(top, a.top - r.height - 4)) + 'px';
+    return panelEl;
+  }
+
+  /* ---------- the toolbar itself: markup, state, wiring ----------
+   *
+   * Built here rather than written into index.html, because there are three of
+   * these: the composer's, and the signature and template editors in Settings.
+   * One builder is what keeps them from drifting apart — "the options I get
+   * when writing a message" is exactly what somebody expects when writing a
+   * template, and a second copy of this markup would be that promise decaying
+   * one button at a time.
+   */
+
+  /** The commands whose buttons light up when the caret is inside them.
+   *  queryCommandState answers for all of these; anything it cannot answer for
+   *  (font, size, colour) simply has no pressed state. */
+  const STATE_COMMANDS = ['bold', 'italic', 'underline', 'strikeThrough',
+    'insertUnorderedList', 'insertOrderedList', 'justifyLeft', 'justifyCenter', 'justifyRight'];
+
+  /**
+   * The toolbar's buttons, as HTML.
+   *
+   * `extras` is appended by Settings, whose editors have two buttons the
+   * composer has no use for (insert an image, edit the HTML source).
+   */
+  function richToolbarHtml({ extras = '' } = {}) {
+    const b = (attrs, label, title) =>
+      `<button type="button" ${attrs} title="${escAttr(I18n.t(title))}" tabindex="-1">${label}</button>`;
+    return [
+      b('data-panel="font" class="tb-font"', `Aa<span class="tb-caret">▾</span>`, 'Font'),
+      b('data-panel="size"', `↕<span class="tb-caret">▾</span>`, 'Text size'),
+      '<span class="tb-sep"></span>',
+      b('data-cmd="bold"', '<b>B</b>', 'Bold'),
+      b('data-cmd="italic"', '<i>I</i>', 'Italic'),
+      b('data-cmd="underline"', '<u>U</u>', 'Underline'),
+      b('data-cmd="strikeThrough"', '<s>S</s>', 'Strikethrough'),
+      b('data-panel="color"', '<span class="tb-color-a">A</span><span class="tb-caret">▾</span>', 'Text colour'),
+      '<span class="tb-sep"></span>',
+      b('data-cmd="insertUnorderedList"', '•≡', 'Bullet list'),
+      b('data-cmd="insertOrderedList"', '1≡', 'Numbered list'),
+      b('data-cmd="createLink"', '🔗', 'Insert link'),
+      b('data-panel="emoji"', '🙂', 'Emoji'),
+      '<span class="tb-sep"></span>',
+      b('data-more="1"', '⋯', 'More formatting'),
+      extras,
+    ].join('');
+  }
+
+  /**
+   * Lights up the buttons for the formatting the caret is actually inside.
+   *
+   * Without this the toolbar is write-only: you can turn italic on but the bar
+   * never says whether the word you are standing in is italic, so the only way
+   * to find out is to press the button and look at what happens.
+   *
+   * queryCommandState is deprecated and imperfect — it answers for the whole
+   * selection, so a partly-bold selection reads false — but it is the only
+   * thing that answers this question at all in a contenteditable, and it is the
+   * same API execCommand (which this toolbar is built on) belongs to.
+   */
+  function syncToolbarState() {
+    const ed = activeEditor || document.getElementById('c-editor');
+    const wired = wiredEditors.get(ed);
+    const toolbar = wired?.toolbar || document.getElementById('editor-toolbar');
+    if (!toolbar) return;
+    const sel = window.getSelection();
+    // Only when the caret is really in THIS editor. Otherwise the bar would go
+    // on reporting the state of wherever it was last, which is worse than
+    // reporting nothing.
+    const live = sel?.rangeCount && ed?.contains(sel.getRangeAt(0).commonAncestorContainer);
+    for (const cmd of STATE_COMMANDS) {
+      const btn = toolbar.querySelector(`button[data-cmd="${cmd}"]`);
+      if (!btn) continue;
+      let on = false;
+      if (live) { try { on = document.queryCommandState(cmd); } catch { on = false; } }
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
+  /**
+   * Gives one contenteditable the composer's toolbar.
+   *
+   * `toolbar` must already contain richToolbarHtml()'s buttons. `onChange` is
+   * what this editor does when its content changes — the composer marks itself
+   * dirty, a Settings editor writes back the hidden field it is saved from.
+   * `menu: 'basic'` drops the two ⋯ entries that only mean something inside a
+   * real message (insert a template, choose a signature).
+   */
+  function wireRichEditor(toolbar, editor, { onChange = null, menu = 'basic' } = {}) {
+    wiredEditors.set(editor, { toolbar, onChange, menu });
+
+    // Before focus moves anywhere. pointerdown covers mouse, pen and touch, and
+    // fires early enough that the editor still holds the selection every
+    // control here is about to act on. Capture, so a control that stops the
+    // event for its own reasons cannot skip it.
+    toolbar.addEventListener('pointerdown', () => {
+      activeEditor = editor;
+      saveEditorRange();
+    }, true);
+
+    toolbar.querySelectorAll('button[data-cmd]').forEach((btn) => {
+      btn.addEventListener('mousedown', (e) => e.preventDefault()); // keep the selection
+      btn.addEventListener('click', async () => {
+        const cmd = btn.dataset.cmd;
+        if (cmd === 'createLink') {
+          // Dialog.prompt steals focus, so this is the saved-range path too.
+          const url = await Dialog.prompt(I18n.t('Insert link'), { label: I18n.t('Link URL (https://…):'), placeholder: 'https://' });
+          if (url) exec('createLink', url);
+        } else {
+          exec(cmd);
+        }
+      });
+    });
+
+    // One binding for all four pickers: they differ only in what they draw, and
+    // a picker that is already open is closed rather than reopened, so its own
+    // button dismisses it like any other toggle.
+    const PANELS = { font: openFontPanel, size: openSizePanel, color: openColorPanel, emoji: openEmojiPanel };
+    toolbar.querySelectorAll('button[data-panel]').forEach((btn) => {
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => {
+        const already = panelEl?.dataset.panel === btn.dataset.panel;
+        closeToolbarPanel();
+        if (already) return;
+        PANELS[btn.dataset.panel](btn);
+        if (panelEl) panelEl.dataset.panel = btn.dataset.panel;
+      });
+    });
+
+    const more = toolbar.querySelector('button[data-more]');
+    more?.addEventListener('mousedown', (e) => e.preventDefault());
+    more?.addEventListener('click', () => openMoreMenu(more, menu));
+
+    editor.dataset.richEditor = '1'; // how the one selectionchange listener below finds us
+    editor.addEventListener('focus', () => { activeEditor = editor; syncToolbarState(); });
+    editor.addEventListener('input', () => {
+      wiredEditors.get(editor)?.onChange?.();
+      syncToolbarState();
+    });
+    startSelectionWatch();
+  }
+
+  /**
+   * One document-level selectionchange listener, for every rich editor there
+   * will ever be.
+   *
+   * The caret moving is what changes which buttons are lit, and selectionchange
+   * is the only event that fires for every way of moving it — arrow keys, a
+   * click, a drag, an undo. It only fires on `document`, so a per-editor
+   * listener would mean a permanent one for every editor ever wired: Settings
+   * re-renders its whole tab on each edit, so that would leak a listener per
+   * signature per keystroke-ish interaction, each holding a detached editor
+   * alive. Instead the editor is found FROM the selection.
+   */
+  let selectionWatching = false;
+  function startSelectionWatch() {
+    if (selectionWatching) return;
+    selectionWatching = true;
+    document.addEventListener('selectionchange', () => {
+      const sel = window.getSelection();
+      if (!sel?.rangeCount) return;
+      const node = sel.getRangeAt(0).commonAncestorContainer;
+      const host = (node.nodeType === 1 ? node : node.parentElement)?.closest('[data-rich-editor]');
+      if (!host) return;
+      activeEditor = host;
+      syncToolbarState();
+    });
+  }
+
+  /* ---------- the four pickers ---------- */
+
+  /** The font list, each name drawn in its OWN face — the one thing the native
+   *  <select> this replaces could not do, and the reason a font list is worth
+   *  looking at rather than reading. */
+  function openFontPanel(btn) {
+    const current = currentFont;
+    const rows = FONTS.map((f) => {
+      const stack = FONT_STACK[f];
+      const label = f === 'system-ui' ? I18n.t('System default') : f;
+      return `<button type="button" class="pop-row" data-font="${escAttr(f)}"${stack ? ` style="font-family:${escAttr(stack)}"` : ''}>
+        <span class="pop-tick">${f === current ? '✓' : ''}</span>${esc(label)}</button>`;
+    }).join('');
+    const panel = openToolbarPanel(btn, `<div class="pop-list">${rows}</div>`);
+    panel.querySelectorAll('[data-font]').forEach((b) => b.addEventListener('click', () => {
+      closeToolbarPanel();
+      setFont(b.dataset.font, btn);
+    }));
+  }
+
+  /** Applies a font to the selection AND to the editor's own display, so what
+   *  is being typed looks like what will be sent. Split out of the old <select>
+   *  change handler unchanged in substance. */
+  function setFont(font, btn) {
+    currentFont = font;
+    exec('fontName', font);
+    editorEl().style.fontFamily = FONT_STACK[font] || '';
+    if (btn) btn.title = `${I18n.t('Font')}: ${font === 'system-ui' ? I18n.t('System default') : font}`;
+  }
+
+  function openSizePanel(btn) {
+    const rows = SIZES.map((s) =>
+      `<button type="button" class="pop-row" data-size="${s.size}" style="font-size:${s.px}px">${esc(I18n.t(s.label))}</button>`).join('');
+    const panel = openToolbarPanel(btn, `<div class="pop-list">${rows}</div>`);
+    panel.querySelectorAll('[data-size]').forEach((b) => b.addEventListener('click', () => {
+      closeToolbarPanel();
+      exec('fontSize', b.dataset.size);
+    }));
+  }
+
+  /** Text colour and highlight in one panel, the way Gmail's is: they are the
+   *  same gesture asked about two different properties, and two separate
+   *  toolbar buttons for it would cost a button nobody could tell apart. */
+  function openColorPanel(btn) {
+    const grid = (colors, kind) => colors.map((c) =>
+      `<button type="button" class="pop-swatch" data-kind="${kind}" data-color="${escAttr(c)}"
+        style="background:${escAttr(c)}" title="${escAttr(c)}"></button>`).join('');
+    const panel = openToolbarPanel(btn, `
+      <div class="pop-section">
+        <div class="pop-label">${esc(I18n.t('Text colour'))}</div>
+        <div class="pop-grid">${grid(TEXT_COLORS, 'fore')}</div>
+      </div>
+      <div class="pop-section">
+        <div class="pop-label">${esc(I18n.t('Highlight'))}</div>
+        <div class="pop-grid pop-grid-hilite">${grid(HILITE_COLORS, 'hilite')}</div>
+        <button type="button" class="pop-row pop-clear" data-kind="none">${esc(I18n.t('No highlight'))}</button>
+      </div>`);
+    panel.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+      closeToolbarPanel();
+      // 'transparent' rather than white: white is a colour, and a white
+      // highlight is invisible on white and wrong on a dark-themed reader.
+      if (b.dataset.kind === 'none') { exec('hiliteColor', 'transparent'); return; }
+      const fore = b.dataset.kind === 'fore';
+      exec(fore ? 'foreColor' : 'hiliteColor', b.dataset.color);
+      // The bar under the button's A, so the toolbar shows what the next press
+      // of it would apply — the way every other mail composer draws this.
+      if (fore) btn.style.setProperty('--tb-fore', b.dataset.color);
+    }));
+  }
+
+  /* ---------- emoji ---------- */
+
+  function recentEmoji() {
+    try { return JSON.parse(localStorage.getItem(EMOJI_RECENT_KEY) || '[]').filter((e) => typeof e === 'string'); }
+    catch { return []; }
+  }
+  /** Most recent first, no duplicates, capped. Exported shape is a plain array
+   *  of characters — see test/compose-toolbar-test.mjs. */
+  function pushRecentEmoji(ch, list = recentEmoji()) {
+    const next = [ch, ...list.filter((e) => e !== ch)].slice(0, EMOJI_RECENT_MAX);
+    try { localStorage.setItem(EMOJI_RECENT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    return next;
+  }
+
+  /**
+   * Inserts one emoji at the caret.
+   *
+   * Works in PLAIN text mode too, and that is deliberate: an emoji is a
+   * character, not formatting, so it is the one control on this toolbar that
+   * still means something with the rich editor switched off (see togglePlain,
+   * which exempts this button from the blanket disable).
+   */
+  function insertEmoji(ch) {
+    // The plain-text path belongs to the COMPOSER's textarea and to nothing
+    // else. Without this check, picking an emoji while editing a signature —
+    // with the composer left in plain mode behind it — wrote the character into
+    // the message rather than the signature.
+    const composerEditor = document.getElementById('c-editor');
+    if (editorEl() === composerEditor && isPlain()) {
+      const ta = document.getElementById('c-editor-plain');
+      ta.focus();
+      const at = ta.selectionStart ?? ta.value.length;
+      ta.setRangeText(ch, at, ta.selectionEnd ?? at, 'end');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    withEditorSelection(() => document.execCommand('insertText', false, ch));
+  }
+
+  function openEmojiPanel(btn) {
+    const recent = recentEmoji();
+    const groups = [
+      ...(recent.length ? [[I18n.t('Recent'), recent.join('')]] : []),
+      ...EMOJI.map(([name, chars]) => [I18n.t(name), chars]),
+    ];
+    // [...str] rather than split(''): several of these are multi-code-unit
+    // (and 😮‍💨 is three joined by ZWJ), and splitting on code units would
+    // insert half a character.
+    const cell = (ch) => `<button type="button" class="emoji-cell" data-emoji="${escAttr(ch)}">${esc(ch)}</button>`;
+    const body = groups.map(([name, chars], i) =>
+      `<div class="emoji-group" data-group="${i}">
+        <div class="pop-label">${esc(name)}</div>
+        <div class="emoji-grid">${[...chars].map(cell).join('')}</div>
+      </div>`).join('');
+    const tabs = groups.map(([name], i) =>
+      `<button type="button" class="emoji-tab${i === 0 ? ' active' : ''}" data-tab="${i}">${esc(name)}</button>`).join('');
+    const panel = openToolbarPanel(btn, `
+      <div class="emoji-tabs">${tabs}</div>
+      <div class="emoji-body">${body}</div>`);
+    const bodyEl = panel.querySelector('.emoji-body');
+    panel.querySelectorAll('.emoji-tab').forEach((t) => t.addEventListener('click', () => {
+      panel.querySelectorAll('.emoji-tab').forEach((x) => x.classList.toggle('active', x === t));
+      panel.querySelector(`.emoji-group[data-group="${t.dataset.tab}"]`)
+        ?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }));
+    // The panel is the scroll container, so scrollIntoView above moves it —
+    // stop that reaching the page behind on a phone.
+    bodyEl.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+    panel.querySelectorAll('[data-emoji]').forEach((b) => b.addEventListener('click', () => {
+      const ch = b.dataset.emoji;
+      pushRecentEmoji(ch);
+      // The panel stays open: picking emoji is usually picking several, and
+      // reopening it four times to write one line is the thing that makes an
+      // emoji picker annoying. The backdrop, Escape and the button all close it.
+      insertEmoji(ch);
+    }));
+  }
+
+  /* ---------- the ⋯ menu ----------
+   * Everything used less often than the buttons that fit. A plain list menu
+   * (openCtxMenu) rather than a panel: these are commands with names, and it
+   * already clamps into the safe area and scrolls when it is taller than a
+   * phone held in landscape.
+   */
+  function openMoreMenu(btn, menu = 'full') {
+    const r = btn.getBoundingClientRect();
+    const sigs = signaturesOf(currentIdentity());
+    const items = [
+      { label: '❝ Quote', onClick: () => formatBlockStyled('blockquote', QUOTE_STYLE) },
+      { label: '⟨⟩ Code block', onClick: () => formatBlockStyled('pre', CODE_STYLE) },
+      { label: '⇥ Increase indent', onClick: () => exec('indent') },
+      { label: '⇤ Decrease indent', onClick: () => exec('outdent') },
+      { label: '⬅ Align left', onClick: () => exec('justifyLeft') },
+      { label: '↔ Align centre', onClick: () => exec('justifyCenter') },
+      { label: '➡ Align right', onClick: () => exec('justifyRight') },
+      { label: '─ Horizontal line', onClick: () => exec('insertHorizontalRule') },
+      { label: '⌫ᴬ Clear formatting', onClick: () => exec('removeFormat') },
+    ];
+    // Both of these hide themselves when they have nothing to offer, the same
+    // rule the template button already followed when it lived on the toolbar:
+    // a menu entry that opens an empty menu is worse than no entry.
+    // Only inside a real message. A template inserted into a template, or a
+    // signature chosen for one, are both answers to questions Settings is not
+    // asking — see wireRichEditor's `menu` option.
+    if (menu === 'full') {
+      if (templates.length) items.push({ label: '📋 Insert a template', onClick: () => showTemplateMenu(r.left, r.bottom + 4) });
+      if (sigs.length > 1) items.push({ label: '✒ Signature', onClick: () => showSignatureMenu(r.left, r.bottom + 4) });
+    }
+    openCtxMenu(items, r.left, r.bottom + 4);
+  }
+
   /** Matches for whatever's currently being typed in `inputEl` — a
    * To/Cc/Bcc field can hold several addresses, so only the text after the
    * last separator (the one actually being typed right now) drives
@@ -1363,7 +2060,18 @@ const Compose = (() => {
   function togglePlain(plain, convert = true) {
     const rich = document.getElementById('c-editor');
     const plainEl = document.getElementById('c-editor-plain');
-    document.getElementById('editor-toolbar').querySelectorAll('button, #c-font').forEach((b) => (b.disabled = plain));
+    // Emoji is exempt: it inserts a CHARACTER, not formatting, so it is the one
+    // control here that still means something with the rich editor off (see
+    // insertEmoji, which writes into the textarea in that mode). So is the
+    // spell-check chip, which is about the words either editor holds.
+    //
+    // Matched on data-panel/id rather than on position: these buttons are built
+    // by richToolbarHtml now, and a selector that depended on where they sit
+    // would break the next time the bar is reordered.
+    document.getElementById('editor-toolbar').querySelectorAll('button').forEach((b) => {
+      if (b.dataset.panel !== 'emoji' && b.id !== 'c-lang') b.disabled = plain;
+    });
+    closeToolbarPanel();
     if (convert) {
       if (plain) plainEl.value = htmlToText(rich.innerHTML);
       else rich.innerHTML = esc(plainEl.value).replace(/\n/g, '<br>');
@@ -1394,8 +2102,11 @@ const Compose = (() => {
    *  on the element itself and so never appears in the innerHTML payload() sends. */
   function applyDefaultFont() {
     const font = FONTS.includes(state.settings?.composeFont) ? state.settings.composeFont : 'system-ui';
-    const fontSel = document.getElementById('c-font');
-    if (fontSel) fontSel.value = font;
+    currentFont = font;
+    // By class, not by id: the bar is built by richToolbarHtml now, and the
+    // buttons carry no ids because the same markup is used three times.
+    const btn = document.querySelector('#editor-toolbar .tb-font');
+    if (btn) btn.title = `${I18n.t('Font')}: ${font === 'system-ui' ? I18n.t('System default') : font}`;
     document.getElementById('c-editor').style.fontFamily = FONT_STACK[font] || '';
   }
 
@@ -1627,35 +2338,24 @@ const Compose = (() => {
   }
 
   function init() {
-    const fontSel = document.getElementById('c-font');
-    fontSel.innerHTML = FONTS.map((f) => `<option value="${f}">${f === 'system-ui' ? esc(I18n.t('System default')) : f}</option>`).join('');
-    fontSel.addEventListener('change', () => {
-      // execCommand is what reaches the message itself (a <font face> around the
-      // selection, or around whatever gets typed next when nothing is selected);
-      // the style below is only so the editor looks like the result.
-      document.execCommand('fontName', false, fontSel.value);
-      document.getElementById('c-editor').style.fontFamily = FONT_STACK[fontSel.value] || '';
+    const toolbar = document.getElementById('editor-toolbar');
+    // The buttons are BUILT, not written into index.html: Settings' signature
+    // and template editors get the same ones from the same call, which is what
+    // keeps the three toolbars from drifting apart.
+    toolbar.querySelector('.tb-scroll').innerHTML = richToolbarHtml();
+    wireRichEditor(toolbar, document.getElementById('c-editor'), {
+      onChange: () => { dirty = true; },
+      menu: 'full', // templates and the signature picker only mean something here
     });
 
-    document.getElementById('editor-toolbar').querySelectorAll('button[data-cmd]').forEach((b) => {
-      b.addEventListener('mousedown', (e) => e.preventDefault()); // keep selection
-      b.addEventListener('click', async () => {
-        const cmd = b.dataset.cmd;
-        if (cmd === 'createLink') {
-          // the dialog steals focus, so preserve the editor selection
-          const sel = window.getSelection();
-          const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
-          const url = await Dialog.prompt(I18n.t('Insert link'), { label: I18n.t('Link URL (https://…):'), placeholder: 'https://' });
-          if (url && range) {
-            sel.removeAllRanges();
-            sel.addRange(range);
-            document.execCommand('createLink', false, url);
-          }
-        } else {
-          document.execCommand(cmd, false, null);
-        }
-      });
-    });
+    // Escape closes a picker without closing the composer — compose's own
+    // document-level Escape handler would otherwise take the same keypress.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !panelEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeToolbarPanel();
+    }, true);
 
     document.getElementById('c-plain').addEventListener('change', (e) => togglePlain(e.target.checked));
     document.getElementById('btn-cc-toggle').addEventListener('click', () =>
@@ -1695,7 +2395,6 @@ const Compose = (() => {
     // touches the editor's DOM, so getBody()/payload() stay exactly as they were
     // (see the header of public/js/proofread.js for why that matters here).
     Proofread.init({ onEdit: () => (dirty = true) });
-    document.getElementById('c-editor').addEventListener('input', () => (dirty = true));
     document.getElementById('c-editor-plain').addEventListener('input', () => (dirty = true));
     document.getElementById('c-subject').addEventListener('input', (e) =>
       (document.getElementById('compose-title').textContent = e.target.value || 'New message'));
@@ -1812,15 +2511,6 @@ const Compose = (() => {
       acceptFiles(files, { inline: editor.contains(e.target) });
     });
 
-    // mousedown+preventDefault, like the formatting buttons above: clicking a
-    // toolbar button must not take the selection out of the editor first, or an
-    // insert-at-the-caret lands nowhere.
-    document.getElementById('c-template')?.addEventListener('mousedown', (e) => e.preventDefault());
-    document.getElementById('c-template')?.addEventListener('click', (e) => {
-      const r = e.currentTarget.getBoundingClientRect();
-      showTemplateMenu(r.left, r.bottom);
-    });
-
     document.getElementById('btn-send-later').addEventListener('click', (e) => {
       const p = payload();
       if (!p.to) return toast('Add at least one recipient');
@@ -1834,7 +2524,14 @@ const Compose = (() => {
     // "Bigger, not full-space" on desktop, full page size on mobile — see
     // the .compose-window.large rules in app.css for the actual sizing;
     // this button just toggles the class.
-    document.getElementById('btn-compose-enlarge').addEventListener('click', () => el().classList.toggle('large'));
+    document.getElementById('btn-compose-enlarge').addEventListener('click', () => {
+      const large = el().classList.toggle('large');
+      // Remembered for next time — but never from a phone, where `large` is
+      // forced on by open() regardless and storing "small" from a stray tap
+      // would be storing an answer that screen is never asked.
+      if (isNarrow()) return;
+      try { localStorage.setItem(COMPOSE_LARGE_KEY, large ? '1' : '0'); } catch { /* private mode */ }
+    });
     document.getElementById('btn-compose-close').addEventListener('click', requestClose);
     document.getElementById('btn-compose-discard').addEventListener('click', async () => {
       await discardDraft();
@@ -1877,5 +2574,10 @@ const Compose = (() => {
     });
   }
 
-  return { init, open, reopen, reply, forward, editDraft, setIdentities, setTemplates, requestClose, isOpen, pickSendTime, fonts: () => [...FONTS] };
+  return { init, open, reopen, reply, forward, editDraft, setIdentities, setTemplates, requestClose, isOpen, pickSendTime,
+    fonts: () => [...FONTS],
+    // Settings' signature and template editors run on the same engine — see
+    // richToolbarHtml/wireRichEditor above for why that is one call and not a
+    // second copy of this toolbar.
+    richToolbarHtml, wireRichEditor };
 })();

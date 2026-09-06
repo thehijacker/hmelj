@@ -29,6 +29,8 @@ export const SHOTS = {
   'reading.png':             [DESKTOP, 'A message open in the reading pane, header chips and attachments visible'],
   'conversation.png':        [DESKTOP, 'Conversation view: newest message expanded, older ones collapsed above it'],
   'compose.png':             [DESKTOP, 'The floating composer with the formatting toolbar open'],
+  'compose-toolbar.png':     [DESKTOP, 'The composer with a picker open — the colour swatches or the emoji grid — over a part-written message'],
+  'signatures.png':          [DESKTOP, 'Settings › Identities, one identity expanded with two named signatures and one marked Default'],
   'search.png':              [DESKTOP, 'Search results, with the scope selector visible'],
   'attachments.png':         [DESKTOP, 'The attachment preview overlay showing an image or PDF'],
   'analytics.png':           [DESKTOP, 'Mailbox analytics — the Overview tab'],

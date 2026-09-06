@@ -1374,25 +1374,59 @@ const Settings = (() => {
     return sigLooksLikeHtml(s) ? s : esc(s).replace(/\n/g, '<br>');
   }
 
-  function signatureEditor(id, i) {
-    const html = sigToEditableHtml(id.signature);
-    return `<div class="sig-editor" data-i="${i}">
-      <div class="editor-toolbar sig-toolbar">
-        <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
-        <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
-        <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
-        <button type="button" data-cmd="insertUnorderedList" title="Bullet list">•≡</button>
-        <button type="button" data-cmd="createLink" title="Insert link">🔗</button>
-        <button type="button" data-cmd="removeFormat" title="Clear formatting">⌫ᴬ</button>
-        <button type="button" class="sig-img" title="Insert image">🖼</button>
-        <button type="button" class="sig-source" title="View HTML source">&lt;/&gt;</button>
+  /** One signature's editor. `i` is the identity's index, `j` the signature's
+   *  within it — both in every element id, so wireSignatureEditors (which just
+   *  walks every .sig-editor in the DOM) keeps working unchanged now that there
+   *  is more than one per identity. */
+  function signatureEditor(sig, i, j, isDefault) {
+    const html = sigToEditableHtml(sig.html);
+    return `<div class="sig-block" data-i="${i}" data-j="${j}">
+      <div class="row" style="gap:8px">
+        <input class="grow" id="id-signame-${i}-${j}" value="${escAttr(sig.name || '')}"
+          placeholder="${escAttr(I18n.t('Signature name'))}" aria-label="${escAttr(I18n.t('Signature name'))}">
+        <label class="mini-toggle" title="${escAttr(I18n.t('Used unless you pick another while writing'))}">
+          <input type="radio" name="id-sigdef-${i}" id="id-sigdef-${i}-${j}" ${isDefault ? 'checked' : ''}>
+          <span>${esc(I18n.t('Default'))}</span>
+        </label>
+        <button type="button" class="link-btn sig-del" data-i="${i}" data-j="${j}" style="color:var(--danger)">✕</button>
       </div>
-      <div class="sig-rich" id="id-sig-rich-${i}" contenteditable="true">${html}</div>
-      <textarea class="sig-src" id="id-sig-src-${i}" hidden>${esc(html)}</textarea>
-      <input type="file" class="sig-img-input" accept="image/*" hidden>
-      <input type="hidden" id="id-sig-${i}" value="${escAttr(html)}">
+      ${richEditor(`id-sig-${i}-${j}`, html)}
     </div>`;
   }
+
+  /**
+   * A rich editor with the composer's own toolbar — used by signatures and by
+   * templates, both of which end up INSIDE a message and so want exactly the
+   * options a message has.
+   *
+   * The buttons come from Compose.richToolbarHtml() rather than being written
+   * out here: this pane used to carry its own shorter copy (bold, italic,
+   * underline, one list, link, clear), which is how "the editor in Settings" and
+   * "the editor in the composer" quietly became two different things. Two extra
+   * buttons are appended that only make sense here — insert an image, and edit
+   * the HTML source.
+   *
+   * `key` is the element-id stem; the hidden input at `#${key}` is what the tab
+   * is saved from, and wireRichEditors keeps it in step with whichever of the
+   * two views (rich or source) is showing.
+   */
+  function richEditor(key, html) {
+    const extras = '<span class="tb-sep"></span>'
+      + `<button type="button" class="sig-img" title="${escAttr(I18n.t('Insert image'))}" tabindex="-1">🖼</button>`
+      + `<button type="button" class="sig-source" title="${escAttr(I18n.t('View HTML source'))}" tabindex="-1">&lt;/&gt;</button>`;
+    return `<div class="sig-editor">
+      <div class="editor-toolbar sig-toolbar"><div class="tb-scroll">${Compose.richToolbarHtml({ extras })}</div></div>
+      <div class="sig-rich" id="${key}-rich" contenteditable="true" data-no-i18n>${html}</div>
+      <textarea class="sig-src" id="${key}-src" hidden>${esc(html)}</textarea>
+      <input type="file" class="sig-img-input" accept="image/*" hidden>
+      <input type="hidden" id="${key}" value="${escAttr(html)}">
+    </div>`;
+  }
+
+  /** An identity's signatures, always an array — the server normalises this on
+   *  every read (store.js#normalizeIdentities), so this only covers an identity
+   *  that reached the draft some other way. */
+  const sigsOf = (id) => (Array.isArray(id.signatures) ? id.signatures : []);
 
   /** Collapsed by default (name/e-mail/reply-to/default-radio only) — expand
    * reveals organization, send-via-account, signature-used, and the
@@ -1420,13 +1454,21 @@ const Settings = (() => {
         <div><label>Signature used</label><br>${sel(`id-sigon-${i}`, [['new', 'On new messages'], ['new-reply', 'On new & replies'], ['always', 'Every time'], ['never', 'Never']], id.signatureOn || 'new-reply')}</div>
         <div><label>&nbsp;</label><br><label class="mini-toggle">${chk(`id-sigdelim-${i}`, id.signatureDelimiter !== false)} ${I18n.t('Include "-- " delimiter')}</label></div>
       </div>
-      <div><label>Signature</label>${signatureEditor(id, i)}</div>` : ''}
+      <div>
+        <label>${I18n.t('Signatures')}</label>
+        ${sigsOf(id).map((sg, j) => signatureEditor(sg, i, j, sg.id === id.defaultSignatureId)).join('')}
+        ${!sigsOf(id).length ? `<p class="set-hint" style="grid-column:auto">${esc(I18n.t('No signature yet.'))}</p>` : ''}
+        <button type="button" class="link-btn sig-add" data-i="${i}">+ ${esc(I18n.t('Add signature'))}</button>
+        ${sigsOf(id).length > 1 ? `<div class="set-hint">${esc(I18n.t('Pick which one a message uses from the ⋯ menu in the composer.'))}</div>` : ''}
+      </div>` : ''}
     </div>`;
   }
 
   /** Wires toolbar buttons for every signature editor currently in the DOM —
    * called after renderIdentities() sets body().innerHTML. Reuses the same
    * document.execCommand pattern as the compose editor (see compose.js). */
+  /** Wires every rich editor currently in the DOM — signatures and templates
+   *  both. Called after the tab's innerHTML is set. */
   function wireSignatureEditors() {
     body().querySelectorAll('.sig-editor').forEach((wrap) => {
       const rich = wrap.querySelector('.sig-rich');
@@ -1436,24 +1478,13 @@ const Settings = (() => {
       let savedRange = null;
 
       const syncHidden = () => { hidden.value = rich.hidden ? src.value : rich.innerHTML; };
-      rich.addEventListener('input', syncHidden);
       src.addEventListener('input', syncHidden);
 
-      wrap.querySelectorAll('button[data-cmd]').forEach((b) => {
-        b.addEventListener('mousedown', (e) => e.preventDefault()); // keep selection in `rich`
-        b.addEventListener('click', async () => {
-          rich.focus();
-          if (b.dataset.cmd === 'createLink') {
-            const sel = window.getSelection();
-            const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
-            const url = await Dialog.prompt(I18n.t('Insert link'), { label: I18n.t('Link URL (https://…):'), placeholder: 'https://' });
-            if (url && range) { sel.removeAllRanges(); sel.addRange(range); document.execCommand('createLink', false, url); }
-          } else {
-            document.execCommand(b.dataset.cmd, false, null);
-          }
-          syncHidden();
-        });
-      });
+      // The toolbar's own buttons, the four pickers, the ⋯ menu, the
+      // saved-selection handling and the pressed-state sync all come from the
+      // composer's engine — see Compose.wireRichEditor. `menu: 'basic'` drops
+      // the two entries that only mean something inside a real message.
+      Compose.wireRichEditor(wrap.querySelector('.editor-toolbar'), rich, { onChange: syncHidden, menu: 'basic' });
 
       wrap.querySelector('.sig-img').addEventListener('mousedown', () => {
         const sel = window.getSelection();
@@ -1532,12 +1563,12 @@ const Settings = (() => {
     document.getElementById('id-back-to-accounts').addEventListener('click', () => switchTab('accounts'));
     document.getElementById('id-add').addEventListener('click', () => {
       collectIdentities();
-      identities.push({ id: uid(), name: '', email: '', organization: '', replyTo: '', signature: '', signatureOn: 'new-reply', signatureDelimiter: true, accountId: allAccounts()[0]?.id, default: identities.length === 0 });
+      identities.push({ id: uid(), name: '', email: '', organization: '', replyTo: '', signatures: [], defaultSignatureId: null, signatureOn: 'new-reply', signatureDelimiter: true, accountId: allAccounts()[0]?.id, default: identities.length === 0 });
       renderIdentities();
     });
     body().querySelectorAll('.id-add-alias').forEach((b) => b.addEventListener('click', () => {
       collectIdentities();
-      identities.push({ id: uid(), name: '', email: '', organization: '', replyTo: '', signature: '', signatureOn: 'new-reply', signatureDelimiter: true, accountId: b.dataset.acct, default: identities.length === 0 });
+      identities.push({ id: uid(), name: '', email: '', organization: '', replyTo: '', signatures: [], defaultSignatureId: null, signatureOn: 'new-reply', signatureDelimiter: true, accountId: b.dataset.acct, default: identities.length === 0 });
       renderIdentities();
     }));
     body().querySelectorAll('[data-del-id]').forEach((b) => b.addEventListener('click', async () => {
@@ -1552,6 +1583,34 @@ const Settings = (() => {
       expandedIdentities.has(i) ? expandedIdentities.delete(i) : expandedIdentities.add(i);
       renderIdentities();
     }));
+
+    // Both of these re-render the whole tab, so both collect first or every
+    // in-progress edit in a sibling card is lost — the same contract every
+    // other list on this tab keeps (see the Groups card, the saved searches).
+    body().querySelectorAll('.sig-add').forEach((b) => b.addEventListener('click', () => {
+      collectIdentities();
+      const id = identities[+b.dataset.i];
+      const list = sigsOf(id);
+      // Named for its position rather than left blank: an unnamed signature is
+      // an unlabelled row in the composer's picker, and the server would name
+      // it anyway on save.
+      id.signatures = [...list, { id: uid(), name: `${I18n.t('Signature')} ${list.length + 1}`, html: '' }];
+      // The first one an identity has is its default; after that, adding one
+      // must not silently move the default off the signature already in use.
+      if (!id.defaultSignatureId) id.defaultSignatureId = id.signatures[0].id;
+      renderIdentities();
+    }));
+    body().querySelectorAll('.sig-del').forEach((b) => b.addEventListener('click', async () => {
+      const id = identities[+b.dataset.i];
+      const sig = sigsOf(id)[+b.dataset.j];
+      if (!await Dialog.confirm(
+        `${I18n.t('Remove this signature?')} "${sig?.name || ''}"`,
+        { title: I18n.t('Remove'), okLabel: I18n.t('Remove'), danger: true })) return;
+      collectIdentities();
+      identities[+b.dataset.i].signatures = sigsOf(identities[+b.dataset.i]).filter((_, j) => j !== +b.dataset.j);
+      renderIdentities();
+    }));
+
     wireSignatureEditors();
   }
 
@@ -1566,7 +1625,7 @@ const Settings = (() => {
         // collapsed they're simply not in the DOM, so keep whatever was
         // already stored instead of overwriting with nothing.
         organization: g('org')?.value ?? id.organization,
-        signature: g('sig')?.value ?? id.signature,
+        ...collectSignatures(id, i),
         signatureOn: g('sigon')?.value ?? id.signatureOn,
         signatureDelimiter: g('sigdelim') ? g('sigdelim').checked : (id.signatureDelimiter ?? true),
         accountId: g('acct') ? g('acct').value : id.accountId,
@@ -1574,6 +1633,32 @@ const Settings = (() => {
       };
     });
     if (identities.length && !identities.some((x) => x.default)) identities[0].default = true;
+  }
+
+  /** The signature half of one identity, read back out of the DOM.
+   *
+   * Returns nothing at all when the card is collapsed — its signature editors
+   * are then not in the document, and spreading `{signatures: []}` over the
+   * identity would delete every one of them for the crime of not being on
+   * screen. Same reasoning as the `?? id.organization` fallbacks above, which
+   * is why this sits with them. */
+  function collectSignatures(id, i) {
+    const blocks = [...body().querySelectorAll(`.sig-block[data-i="${i}"]`)];
+    if (!blocks.length) return {};
+    const existing = sigsOf(id);
+    let defaultSignatureId = null;
+    const signatures = blocks.map((b, j) => {
+      const sig = {
+        id: existing[j]?.id || uid(),
+        name: document.getElementById(`id-signame-${i}-${j}`)?.value || '',
+        html: document.getElementById(`id-sig-${i}-${j}`)?.value || '',
+      };
+      if (document.getElementById(`id-sigdef-${i}-${j}`)?.checked) defaultSignatureId = sig.id;
+      return sig;
+    });
+    // The server repairs a dangling default anyway (normalizeIdentities), but
+    // sending the one the radio actually shows keeps the round trip honest.
+    return { signatures, defaultSignatureId: defaultSignatureId || signatures[0]?.id || null };
   }
 
   /* ---------- filters ---------- */
@@ -2432,22 +2517,24 @@ const Settings = (() => {
   }
 
   /* ---------- templates ----------
-   * Reusable pieces of message. Edited as rich text, because that is what gets
-   * inserted — a template with a link or a bulleted list is the common case,
-   * and a plain-text box here would quietly throw that away.
+   * Reusable pieces of message. Edited with the composer's own toolbar (see
+   * richEditor) — a template is going INTO a message, so the options for
+   * writing one are the options for writing the other. It was a bare
+   * contenteditable with no toolbar at all, which meant a template could hold
+   * formatting nobody could produce here.
    */
   function renderTemplates() {
     body().innerHTML = `<div class="card-list">
-      ${templates.map((t) => `<div class="card" data-tpl="${escAttr(t.id)}">
+      ${templates.map((t, i) => `<div class="card" data-tpl="${escAttr(t.id)}">
         <div class="row">
           <input class="tpl-name" value="${escAttr(t.name)}" placeholder="${escAttr(I18n.t('Name'))}" style="flex:1" aria-label="${escAttr(I18n.t('Name'))}">
           <button class="btn-sm danger tpl-del">${I18n.t('Remove')}</button>
         </div>
-        <div class="tpl-body sig-rich" contenteditable="true" data-no-i18n>${t.html || ''}</div>
+        ${richEditor(`tpl-body-${i}`, t.html || '')}
       </div>`).join('')}
       </div>
       <p><button class="link-btn" id="tpl-add">+ ${I18n.t('Add template')}</button></p>
-      <p class="set-hint">${I18n.t('Insert one while writing with the 📋 button in the composer toolbar. Templates are yours alone — they are not shared with anyone you share a mailbox with.')}</p>`;
+      <p class="set-hint">${I18n.t('Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with.')}</p>`;
 
     document.getElementById('tpl-add').addEventListener('click', () => {
       collectTemplates();
@@ -2457,6 +2544,7 @@ const Settings = (() => {
       // find it is a step nobody wants.
       body().querySelector('[data-tpl]:last-of-type .tpl-name')?.focus();
     });
+    wireSignatureEditors();
     for (const b of body().querySelectorAll('.tpl-del')) {
       b.addEventListener('click', async () => {
         collectTemplates();
@@ -2477,7 +2565,10 @@ const Settings = (() => {
       const t = templates.find((x) => x.id === card.dataset.tpl);
       if (!t) continue;
       t.name = card.querySelector('.tpl-name').value;
-      t.html = card.querySelector('.tpl-body').innerHTML;
+      // The hidden input, not the contenteditable: richEditor's source view
+      // swaps which of the two is showing, and the hidden one is the field that
+      // is kept in step with whichever it is (see wireSignatureEditors).
+      t.html = card.querySelector('.sig-editor input[type="hidden"]')?.value ?? t.html;
     }
   }
 

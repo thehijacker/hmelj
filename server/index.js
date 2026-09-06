@@ -1449,7 +1449,7 @@ app.get('/api/identities', (req, res) => {
   if (!accts.length) {
     // Brand-new user, zero mail accounts yet — no account e-mail to default to.
     if (!ids.length) {
-      ids = [{ id: 'default', name: '', email: '', organization: '', replyTo: '', signature: '', signatureOn: 'new-reply', default: true }];
+      ids = [{ id: 'default', name: '', email: '', organization: '', replyTo: '', signatures: [], defaultSignatureId: null, signatureOn: 'new-reply', default: true }];
       store.saveIdentities(ids);
     }
   } else {
@@ -1459,7 +1459,7 @@ app.get('/api/identities', (req, res) => {
     let changed = false;
     for (const a of accts) {
       if (!ids.some((i) => i.accountId === a.id)) {
-        ids.push({ id: a.id, name: '', email: a.email, organization: '', replyTo: '', signature: '', signatureOn: 'new-reply', accountId: a.id, default: !ids.some((i) => i.default) });
+        ids.push({ id: a.id, name: '', email: a.email, organization: '', replyTo: '', signatures: [], defaultSignatureId: null, signatureOn: 'new-reply', accountId: a.id, default: !ids.some((i) => i.default) });
         changed = true;
       }
     }

@@ -42,6 +42,8 @@ Mailbox passwords are encrypted at rest with AES-256-GCM. Nothing phones home.
 | ![Calendar](docs/screenshots/calendar-month.png) | ![Shortcuts](docs/screenshots/shortcuts.png) | ![Snooze](docs/screenshots/snooze.png) |
 | **Contact groups** | **A group in the composer** | **Saved-search counts** |
 | ![Contact groups](docs/screenshots/contact-groups.png) | ![A group in the composer](docs/screenshots/compose-group.png) | ![Saved-search counts](docs/screenshots/saved-search-unread.png) |
+| **Formatting** | **Signatures** | |
+| ![Formatting](docs/screenshots/compose-toolbar.png) | ![Signatures](docs/screenshots/signatures.png) | |
 
 > Every screenshot above is a blank placeholder for now — see
 > [`docs/screenshots/README.md`](docs/screenshots/README.md) for what each one should show.
@@ -96,6 +98,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Conversation view** — a message and its replies as one row, opened as a stack
 - **Reading pane** right, bottom, in a new window, or list-only
 - **Sandboxed rendering** — HTML sanitised server-side, drawn in an isolated iframe, scripts never run
+- **Readable in the dark theme** — mail that hard-codes black text on white is repaired by measuring each piece of text against what it actually sits on, and repainting only what genuinely fails
 - **External-image policy** — always, trusted domains only, ask per message, or never; CSS `url()` follows the same rule, so a tracker cannot hide in a background
 - **Collapsed quotes** — the reply you were sent, with the thread beneath it behind a ⋯
 - **One-click unsubscribe** — RFC 8058 POST, `mailto:`, or the sender's page, with a footer-link fallback
@@ -107,13 +110,14 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Print · View headers · Save as EML · Open in a new view**
 
 ### Composing
-- **Rich HTML or plain text**, multiple **identities** each with its own signature and policy
+- **Rich HTML or plain text**, multiple **identities**, and **several signatures per identity** — pick which one a message uses while writing it
+- **Formatting** — font, size, text and highlight colour, bold/italic/underline/strikethrough, lists, links, quote, code block, indent, alignment, a horizontal rule, and an **emoji picker** that remembers what you use. The buttons light up for the formatting the cursor is inside
 - **Scheduled sending** — queued on the server, retried with backoff, reschedulable
 - **Undo send** — a window you choose (10 seconds by default). The wait is on the server, so closing the tab right after Send still honours it
-- **Templates** — reusable snippets, inserted at the caret, above your signature
+- **Templates** — reusable snippets, inserted at the caret, above your signature, written with the composer's own formatting toolbar
 - **Before it goes out** — "you said it was attached, and nothing is", and "you replied to one of nine". Both read English and Slovenian, including forms typed without šumniki, and both read only your own text — never the quoted original
 - **Attachments** by button, by drag-and-drop, or by pasting — a screenshot pasted into the body goes inline, sent as a real embedded part rather than a `data:` URL that most webmail would strip
-- **Draft autosave**, Cc/Bcc, priority, read-receipt request
+- **Draft autosave**, Cc/Bcc, priority, read-receipt request. The composer also remembers whether you keep it enlarged
 - **Spell checking** as you type — Slovenian and English, detected automatically
 - **Contact autocomplete**, learned from the mail you actually send
 

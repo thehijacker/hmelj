@@ -250,6 +250,69 @@ export function normalizeSavedSearches(list) {
     }));
 }
 
+/** How many sign-offs one identity may keep. A picker, not a filing cabinet:
+ *  past a handful this is a menu nobody can find anything in. */
+const MAX_SIGNATURES = 20;
+
+/**
+ * Shapes the SIGNATURE half of an identity list, and nothing else.
+ *
+ * An identity used to carry one `signature` string. It now carries
+ * `signatures: [{id, name, html}]` plus a `defaultSignatureId`, so one address
+ * can have a work sign-off and a short one and the composer can offer both.
+ * This is where the old shape becomes the new one — on the way in AND on the
+ * way out (see GET /api/identities), so the migration happens exactly once per
+ * user and neither client has to know two shapes.
+ *
+ * ── What it deliberately does NOT do ─────────────────────────────────────────
+ * Touch any other field. Unlike normalizeSavedSearches or normalizeContactGroups,
+ * which own their whole record, this one stands between the user and their
+ * entire identity list — name, address, reply-to, which account sends, which
+ * one is the default. It is not the authority on any of that, so everything
+ * else is spread through untouched and a field added later needs no change here.
+ *
+ * ── Why an empty signature migrates to NO signatures ─────────────────────────
+ * Every identity the server has ever seeded carries `signature: ''`
+ * (index.js#GET /api/identities). Turning each of those into an entry would
+ * give every user a picker full of blank sign-offs on first load. An identity
+ * with nothing to say has no signatures, which is exactly how it behaves today.
+ */
+export function normalizeIdentities(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((id) => id && typeof id === 'object')
+    .map((id) => {
+      const raw = Array.isArray(id.signatures) ? id.signatures : null;
+      let signatures = (raw || [])
+        // A signature with no content is a menu entry that inserts nothing.
+        // Named-but-empty counts as empty: the name is a label for the text,
+        // not a thing in its own right.
+        .filter((s) => s && String(s.html || '').trim())
+        .slice(0, MAX_SIGNATURES)
+        .map((s, i) => ({
+          id: String(s.id || crypto.randomUUID()),
+          // Trimmed before the fallback, for the reason normalizeSavedSearches
+          // spells out: "   " is truthy and would leave an unlabelled row.
+          name: String(s.name || '').trim().slice(0, 60) || `Signature ${i + 1}`,
+          html: String(s.html || '').slice(0, 100_000),
+        }));
+      // The legacy single string, migrated — only when there is no new-shape
+      // list at all. Once `signatures` exists it is the truth, and an old
+      // `signature` field left over beside it is ignored rather than re-added.
+      if (!raw && String(id.signature || '').trim()) {
+        signatures = [{ id: crypto.randomUUID(), name: 'Signature', html: String(id.signature).slice(0, 100_000) }];
+      }
+      const byId = new Set(signatures.map((s) => s.id));
+      return {
+        ...id,
+        signatures,
+        // Repaired rather than trusted: an id pointing at a signature that has
+        // since been deleted would make the composer fall back silently and
+        // differently every time. No signatures means no default.
+        defaultSignatureId: byId.has(id.defaultSignatureId) ? id.defaultSignatureId : (signatures[0]?.id ?? null),
+      };
+    });
+}
+
 export const store = {
   getSettings: () => ({ ...DEFAULT_SETTINGS, ...load('settings', {}) }),
   /**
@@ -281,14 +344,22 @@ export const store = {
     return next;
   },
 
-  getIdentities: () => load('identities', []),
-  saveIdentities(list) { save('identities', list); return list; },
+  getIdentities: () => normalizeIdentities(load('identities', [])),
+  saveIdentities(list) {
+    const clean = normalizeIdentities(list);
+    save('identities', clean);
+    return clean;
+  },
   // Explicit-userKey pair — accounts.js needs to drop a GRANTEE's own
   // identities for a mail account when the OWNER revokes their access
   // (unshareAccount), which runs in the owner's own ALS context, not the
   // grantee's — same reasoning as getPushSubscriptionsFor below.
-  getIdentitiesFor: (uKey) => loadFor(uKey, 'identities', []),
-  saveIdentitiesFor(uKey, list) { saveFor(uKey, 'identities', list); return list; },
+  getIdentitiesFor: (uKey) => normalizeIdentities(loadFor(uKey, 'identities', [])),
+  saveIdentitiesFor(uKey, list) {
+    const clean = normalizeIdentities(list);
+    saveFor(uKey, 'identities', clean);
+    return clean;
+  },
 
   getContacts: () => load('contacts', []),
   saveContacts(list) { save('contacts', list); return list; },

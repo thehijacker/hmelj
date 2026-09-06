@@ -14,6 +14,8 @@ the documentation site scales them, and these are just what the placeholders are
 | `reading.png` | A message open in the reading pane, header chips and attachments visible |
 | `conversation.png` | Conversation view: newest message expanded, older ones collapsed above it |
 | `compose.png` | The floating composer with the formatting toolbar open |
+| `compose-toolbar.png` | The composer with a picker open — the colour swatches or the emoji grid — over a part-written message |
+| `signatures.png` | Settings › Identities, one identity expanded with two named signatures and one marked Default |
 | `search.png` | Search results, with the scope selector visible |
 | `attachments.png` | The attachment preview overlay showing an image or PDF |
 | `analytics.png` | Mailbox analytics — the Overview tab |

@@ -1105,11 +1105,100 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    (and the whole compose window) overflowing on narrow screens. */
 .compose-row input, .compose-row select { flex: 1; min-width: 0; border: none; background: transparent; }
 .compose-row input:focus { outline: none; }
-.editor-toolbar { display: flex; align-items: center; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.editor-toolbar { display: flex; align-items: center; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+/* The ACTIONS. Scrolls sideways rather than wrapping (see the mobile query
+   below) — the language chip and the Plain toggle stay outside it because they
+   are state, not actions, and something you read must not scroll out of sight.
+   min-width:0 so the flex item may actually shrink and therefore scroll. */
+.editor-toolbar .tb-scroll { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0; flex-wrap: wrap; }
 .editor-toolbar button { padding: 4px 8px; border-radius: 4px; min-width: 30px; }
-.editor-toolbar button:hover { background: var(--hover); }
+.editor-toolbar button:hover:not(:disabled) { background: var(--hover); }
+.editor-toolbar button:disabled { opacity: .4; }
+/* Lit while the caret is inside that formatting (compose.js#syncToolbarState).
+   Without it the bar is write-only: you can switch italic on, but nothing ever
+   says whether the word you are standing in IS italic, so the only way to find
+   out is to press the button and watch what happens. */
+.editor-toolbar button.active { background: var(--accent-soft); color: var(--accent); }
+.editor-toolbar button.active:hover:not(:disabled) { background: var(--accent-soft); }
 .editor-toolbar select { font-size: calc(12px * var(--ui-scale)); padding: 3px 4px; }
-.compose-editor { min-height: 200px; padding: 10px 2px; outline: none; overflow-y: auto; }
+.editor-toolbar .tb-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); flex: 0 0 auto; }
+/* The ▾ on a button that opens a picker: present so the button reads as a
+   dropdown rather than a toggle, small enough not to compete with its label. */
+.tb-caret { font-size: .7em; opacity: .6; margin-left: 1px; }
+/* The colour button's A sits over a bar of the last colour used, the way every
+   other mail client draws it. */
+.tb-color-a { border-bottom: 3px solid var(--tb-fore, currentColor); line-height: 1.1; padding-bottom: 1px; }
+
+/* ---------- the composer's picker panels ----------
+   openCtxMenu (app.js) draws the ⋯ menu, which is a list of named commands.
+   These are the ones that need a grid — fonts in their own faces, swatches,
+   emoji. Same z-index band and the same safe-area max-height as .ctx-menu, for
+   the same reason: a landscape phone is ~360px tall. */
+.compose-popover {
+  position: fixed; z-index: 250; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 6px;
+  max-width: calc(100vw - var(--sal) - var(--sar) - 16px);
+  max-height: calc(100vh - var(--sat) - var(--sab) - 16px);
+  max-height: calc(100lvh - var(--sat) - var(--sab) - 16px);
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.compose-popover .pop-list { min-width: 170px; }
+.compose-popover .pop-row {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+  padding: 7px 10px; border-radius: 5px; color: var(--text); white-space: nowrap;
+}
+.compose-popover .pop-row:hover { background: var(--hover); }
+.compose-popover .pop-tick { width: 1em; flex: 0 0 auto; color: var(--accent, #0b57d0); }
+.compose-popover .pop-section + .pop-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.compose-popover .pop-label {
+  padding: 2px 4px 6px; color: var(--text-dim); font-size: calc(11px * var(--ui-scale));
+  font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+}
+.compose-popover .pop-clear { justify-content: center; margin-top: 6px; font-size: calc(13px * var(--ui-scale)); }
+/* 10 per row for text, 5 for highlights — the highlight set is a quarter the
+   size and a 10-wide grid of 20 would leave a ragged half-row. */
+.pop-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.pop-grid-hilite { grid-template-columns: repeat(5, 1fr); }
+.pop-swatch {
+  width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--border); padding: 0;
+}
+.pop-swatch:hover { outline: 2px solid var(--accent, #0b57d0); outline-offset: 1px; }
+
+/* Emoji. The tab strip scrolls sideways for the same reason the toolbar does. */
+.emoji-tabs {
+  display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
+}
+.emoji-tabs::-webkit-scrollbar { display: none; }
+.emoji-tab {
+  padding: 4px 8px; border-radius: 5px; white-space: nowrap; color: var(--text-dim);
+  font-size: calc(12px * var(--ui-scale));
+}
+.emoji-tab.active { background: var(--hover); color: var(--text); font-weight: 600; }
+.emoji-body { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; width: min(320px, 78vw); }
+.emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.emoji-cell { font-size: 20px; line-height: 1; padding: 4px 0; border-radius: 5px; }
+.emoji-cell:hover { background: var(--hover); }
+/* font-weight: 400, explicitly, and NOT inherited from --ui-weight.
+   Everything in this app inherits the App font weight from `body` — which is
+   right for the interface and wrong here, because this is not interface, it is
+   the message. With the App weight set to 500 or 700 the editor's text was
+   already bold as far as the browser was concerned, so execCommand('bold')
+   read the selection as bold and UNbolded it: the Bold button did the opposite
+   of its label. The recipient never saw any of that weight (it comes from
+   app.css, which does not travel with the mail), so the editor was also
+   showing something the message would not be.
+
+   The font FAMILY is reset for the same reason. The App font is interface
+   chrome and does not travel with the mail, so with a distinctive one set the
+   composer was showing the message in a face the recipient will never see.
+   A neutral system stack is the honest stand-in for "no font-family", which is
+   what the default (system-ui) actually sends. Choosing a real font in the
+   toolbar sets an inline style that wins over this. */
+.compose-editor {
+  min-height: 200px; padding: 10px 2px; outline: none; overflow-y: auto;
+  font-weight: 400; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
 /* Spell checking (public/js/proofread.js). ::highlight() styles live Range
    objects, so nothing is inserted into the editor and nothing reaches the sent
    mail — see that file's header. Only a handful of properties are permitted on
@@ -2089,6 +2178,25 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
     padding-bottom: calc(10px + var(--sab)); /* likewise for the home-indicator strip */
   }
 
+  /* The formatting toolbar scrolls sideways instead of wrapping. Three rows of
+     buttons plus an on-screen keyboard leaves almost no message visible, and on
+     a phone the message is the thing that matters; a swipe to reach the last
+     two buttons is a much smaller cost than two thirds of the writing area.
+     Same pattern the Settings tab strip uses. */
+  .editor-toolbar .tb-scroll {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .editor-toolbar .tb-scroll::-webkit-scrollbar { display: none; }
+  /* Buttons must not be squeezed by the flex container they now overflow. */
+  .editor-toolbar .tb-scroll button { flex: 0 0 auto; min-height: 34px; }
+  /* The spacer would eat the width the scroller needs to overflow into. */
+  .editor-toolbar .spacer { flex: 0 0 4px; }
+  /* A finger is not a mouse pointer. */
+  .compose-popover .pop-swatch { width: 28px; height: 28px; }
+  .compose-popover .pop-row { padding: 9px 10px; }
+  .emoji-cell { font-size: 22px; padding: 6px 0; }
+
   /* Floating Compose button — visible only over the message list itself.
      Safe-area aware (bottom nav gesture bar) via the same --sab variable
      the rest of the app already uses for this. */
@@ -2382,9 +2490,20 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 .color-swatch.selected { border-color: var(--text); }
 .color-picker input[type="color"] { width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%; cursor: pointer; background: none; }
 
+/* One signature of an identity: its name row and its editor. An identity can
+   have several now (Settings > Identities), so they need separating from each
+   other as well as from the fields above them. */
+.sig-block + .sig-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.sig-block .sig-editor { margin-top: 4px; }
 .sig-editor { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .sig-editor .sig-toolbar { padding: 4px 6px; border-bottom: 1px solid var(--border); }
-.sig-rich { min-height: 70px; max-height: 220px; overflow-y: auto; padding: 8px 10px; outline: none; }
+/* Same reset as .compose-editor, and for the same reason: a signature and a
+   template both end up inside a message, so neither should be shown in the
+   interface's own font or weight. */
+.sig-rich {
+  min-height: 70px; max-height: 220px; overflow-y: auto; padding: 8px 10px; outline: none;
+  font-weight: 400; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
 .sig-rich img { max-width: 100%; }
 .sig-src { width: 100%; min-height: 90px; border: none; resize: vertical; background: transparent; font-family: ui-monospace, monospace; font-size: calc(12px * var(--ui-scale)); padding: 8px 10px; box-sizing: border-box; }
 
