@@ -1313,7 +1313,22 @@
     "No signature yet.": "No signature yet.",
     "Used unless you pick another while writing": "Used unless you pick another while writing",
     "Pick which one a message uses from the ⋯ menu in the composer.": "Pick which one a message uses from the ⋯ menu in the composer.",
-    "Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with.": "Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with."
+    "Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with.": "Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with.",
+    "Could not load the preview library": "Could not load the preview library",
+    "Preparing the preview…": "Preparing the preview…",
+    "This sheet is empty": "This sheet is empty",
+    "This workbook has no sheets": "This workbook has no sheets",
+    "Large sheet — showing {what}.": "Large sheet — showing {what}.",
+    "the first {n} rows of {total}": "the first {n} rows of {total}",
+    "the first {n} columns of {total}": "the first {n} columns of {total}",
+    " and ": " and ",
+    "Word 97–2003 document — shown as text, without its formatting.": "Word 97–2003 document — shown as text, without its formatting.",
+    "It is long, so only the first part is shown.": "It is long, so only the first part is shown.",
+    "No text could be read from this document — it may be all images. Download it to open it in Word.": "No text could be read from this document — it may be all images. Download it to open it in Word.",
+    "Zoom in": "Zoom in",
+    "Zoom out": "Zoom out",
+    "Reset zoom": "Reset zoom",
+    "Open with another app": "Open with another app"
   },
   "prefixes": [
     [

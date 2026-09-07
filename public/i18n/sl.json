@@ -1313,7 +1313,22 @@
     "No signature yet.": "Podpisa še ni.",
     "Used unless you pick another while writing": "Uporabljen, razen če med pisanjem izberete drugega",
     "Pick which one a message uses from the ⋯ menu in the composer.": "Katerega uporabi posamezno sporočilo, izberete v meniju ⋯ v urejevalniku.",
-    "Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with.": "Vstavite jo med pisanjem prek menija ⋯ v urejevalniku. Predloge so samo vaše — z nikomer, s komer delite nabiralnik, niso deljene."
+    "Insert one while writing from the composer’s ⋯ menu. Templates are yours alone — they are not shared with anyone you share a mailbox with.": "Vstavite jo med pisanjem prek menija ⋯ v urejevalniku. Predloge so samo vaše — z nikomer, s komer delite nabiralnik, niso deljene.",
+    "Could not load the preview library": "Predogleda ni bilo mogoče naložiti",
+    "Preparing the preview…": "Pripravljam predogled…",
+    "This sheet is empty": "Ta list je prazen",
+    "This workbook has no sheets": "Ta delovni zvezek nima listov",
+    "Large sheet — showing {what}.": "Velik list — prikazujem {what}.",
+    "the first {n} rows of {total}": "prvih {n} vrstic od {total}",
+    "the first {n} columns of {total}": "prvih {n} stolpcev od {total}",
+    " and ": " in ",
+    "Word 97–2003 document — shown as text, without its formatting.": "Dokument Word 97–2003 — prikazan kot besedilo, brez oblikovanja.",
+    "It is long, so only the first part is shown.": "Dolg je, zato je prikazan samo prvi del.",
+    "No text could be read from this document — it may be all images. Download it to open it in Word.": "Iz tega dokumenta ni bilo mogoče prebrati besedila — morda je v celoti slikovni. Prenesite ga in odprite v Wordu.",
+    "Zoom in": "Povečaj",
+    "Zoom out": "Pomanjšaj",
+    "Reset zoom": "Ponastavi povečavo",
+    "Open with another app": "Odpri z drugo aplikacijo"
   },
   "prefixes": [
     [

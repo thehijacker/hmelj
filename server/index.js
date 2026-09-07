@@ -3685,6 +3685,75 @@ app.get('/api/message/:folder/:uid/attachment/:index', wrap(async (req, res) => 
 }));
 
 /**
+ * The text of a legacy .doc, for the attachment viewer's preview.
+ *
+ * A Word 97-2003 file is an OLE compound document, not a zip of XML, so
+ * nothing in the browser can render one the way docx-preview renders a .docx.
+ * The honest choices are a text extraction or LibreOffice — half a gigabyte in
+ * the image and a process per conversion — and for looking at what an
+ * attachment says, the text is the useful nine tenths of it. The viewer labels
+ * it as text-only rather than letting it pass for the document (see
+ * loadDocText in public/js/attachmentViewer.js).
+ *
+ * Same key and same cache as the bytes route above, so previewing a .doc that
+ * was already opened, downloaded or zipped costs nothing on the mail server.
+ */
+let WordExtractor = null;              // imported on the first .doc, never at boot
+const DOC_TEXT_MAX = 2 * 1024 * 1024;  // ~a novel; past this nobody is reading it in a preview
+
+app.get('/api/message/:folder/:uid/attachment/:index/text', wrap(async (req, res) => {
+  const folder = decodeURIComponent(req.params.folder);
+  const uid = decodeURIComponent(req.params.uid);
+  const index = parseInt(req.params.index, 10);
+  const { userKey: uKey, accountId } = currentUser();
+  const key = attachmentKey(uKey, accountId, folder, uid, index);
+  const a = await cachedAttachment(key, () => imap.getAttachment(folder, uid, index));
+
+  // Only this one format. Everything else the viewer previews it does itself,
+  // in the browser, and this route is not a general-purpose text extractor.
+  const type = String(a.contentType || '').split(';')[0].trim().toLowerCase();
+  if (type !== 'application/msword' && !/\.doc$/i.test(a.filename || '')) {
+    return res.status(400).json({ error: 'That attachment is not a Word 97-2003 document' });
+  }
+
+  if (!WordExtractor) {
+    try {
+      ({ default: WordExtractor } = await import('word-extractor'));
+    } catch {
+      // A server updated by pulling the code without running npm install. The
+      // viewer shows this sentence over its Download button, which is a far
+      // better answer than a 500 nobody can act on.
+      return res.status(503).json({ error: 'This server cannot read .doc files yet — it needs npm install' });
+    }
+  }
+
+  const buf = Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content || '');
+  let doc;
+  try {
+    doc = await new WordExtractor().extract(buf);
+  } catch (e) {
+    // A truncated or not-really-Word file. 422, not 500: nothing is broken
+    // here, the document is.
+    log.warn(`.doc text extraction failed for ${a.filename || index}: ${e.message}`);
+    return res.status(422).json({ error: 'This .doc file could not be read' });
+  }
+
+  // \r-only line breaks are what Word actually writes; left alone they render
+  // as one endless paragraph. The NUL and the field markers are Word's own
+  // in-band control characters, not text anybody put there.
+  let text = String(doc.getBody() || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .trimEnd();
+  const truncated = text.length > DOC_TEXT_MAX;
+  if (truncated) text = text.slice(0, DOC_TEXT_MAX);
+
+  // Same reasoning as the bytes route: for a given part this cannot change.
+  res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+  res.json({ text, truncated });
+}));
+
+/**
  * Every attachment on one message, as a single .zip.
  *
  * Zipped on the server rather than in the browser because the parts are only

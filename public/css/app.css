@@ -1717,6 +1717,44 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 .attach-viewer-img:active { cursor: grabbing; }
 .attach-viewer-video { max-width: 92vw; max-height: 86vh; }
 .attach-viewer-pdf { width: 92vw; height: 86vh; border: 0; background: #fff; border-radius: 4px; }
+
+/* Word and Excel previews (see the Office section of attachmentViewer.js).
+   Same box as the PDF above — the shell is a column so a workbook's sheet tabs
+   can sit above the document rather than floating over it. */
+.attach-viewer-doc-shell {
+  width: 92vw; height: 86vh; display: flex; flex-direction: column;
+  border-radius: 4px; overflow: hidden; background: #fff;
+}
+/* The frame is scaled by the zoom buttons and sized to compensate, so the
+   overflow it can produce at scale > 1 is clipped here rather than escaping
+   over the backdrop. */
+.attach-viewer-doc-wrap { flex: 1; min-height: 0; overflow: hidden; }
+.attach-viewer-doc {
+  width: 100%; height: 100%; border: 0; background: #fff;
+  transform-origin: top left;
+}
+.attach-viewer-sheet-tabs {
+  flex: 0 0 auto; display: flex; gap: 2px; padding: 4px 6px 0;
+  background: #f1f3f4; overflow-x: auto; scrollbar-width: thin;
+}
+.attach-viewer-sheet-tab {
+  flex: 0 0 auto; border: 0; border-radius: 4px 4px 0 0; cursor: pointer;
+  padding: 5px 12px; background: transparent; color: #3c4043;
+  font-size: calc(12px * var(--ui-scale)); font-family: inherit;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.attach-viewer-sheet-tab:hover { background: rgba(0,0,0,.06); }
+.attach-viewer-sheet-tab.is-active { background: #fff; color: #1a73e8; font-weight: 500; }
+.attach-viewer-zoom { display: flex; align-items: center; gap: 2px; }
+/* A button, because it resets the zoom — and tabular-nums so stepping through
+   90% / 100% / 110% doesn't shuffle the buttons either side of it. */
+.attach-viewer-zoom-level {
+  border: 0; background: transparent; color: #fff; cursor: pointer;
+  font: inherit; font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums;
+  min-width: 4ch; padding: 4px 2px; border-radius: 4px;
+}
+.attach-viewer-zoom-level:hover { background: rgba(255,255,255,.15); }
+
 .attach-viewer-fallback { color: #fff; text-align: center; }
 .attach-viewer-fallback-icon { font-size: calc(48px * var(--ui-scale)); margin-bottom: 10px; }
 

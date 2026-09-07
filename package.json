@@ -56,7 +56,8 @@
     "nodemailer": "^9.0.3",
     "nspell": "^2.1.5",
     "sanitize-html": "^2.17.6",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "word-extractor": "^1.0.4"
   },
   "devDependencies": {
     "hoodiecrow-imap": "^2.1.0",

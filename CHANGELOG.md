@@ -9,6 +9,39 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Word and Excel attachments can be read without leaving Hmelj
+A `.docx` invoice or an `.xlsx` price list used to be the one common attachment the viewer
+could say nothing about: a paperclip, a filename, and a download you then had to open
+somewhere else. Both open in the preview overlay now, from the same bytes the progress bar
+already fetched.
+
+A **Word** document is rendered with its own page layout — margins, fonts, tables, embedded
+images, headers and footers — rather than flattened into plain HTML. A **spreadsheet**
+(`.xlsx`, `.xlsm`, `.xlsb`, `.xls`, `.csv`, `.ods`) opens as a scrollable grid with a tab per
+sheet, row numbers and column letters that stay put while you scroll, and every value
+formatted the way Excel formats it — 1.234,50 €, not 1234.5. Both have zoom buttons in the
+top bar. A very large sheet is capped at the first few thousand rows and says so, rather
+than locking the tab while it builds a grid nobody was going to scroll to the end of.
+
+Legacy **`.doc`** (Word 97–2003) is shown as text only, with a note saying as much. It is an
+OLE compound document, not a zip of XML, and the alternative to a text extraction is half a
+gigabyte of LibreOffice in the image — a heavy price for a preview. The text is pulled out
+on the server, from the bytes already in the attachment cache. Reading `.doc` needs a new
+dependency, so an existing install wants an `npm install`; without it that one format falls
+back to the download it does today, and nothing else is affected.
+
+Two things about how it is done. The rendering libraries are **served from your own
+instance**, not a CDN: an install reachable only over a LAN still previews, and opening an
+attachment does not become a request to somebody else's server. They are loaded the first
+time such a file is opened and never at startup, and the service worker caches them from
+there, so the second one works offline. And the rendered document goes into the same kind
+of sandboxed frame a message body does — it cannot run scripts, and its styles cannot reach
+the app around it.
+
+On a **phone** these now open in the overlay instead of being handed straight to the
+operating system, which is what a WebView can actually draw. The hand-off is still there,
+as an **Open with…** button in the top bar, for when the real Excel is what you wanted.
+
 ### A forwarded message is no longer hidden behind a ⋯
 The quoted half of a reply is collapsed behind a small ⋯ button, which is right in a
 conversation — everything it hides is on screen above it as its own message — and wrong

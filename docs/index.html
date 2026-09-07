@@ -375,7 +375,8 @@ Stalwart — and then Hmelj can read it.
 <li><strong>External-image policy</strong> — always, trusted domains only, ask per message, or never</li>
 <li><strong>Collapsed quotes</strong> — the reply you were sent, with the thread under it behind a ⋯</li>
 <li><strong>One-click unsubscribe</strong> — RFC 8058 POST, <code>mailto:</code>, or the sender's page</li>
-<li><strong>Attachments</strong> — inline preview for images, PDF, audio and video, with a progress bar</li>
+<li><strong>Attachments</strong> — inline preview for images, PDF, audio and video, with a progress bar,
+  and for Word and Excel documents</li>
 <li><strong>Find in message</strong> (Ctrl/Cmd+F) with live match count</li>
 <li><strong>Sender verification</strong> — the SPF/DKIM/DMARC result your own server recorded, as a quiet chip or a warning</li>
 <li><strong>Calendar invitations</strong> — Accept / Tentative / Decline, with or without a reply</li>
@@ -1648,7 +1649,7 @@ address is read — not always what you want on mail you never asked for.
 <h2 id="read-attach">Attachments</h2>
 <p>
   Attachments appear as chips under the message. Clicking one opens a preview overlay for
-  images, PDFs, audio and video; anything else downloads.
+  images, PDFs, audio, video and Office documents; anything else downloads.
 </p>
 <ul>
 <li>The download shows a <strong>progress bar</strong> with the real byte count, and can be cancelled.</li>
@@ -1658,6 +1659,37 @@ address is read — not always what you want on mail you never asked for.
 <li>From two attachments up, a <strong>Download all</strong> chip appears beside them and hands
   over the lot as a single <code>.zip</code>, named after the message.</li>
 </ul>
+
+<h3>Word and Excel</h3>
+<p>
+  A <code>.docx</code> is rendered with its own page layout — margins, fonts, tables, embedded
+  images, headers and footers — rather than being flattened into plain HTML. A spreadsheet
+  (<code>.xlsx</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.xls</code>,
+  <code>.csv</code>, <code>.ods</code>) opens as a scrollable grid with sticky row numbers and
+  column letters, a tab per sheet, and every value formatted the way Excel formats it. Zoom
+  buttons in the top bar apply to both. Very large sheets are capped at the first few thousand
+  rows, and the preview says so rather than quietly cutting them.
+</p>
+<p>
+  Legacy <code>.doc</code> — the Word 97–2003 binary format — is shown as <strong>text
+  only</strong>, with a note saying so. There is no light way to render one faithfully in a
+  browser, and the alternative is half a gigabyte of LibreOffice in the image for a preview.
+  The text is extracted on the server, from bytes that are already cached.
+</p>
+<p>
+  All of this runs in your browser, from libraries served by your own instance
+  (<code>public/vendor/</code>) rather than a CDN — so an install reachable only over a LAN
+  still previews, and opening an attachment is not a request to somebody else's server. The
+  libraries are fetched the first time you open such a file, never at startup. The rendered
+  document goes into the same kind of sandboxed frame a message body does: it cannot run
+  scripts and cannot restyle the app around it.
+</p>
+<p>
+  On a phone, Word and Excel files now open in the overlay instead of being handed straight to
+  the operating system — with an <strong>Open with…</strong> button in the top bar for when the
+  real app is what you wanted.
+</p>
+
 <p>
   The archive is built on the server, because that is where the parts are — each one is its own
   fetch from the mail server, through the same cache a single download uses, so bundling a

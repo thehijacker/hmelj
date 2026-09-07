@@ -1,9 +1,11 @@
-// Hmelj — full-screen attachment viewer (images/video/PDF) with a top bar
-// (filename, share, download, close), pinch/scroll-to-zoom + drag-to-pan for
-// images, and a mobile-aware fallback: on a phone, anything that isn't an
-// image or a video (PDF very much included) is handed to the operating system
-// — "Open with…" in the Android app, a forced download in a mobile browser —
-// instead of being rendered into a viewer that can't draw it.
+// Hmelj — full-screen attachment viewer (images/video/PDF, Word and Excel)
+// with a top bar (filename, share, download, close), pinch/scroll-to-zoom +
+// drag-to-pan for images, and a mobile-aware fallback: on a phone, anything
+// that isn't an image, a video or an Office document (PDF very much included)
+// is handed to the operating system — "Open with…" in the Android app, a
+// forced download in a mobile browser — instead of being rendered into a
+// viewer that can't draw it. Office documents can be handed over too, but by
+// choice, from a button, because a WebView renders their HTML perfectly well.
 //
 // Getting the bytes is not instant and cannot be made so: the server has to
 // pull the whole message from the mail server to cut one part out of it (see
@@ -22,6 +24,10 @@ const AttachmentViewer = (() => {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   }
   function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+  // esc() leaves a literal " alone — harmless in text, but it closes an
+  // attribute early. Titles below come from translations, so they are not ours
+  // to vouch for.
+  function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
   function t(s) { return (typeof I18n !== 'undefined' && I18n.t) ? I18n.t(s) : s; }
 
   function fmtBytes(n) {
@@ -151,6 +157,7 @@ const AttachmentViewer = (() => {
     if (!overlay) return;
     overlay.remove();
     overlay = null;
+    zoomTarget = null;   // the frame it pointed at just went with the overlay
     document.removeEventListener('keydown', onKeydown);
   }
 
@@ -291,39 +298,388 @@ const AttachmentViewer = (() => {
   }
 
 /** Puts the fetched bytes on screen, by kind. Video is not among them —
-   *  it is played from the live URL and never becomes a Blob (see playVideo). */
-  function render(body, objectUrl, kind, filename) {
+   *  it is played from the live URL and never becomes a Blob (see playVideo).
+   *  `entry` is the blob-cache entry: the object URL for the kinds a browser
+   *  can draw by itself, the Blob itself for the ones a library has to parse. */
+  function render(body, entry, kind, filename, url) {
     body.innerHTML = '';
     if (kind === 'image') {
       const img = document.createElement('img');
-      img.src = objectUrl;
+      img.src = entry.objectUrl;
       img.className = 'attach-viewer-img';
       img.draggable = false;
       body.appendChild(img);
       makeZoomable(img);
     } else if (kind === 'pdf') {
       const embed = document.createElement('embed');
-      embed.src = objectUrl;
+      embed.src = entry.objectUrl;
       embed.type = 'application/pdf';
       embed.className = 'attach-viewer-pdf';
       body.appendChild(embed);
+    } else if (kind === 'docx' || kind === 'sheet') {
+      renderOffice(body, entry.blob, kind, filename, url);
     } else {
       body.innerHTML = `<div class="attach-viewer-fallback"><div class="attach-viewer-fallback-icon">📎</div><p>${esc(filename)}</p></div>`;
     }
   }
 
-  function kindOf(contentType) {
+  /* ---------- what kind of thing is this ----------
+   *
+   * Content-Type alone is not enough for Office files. Plenty of mailers label
+   * a .docx `application/octet-stream` — some label everything that way — so a
+   * type-only test leaves the most common previewable attachment in the
+   * "unknown, offer a download" bucket. The filename is the tie-breaker, and
+   * only ever a tie-breaker: a real type always wins, so a .docx honestly
+   * declared as something else is not overridden by its own extension.
+   */
+  const OFFICE_TYPES = {
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'sheet',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.template': 'sheet',
+    'application/vnd.ms-excel': 'sheet',
+    'application/vnd.ms-excel.sheet.macroenabled.12': 'sheet',
+    'application/vnd.ms-excel.sheet.binary.macroenabled.12': 'sheet',
+    'application/vnd.oasis.opendocument.spreadsheet': 'sheet',
+    'text/csv': 'sheet',
+  };
+  // The spreadsheet family is one XLSX.read() call whatever the extension, so
+  // leaving .xlsm or .ods out would be more code rather than less.
+  const OFFICE_EXTS = {
+    docx: 'docx', doc: 'doc',
+    xlsx: 'sheet', xlsm: 'sheet', xlsb: 'sheet', xls: 'sheet', csv: 'sheet', ods: 'sheet',
+  };
+  /** Types that say "bytes", i.e. that tell us nothing and let the name speak. */
+  const VAGUE = new Set(['', 'application/octet-stream', 'application/binary', 'binary/octet-stream']);
+
+  function kindOf(contentType, filename) {
     const type = String(contentType || '').split(';')[0].trim().toLowerCase();
     if (type.startsWith('image/')) return 'image';
     if (type.startsWith('video/')) return 'video';
     if (type === 'application/pdf') return 'pdf';
+    if (OFFICE_TYPES[type]) return OFFICE_TYPES[type];
+    if (VAGUE.has(type)) {
+      const ext = String(filename || '').split('.').pop().toLowerCase();
+      if (OFFICE_EXTS[ext]) return OFFICE_EXTS[ext];
+    }
     return 'other';
+  }
+
+  /** The three kinds this file renders itself, from a library and a blob. */
+  function isOffice(kind) { return kind === 'docx' || kind === 'sheet' || kind === 'doc'; }
+
+  /* ---------- Office documents ----------
+   *
+   * A .docx invoice or an .xlsx price list used to be the one common
+   * attachment the viewer could say nothing at all about: a paperclip, a
+   * filename, and a download you then had to open somewhere else. Both are
+   * archives of XML, so both can be turned into HTML in the browser — no
+   * conversion service, no bytes leaving the instance, and the same blob the
+   * progress bar already fetched.
+   *
+   * The libraries are vendored under /vendor (see its README for why they are
+   * not on a CDN) and are loaded ON DEMAND — SheetJS alone is most of a
+   * megabyte, and most attachments are not spreadsheets. The service worker
+   * runtime-caches them on first use, so the second preview works offline.
+   */
+  const VENDOR = {
+    jszip: '/vendor/jszip-3.10.1.min.js',        // docx-preview's zip reader
+    docx: '/vendor/docx-preview-0.4.0.min.js',
+    xlsx: '/vendor/xlsx-0.20.3.full.min.js',
+  };
+
+  /** Loads a script once, whatever the number of callers. A rejected load is
+   *  forgotten, so the error panel's Retry gets a real second attempt rather
+   *  than the first failure handed back to it. */
+  const scripts = new Map();
+  function ensureScript(src) {
+    if (scripts.has(src)) return scripts.get(src);
+    const p = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src;
+      el.async = true;
+      el.addEventListener('load', () => resolve());
+      el.addEventListener('error', () => {
+        scripts.delete(src);
+        el.remove();
+        reject(new Error(t('Could not load the preview library')));
+      });
+      document.head.appendChild(el);
+    });
+    scripts.set(src, p);
+    return p;
+  }
+
+  /* The rendered document is somebody else's HTML and CSS, arriving by email,
+     so it goes exactly where a message body goes: a srcdoc iframe with no
+     allow-scripts and no allow-same-origin. Word's own styles then cannot
+     reach the app, and nothing in the file can run. `allow-popups` and the
+     <base> are what keep a link in the document clickable — it opens a real
+     tab, which is all a link in a document should ever do. */
+  function frameDoc(css, bodyHtml) {
+    return `<!doctype html><html><head><meta charset="utf-8">`
+      + `<meta name="viewport" content="width=device-width, initial-scale=1">`
+      + `<base target="_blank"><style>${css}</style></head><body>${bodyHtml}</body></html>`;
+  }
+
+  const DOC_BASE_CSS = `
+    html, body { margin: 0; padding: 0; background: #eceff1; color: #202124;
+      font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    .av-note { margin: 0; padding: 8px 14px; background: #fff8e1; color: #5f4b00;
+      border-bottom: 1px solid #f0e0a8; font-size: 12px; position: sticky; top: 0; z-index: 2; }`;
+
+  const SHEET_CSS = `${DOC_BASE_CSS}
+    body { background: #fff; }
+    /* The column letters are the thing that has to stay in view here, and two
+       stickies at top: 0 would sit on top of each other. */
+    .av-note { position: static; }
+    table { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+    th, td { border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0;
+      padding: 3px 8px; white-space: pre; max-width: 340px; overflow: hidden;
+      text-overflow: ellipsis; vertical-align: top; }
+    /* Row numbers and column letters stay put while the sheet scrolls under
+       them — without that, ten columns in, nothing on screen says which
+       column or row you are looking at. */
+    thead th { position: sticky; top: 0; z-index: 2; }
+    th { background: #f1f3f4; color: #5f6368; font-weight: 500; text-align: center; }
+    tbody th { position: sticky; left: 0; z-index: 1; text-align: right;
+      font-variant-numeric: tabular-nums; }
+    thead th:first-child { z-index: 3; left: 0; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .av-empty { padding: 24px; color: #5f6368; }`;
+
+  const TEXT_CSS = `${DOC_BASE_CSS}
+    body { background: #fff; }
+    pre { margin: 0; padding: 18px 22px; white-space: pre-wrap; word-wrap: break-word;
+      font: 13px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }`;
+
+  /* ---------- zoom, for the two kinds that are laid out rather than fitted ----------
+   *
+   * Applied to the iframe from OUT HERE — a transform on the element plus a
+   * compensating size, so the frame still fills its box at any scale. Doing it
+   * inside the document would mean rewriting the srcdoc on every click, which
+   * reloads the frame and throws away the scroll position, and would need
+   * scripting in a frame that deliberately has none.
+   */
+  let zoom = 1;
+  let zoomTarget = null;
+
+  function applyZoom() {
+    if (zoomTarget) {
+      zoomTarget.style.width = `${100 / zoom}%`;
+      zoomTarget.style.height = `${100 / zoom}%`;
+      zoomTarget.style.transform = `scale(${zoom})`;
+    }
+    const label = overlay?.querySelector('#av-zoom-level');
+    if (label) label.textContent = `${Math.round(zoom * 100)}%`;
+  }
+  function setZoom(z) {
+    zoom = Math.min(3, Math.max(0.4, Math.round(z * 20) / 20));
+    applyZoom();
+  }
+
+  /** Frame + optional sheet tabs, in place of whatever the body was showing. */
+  function officeShell(body, srcdoc, tabsHtml = '') {
+    body.innerHTML = `<div class="attach-viewer-doc-shell">${tabsHtml}`
+      + `<div class="attach-viewer-doc-wrap">`
+      + `<iframe class="attach-viewer-doc" sandbox="allow-popups allow-popups-to-escape-sandbox"></iframe>`
+      + `</div></div>`;
+    const frame = body.querySelector('.attach-viewer-doc');
+    frame.srcdoc = srcdoc;
+    zoomTarget = frame;
+    applyZoom();
+    return frame;
+  }
+
+  /** .docx → HTML, with its page layout, tables and embedded images intact. */
+  async function renderDocx(body, blob) {
+    await ensureScript(VENDOR.jszip);
+    await ensureScript(VENDOR.docx);
+    // Two DETACHED containers: docx-preview writes the document's own <style>
+    // rules into the second one, and a style element that is never connected
+    // to this page can never restyle it. Both are read back as strings and
+    // handed to the frame, so nothing the file brought with it is ever live
+    // in the app's own document.
+    const bodyEl = document.createElement('div');
+    const styleEl = document.createElement('div');
+    await window.docx.renderAsync(blob, bodyEl, styleEl, {
+      className: 'docx',
+      inWrapper: true,
+      // Not the default (an object URL): those are minted against THIS page's
+      // origin, and the frame below has an opaque one, so every embedded image
+      // would come out blank — silently, which is the worst way for it to
+      // fail. Base64 travels into the srcdoc with the markup.
+      useBase64URL: true,
+      experimental: false,
+      renderComments: false,
+      renderChanges: false,
+    });
+    if (!isCurrent(body)) return;
+    officeShell(body, frameDoc(DOC_BASE_CSS, styleEl.innerHTML + bodyEl.innerHTML));
+  }
+
+  /* A preview, not a spreadsheet application: no formulas, no styling, no
+     merged-cell geometry — the values as Excel formats them, in a grid you can
+     read. The caps are what stop a 300,000-row export from building a
+     multi-megabyte string and freezing the tab; what is cut is said out loud
+     rather than quietly dropped. */
+  const SHEET_MAX_ROWS = 5000;
+  const SHEET_MAX_COLS = 200;
+  const SHEET_MAX_CELLS = 150000;
+
+  /** One cell as Excel shows it: `w` is the formatted text — 1.234,50 €,
+   *  31/12/2026, 15% — and printing `v` instead would show the raw number
+   *  under all three. `w` is only ever missing when the cell carries no format
+   *  at all, which for a date would mean "Mon Sep 07 2026 02:00:00 GMT+0200". */
+  function cellText(cell) {
+    if (cell.w != null) return cell.w;
+    if (cell.v == null) return '';
+    if (cell.t === 'd' && cell.v instanceof Date) return cell.v.toLocaleDateString();
+    return String(cell.v);
+  }
+
+  function sheetHtml(ws) {
+    const XLSX = window.XLSX;
+    if (!ws || !ws['!ref']) return `<p class="av-empty">${esc(t('This sheet is empty'))}</p>`;
+    const r = XLSX.utils.decode_range(ws['!ref']);
+    const endC = Math.min(r.e.c, r.s.c + SHEET_MAX_COLS - 1);
+    const cols = endC - r.s.c + 1;
+    const endR = Math.min(r.e.r, r.s.r + Math.max(1, Math.min(SHEET_MAX_ROWS, Math.floor(SHEET_MAX_CELLS / cols))) - 1);
+
+    const out = ['<table><thead><tr><th></th>'];
+    for (let c = r.s.c; c <= endC; c++) out.push(`<th>${XLSX.utils.encode_col(c)}</th>`);
+    out.push('</tr></thead><tbody>');
+    for (let row = r.s.r; row <= endR; row++) {
+      out.push(`<tr><th>${row + 1}</th>`);
+      for (let c = r.s.c; c <= endC; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: row, c })];
+        out.push(`<td${cell && (cell.t === 'n' || cell.t === 'd') ? ' class="num"' : ''}>${cell ? esc(cellText(cell)) : ''}</td>`);
+      }
+      out.push('</tr>');
+    }
+    out.push('</tbody></table>');
+
+    const cut = [];
+    if (endR < r.e.r) cut.push(t('the first {n} rows of {total}').replace('{n}', endR - r.s.r + 1).replace('{total}', r.e.r - r.s.r + 1));
+    if (endC < r.e.c) cut.push(t('the first {n} columns of {total}').replace('{n}', cols).replace('{total}', r.e.c - r.s.c + 1));
+    const note = cut.length
+      ? `<p class="av-note">${esc(t('Large sheet — showing {what}.').replace('{what}', cut.join(t(' and '))))}</p>`
+      : '';
+    return note + out.join('');
+  }
+
+  /** .xlsx/.xlsm/.xlsb/.xls/.csv/.ods — one read, one tab per sheet. */
+  async function renderSheet(body, blob) {
+    await ensureScript(VENDOR.xlsx);
+    const wb = window.XLSX.read(new Uint8Array(await blob.arrayBuffer()), {
+      type: 'array', cellDates: true, cellStyles: false,
+    });
+    if (!isCurrent(body)) return;
+    const names = (wb.SheetNames || []).filter((n) => wb.Sheets[n]);
+    if (!names.length) throw new Error(t('This workbook has no sheets'));
+
+    let active = 0;
+    const draw = () => {
+      // One tab is not a choice, so it gets no tab strip — the filename in the
+      // bar above already says what this is.
+      const tabs = names.length > 1
+        ? `<div class="attach-viewer-sheet-tabs">${names.map((n, i) =>
+          `<button class="attach-viewer-sheet-tab${i === active ? ' is-active' : ''}" data-sheet="${i}">${esc(n)}</button>`).join('')}</div>`
+        : '';
+      officeShell(body, frameDoc(SHEET_CSS, sheetHtml(wb.Sheets[names[active]])), tabs);
+      body.querySelectorAll('[data-sheet]').forEach((b) => b.addEventListener('click', () => {
+        active = Number(b.dataset.sheet);
+        draw();
+      }));
+    };
+    draw();
+  }
+
+  /** The attachment's text route — `/text` before the query, which carries the
+   *  account the rest of the URL was built with (see API.attachmentUrl). */
+  function textUrl(url) {
+    const q = url.indexOf('?');
+    return q === -1 ? `${url}/text` : `${url.slice(0, q)}/text${url.slice(q)}`;
+  }
+
+  /**
+   * Legacy .doc, as text.
+   *
+   * A Word 97–2003 file is an OLE compound document, not a zip of XML, and
+   * there is no light way to render one faithfully in a browser — the honest
+   * options are a text extraction or half a gigabyte of LibreOffice in the
+   * image. So the server extracts the text (see the /text route in
+   * server/index.js) and the note above it says plainly what is missing,
+   * rather than letting a plain-looking preview pass itself off as the
+   * document.
+   */
+  function loadDocText(body, url, filename) {
+    body.innerHTML = loadingHtml(filename);
+    const controller = new AbortController();
+    inflight = controller;
+    const mine = body;
+    fetch(textUrl(url), { credentials: 'same-origin', signal: controller.signal })
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        return data || {};
+      })
+      .then((data) => {
+        if (inflight !== controller) return;
+        inflight = null;
+        const text = data.text || '';
+        // A .doc whose content is one big embedded object — a scanned page, a
+        // pasted spreadsheet — extracts to nothing at all. Saying so beats an
+        // empty white frame that looks like a failed render.
+        const note = text
+          ? t('Word 97–2003 document — shown as text, without its formatting.')
+            + (data.truncated ? ` ${t('It is long, so only the first part is shown.')}` : '')
+          : t('No text could be read from this document — it may be all images. Download it to open it in Word.');
+        officeShell(mine, frameDoc(TEXT_CSS,
+          `<p class="av-note">${esc(note)}</p><pre>${esc(text)}</pre>`));
+      })
+      .catch((e) => {
+        if (controller.signal.aborted || inflight !== controller) return;
+        inflight = null;
+        showError(mine, filename, e?.message || '', () => loadDocText(mine, url, filename), url);
+      });
+  }
+
+  /** Still the body of the overlay that asked for this? An open() while a
+   *  library or a parse was in flight must not have its viewer overwritten by
+   *  the previous file finishing. */
+  function isCurrent(body) {
+    return overlay?.querySelector('.attach-viewer-body') === body;
+  }
+
+  /** The error panel, with its two buttons wired. */
+  function showError(body, filename, message, retry, url) {
+    body.innerHTML = errorHtml(filename, message);
+    body.querySelector('[data-av="retry"]')?.addEventListener('click', retry);
+    body.querySelector('[data-av="save"]')?.addEventListener('click', () => triggerDownload(url, filename));
+  }
+
+  /** Bytes in hand → a document on screen. Both renderers have to load a
+   *  library and parse a whole file first, so the loading panel stays up until
+   *  one of them has something to show. */
+  function renderOffice(body, blob, kind, filename, url) {
+    body.innerHTML = loadingHtml(filename);
+    const line = body.querySelector('.attach-viewer-status-line');
+    if (line) line.textContent = t('Preparing the preview…');
+    const mine = body;
+    const done = kind === 'docx' ? renderDocx(mine, blob) : renderSheet(mine, blob);
+    done.catch((e) => {
+      if (!isCurrent(mine)) return;
+      showError(mine, filename, e?.message || '', () => renderOffice(mine, blob, kind, filename, url), url);
+    });
   }
 
   /** { url, filename, contentType } — url is the attachment's download route. */
   function open({ url, filename, contentType = '' }) {
     close();
-    const kind = kindOf(contentType);
+    const kind = kindOf(contentType, filename);
+    zoom = 1;
+    zoomTarget = null;
 
     // Neither PDFs nor arbitrary files render reliably on a phone — not in an
     // installed PWA, not in a mobile browser, and least of all inside the
@@ -333,7 +689,13 @@ const AttachmentViewer = (() => {
     // This used to also require isStandalonePWA(), which is exactly why the
     // Android app fell through to the broken path: a WebView is not an
     // installed PWA, so display-mode never reports standalone there.
-    if (kind !== 'image' && kind !== 'video' && isMobile()) {
+    //
+    // Office documents are the exception among the non-media kinds: what the
+    // renderers below produce is ordinary HTML, which a WebView draws as well
+    // as any browser. They stay in the app — and keep the hand-off too, as a
+    // button (see #av-openwith), because a spreadsheet you actually mean to
+    // work on still belongs in a spreadsheet app.
+    if (kind !== 'image' && kind !== 'video' && !isOffice(kind) && isMobile()) {
       handOffToOS(url, filename, contentType);
       return;
     }
@@ -344,6 +706,12 @@ const AttachmentViewer = (() => {
       <div class="attach-viewer-bar">
         <span class="attach-viewer-name">${esc(filename)}</span>
         <span class="spacer"></span>
+        <span class="attach-viewer-zoom" id="av-zoom" hidden>
+          <button class="icon-btn" id="av-zoom-out" title="${attr(t('Zoom out'))}">−</button>
+          <button class="attach-viewer-zoom-level" id="av-zoom-level" title="${attr(t('Reset zoom'))}">100%</button>
+          <button class="icon-btn" id="av-zoom-in" title="${attr(t('Zoom in'))}">+</button>
+        </span>
+        <button class="icon-btn" id="av-openwith" title="${attr(t('Open with another app'))}" hidden>📤</button>
         <button class="icon-btn" id="av-share" title="Share" hidden>⇧</button>
         <button class="icon-btn" id="av-download" title="Download">⬇</button>
         <button class="icon-btn" id="av-close" title="Close">✕</button>
@@ -357,6 +725,26 @@ const AttachmentViewer = (() => {
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay || e.target === body) close(); });
     overlay.querySelector('#av-close').addEventListener('click', close);
     overlay.querySelector('#av-download').addEventListener('click', () => triggerDownload(url, filename));
+
+    // A Word page and a spreadsheet are laid out to a width of their own
+    // rather than fitted to the screen, so they are the two that need a zoom.
+    // An image already has pinch and wheel (makeZoomable); a PDF has the
+    // viewer's own controls.
+    if (kind === 'docx' || kind === 'sheet') {
+      overlay.querySelector('#av-zoom').hidden = false;
+      overlay.querySelector('#av-zoom-out').addEventListener('click', () => setZoom(zoom - 0.1));
+      overlay.querySelector('#av-zoom-in').addEventListener('click', () => setZoom(zoom + 0.1));
+      overlay.querySelector('#av-zoom-level').addEventListener('click', () => setZoom(1));
+    }
+
+    // The hand-off this file used to get automatically on a phone, kept as a
+    // choice now that there is a preview to choose it from: the Android
+    // shell's "Open with…" chooser, a forced download everywhere else.
+    if (isOffice(kind) && isMobile()) {
+      const openWith = overlay.querySelector('#av-openwith');
+      openWith.hidden = false;
+      openWith.addEventListener('click', () => handOffToOS(url, filename, contentType));
+    }
 
     if (navigator.share && navigator.canShare) {
       const shareBtn = overlay.querySelector('#av-share');
@@ -378,7 +766,12 @@ const AttachmentViewer = (() => {
     // Nothing here can draw it, so there is nothing to fetch: the paperclip
     // card and the bar's Download button are the whole offer, and pulling
     // twenty megabytes down to show an icon would be worse than useless.
-    if (kind === 'other') { render(body, null, 'other', filename); return; }
+    if (kind === 'other') { render(body, null, 'other', filename, url); return; }
+
+    // Legacy .doc is the one previewable kind whose bytes are of no use here:
+    // it is an OLE compound document, and what comes back from the server is
+    // the text pulled out of it, not the file.
+    if (kind === 'doc') { loadDocText(body, url, filename); return; }
 
     // Video is the one kind that must NOT wait for all of its bytes. A player
     // pointed straight at the URL starts as soon as enough has arrived and
@@ -391,7 +784,7 @@ const AttachmentViewer = (() => {
     // Already fetched once this session: straight to the picture, no spinner,
     // no flash of an empty viewer.
     const cached = recall(url);
-    if (cached) { render(body, cached.objectUrl, kind, filename); return; }
+    if (cached) { render(body, cached, kind, filename, url); return; }
 
     load(body, url, filename, contentType, kind);
   }
@@ -442,7 +835,7 @@ const AttachmentViewer = (() => {
       if (inflight !== controller) return;          // closed, or superseded by another open()
       inflight = null;
       const entry = remember(url, blob);
-      render(mine, entry.objectUrl, kind, filename);
+      render(mine, entry, kind, filename, url);
     }).catch((e) => {
       if (controller.signal.aborted || inflight !== controller) return;
       inflight = null;

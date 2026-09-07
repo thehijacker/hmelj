@@ -103,6 +103,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Collapsed quotes** — the reply you were sent, with the thread beneath it behind a ⋯
 - **One-click unsubscribe** — RFC 8058 POST, `mailto:`, or the sender's page, with a footer-link fallback
 - **Attachment preview** for images, PDF, audio and video, with a real progress bar and streaming video
+- **Word and Excel previews** in the same overlay — `.docx` with its page layout, tables and images intact, `.xlsx/.xls/.csv/.ods` as a scrollable grid with a tab per sheet, `.doc` as text. Rendered in the browser by libraries served from your own instance, so nothing about an attachment reaches a CDN
 - **Find in message** (Ctrl/Cmd+F), live match count, without modifying the message
 - **Sender verification** — the SPF/DKIM/DMARC result your own server recorded: a quiet chip when the checks pass, a warning when a message claims a domain it may not use, or wears a contact's name over a different address. Mail nobody checked is left unmarked rather than treated as suspect
 - **Calendar invitations** — accept, tentative or decline, with or without a reply
@@ -126,7 +127,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Filters survive downtime** — Hmelj remembers per folder how far its rules have got and works through whatever arrived while it was off, up to 30 days, without filing anything twice
 - **Spam and Archive** in one gesture, with the return trip remembered per message
 - **Select mode** (Ctrl+click a row, Shift+click for a whole run), swipe gestures, right-click menus, undo on destructive actions
-- **Attachments** — preview overlay for images/PDF/audio/video, or *Download all* as one zip
+- **Attachments** — preview overlay for images/PDF/audio/video and Word/Excel documents, or *Download all* as one zip
 - **Search** with Gmail-style syntax — `from:`, `-word`, `"phrase"`, `is:starred` — cached-first with a one-click *Search everywhere*
 - **Search inside messages** — an optional local full-text index, per account, that answers `body:` in milliseconds; accented and unaccented spellings match each other
 - **Saved searches** — pin a question to the sidebar with its own unread count; opening one re-runs it, so it is never stale
