@@ -2416,9 +2416,40 @@ Receiving mail is not consent to be in someone's address book.</li>
 </ul>
 <p>
   Both work with the search box and with <strong>Select all matching</strong>, so
-  "everything with no name, all of it selected, delete" is three clicks. Only the first 200
-  rows are ever drawn — narrowing the list is how you reach the rest, and every action that
-  says <em>matching</em> covers matches that are not currently on screen.
+  "everything with no name, all of it selected, delete" is three clicks — and every action
+  that says <em>matching</em> covers matches on other pages, not just the ones on screen.
+</p>
+
+<h3>Paging</h3>
+<p>
+  The list is drawn a page at a time, with <strong>‹ Previous</strong> and
+  <strong>Next ›</strong> above and below it, and a <strong>Per page</strong> choice of 50,
+  100, 200, 500 or <em>All</em>. There is a reason for the default: a few thousand contacts
+  is a few thousand pairs of input boxes, which is enough to make the tab slow to open and
+  slow to type in. Pick <em>All</em> if your address book is small or your screen is large.
+  Changing the size keeps you where you were reading rather than throwing you back to the
+  top.
+</p>
+
+<h3>Quick delete</h3>
+<p>
+  Going through several hundred imported contacts and throwing away the ones you do not
+  want means confirming a dialog several hundred times. Tick <strong>Quick delete</strong>
+  and ✕ removes the row immediately, with no question — and the focus moves to the row that
+  takes its place, so the rest of the pass can be done from the keyboard.
+</p>
+<p>
+  This is safe because it is not yet real: deleting a local contact edits the draft, and
+  <strong>Save</strong> is what writes it. Close Settings without saving and every row comes
+  back. A <em>synced</em> contact's ✕ always asks, quick delete or not — that one is an
+  immediate write to somebody else's server, with no draft in front of it and no undo behind
+  it.
+</p>
+<p>
+  Quick delete and the page size are remembered <strong>per browser</strong>, not with the
+  rest of your settings: 500 rows a page is comfortable on a desktop and miserable on a
+  phone, and "do not ask me to confirm" is a promise about the machine you are sitting at.
+  They are stored in that browser's local storage and never leave it.
 </p>
 
 <h2 id="contacts-groups">Groups</h2>

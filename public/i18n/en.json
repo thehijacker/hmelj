@@ -654,9 +654,7 @@
     "selected": "selected",
     "Clear selection": "Clear selection",
     "selected contact(s)?": "selected contact(s)?",
-    "Showing the first": "Showing the first",
     "of": "of",
-    "search to narrow the list down.": "search to narrow the list down.",
     "No contacts match your search.": "No contacts match your search.",
     "No contacts yet — add one, or import them above.": "No contacts yet — add one, or import them above.",
     "Show": "Show",
@@ -1359,7 +1357,13 @@
     "Nothing to import yet — pick the column that holds the e-mail address.": "Nothing to import yet — pick the column that holds the e-mail address.",
     "Name and Surname are joined with a space. Leave one empty if the file keeps the whole name in one column.": "Name and Surname are joined with a space. Leave one empty if the file keeps the whole name in one column.",
     "That file has no rows in it": "That file has no rows in it",
-    "already in your contacts": "already in your contacts"
+    "already in your contacts": "already in your contacts",
+    "Per page": "Per page",
+    "Page": "Page",
+    "Quick delete": "Quick delete",
+    "✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.": "✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.",
+    "Delete (no confirmation)": "Delete (no confirmation)",
+    "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.": "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser."
   },
   "prefixes": [
     [

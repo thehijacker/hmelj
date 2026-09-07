@@ -9,6 +9,29 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Going through the contacts list is no longer a chore
+Three things aimed at the same afternoon: several hundred freshly imported contacts, and
+the job of throwing away the ones you do not want.
+
+**Quick delete.** A checkbox above the list. With it ticked, ✕ removes the row at once
+instead of asking — and the focus moves to the row that takes its place, so the rest of the
+pass is a keypress each rather than a click, a dialog and a re-aim. It is safe because it
+is not yet real: deleting a local contact edits the draft, and **Save** is what writes it,
+so closing Settings without saving brings everything back. A *synced* contact's ✕ still
+asks every time, because that one is an immediate write to somebody else's server with no
+draft in front of it and no undo behind it.
+
+**Paging.** The list used to draw the first 200 matches and tell you to search for the
+rest. Now there is a pager above and below it — ‹ Previous, Next ›, "201–400 of 843" — and
+a **Per page** choice of 50, 100, 200, 500 or All. Changing the size keeps you where you
+were reading rather than snapping back to the top, and *Select all matching* still covers
+every page, not just the one on screen.
+
+**Both are remembered per browser**, in local storage, rather than with the rest of your
+settings — 500 rows a page is comfortable on a desktop and miserable on a phone, and "do
+not ask me to confirm" is a promise about the machine you are sitting at, not one that
+should follow you onto the device where ✕ is a fat-finger away from the e-mail field.
+
 ### Google contacts sync sent you to enable the wrong API
 Adding a Google address book and having it refused produced an error naming the **CalDAV**
 API and linking to the CalDAV page in the Cloud console — advice that is correct for

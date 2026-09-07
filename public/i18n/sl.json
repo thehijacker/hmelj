@@ -654,9 +654,7 @@
     "selected": "izbranih",
     "Clear selection": "Počisti izbor",
     "selected contact(s)?": "izbranih stikov?",
-    "Showing the first": "Prikazanih prvih",
     "of": "od",
-    "search to narrow the list down.": "iskanje zoži seznam.",
     "No contacts match your search.": "Noben stik ne ustreza iskanju.",
     "No contacts yet — add one, or import them above.": "Ni še stikov — dodajte ga ali jih uvozite zgoraj.",
     "Show": "Pokaži",
@@ -1359,7 +1357,13 @@
     "Nothing to import yet — pick the column that holds the e-mail address.": "Za uvoz še ni ničesar — izberite stolpec z e-poštnim naslovom.",
     "Name and Surname are joined with a space. Leave one empty if the file keeps the whole name in one column.": "Ime in Priimek se združita s presledkom. Enega pustite prazno, če je v datoteki celotno ime v enem stolpcu.",
     "That file has no rows in it": "Ta datoteka nima vrstic",
-    "already in your contacts": "že med vašimi stiki"
+    "already in your contacts": "že med vašimi stiki",
+    "Per page": "Na stran",
+    "Page": "Stran",
+    "Quick delete": "Hitro brisanje",
+    "✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.": "✕ izbriše takoj, brez vprašanja. Nič ni zapisano, dokler ne pritisnete Shrani, zato zapiranje nastavitev brez shranjevanja vse razveljavi.",
+    "Delete (no confirmation)": "Izbriši (brez potrditve)",
+    "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.": "✕ izbriše takoj — razveljavite z zaprtjem nastavitev brez shranjevanja. Zapomnjeno za ta brskalnik."
   },
   "prefixes": [
     [

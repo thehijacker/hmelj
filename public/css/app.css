@@ -2401,6 +2401,14 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 .dialog { max-width: 440px; width: min(440px, 92vw); height: auto; padding: 22px 24px; max-height: 90vh; overflow: auto; }
 .dialog:has(.dialog-wide) { max-width: 620px; width: min(620px, 94vw); }
 
+/* Contacts list pager, above and below the rows. */
+.ct-pager { gap: 8px; align-items: center; margin-bottom: 10px; }
+.ct-pager .btn-sm:disabled { opacity: .4; cursor: default; }
+/* With quick delete armed, the ✕ that just took the focus is where the next
+   keypress lands — so it has to be visible, which a link-btn's default focus
+   ring is not against a row of inputs. */
+#ct-list .ct-del:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
 /* The CSV importer's live preview of the first few contacts as they would be
    saved (see importCsvWithMapping in settings.js). Deliberately plain: it is
    there to be checked against the file, not admired. */

@@ -3571,11 +3571,54 @@ const Settings = (() => {
       key(a).localeCompare(key(b), lang, { sensitivity: 'base', numeric: true }));
   }
 
-  // A few thousand contacts is a few thousand pairs of <input>s — enough to make
-  // the tab visibly slow to open and to type in. Only this many rows are drawn;
-  // searching is how you reach the rest, and every action that operates on "all
-  // matching" still covers matches that aren't currently drawn.
-  const CT_RENDER_CAP = 200;
+  /* ---------- per-BROWSER list preferences ----------
+   *
+   * Page size and quick-delete live in localStorage, not in settings.json,
+   * because they are properties of the machine you are sitting at rather than
+   * of you: 500 rows a page is comfortable on the 2560px desktop and miserable
+   * on the phone, and "don't ask me to confirm" is a promise you make about the
+   * session you are in, not one that should follow you onto a device where the
+   * ✕ is a fat-finger away from the e-mail field.
+   *
+   * Every read and write is guarded — a private window, or a browser set to
+   * refuse site data, throws on access rather than returning null, and a
+   * settings tab that cannot open because of a remembered page size would be a
+   * poor trade.
+   */
+  const CT_VIEW_KEY = 'hmelj.contacts.view';
+  // 0 is "all of them", for a small address book or a big screen.
+  const CT_PAGE_SIZES = [50, 100, 200, 500, 0];
+  const CT_PAGE_SIZE_DEFAULT = 200;
+  let ctPageSize = CT_PAGE_SIZE_DEFAULT;
+  let ctQuickDelete = false;
+  let ctPage = 0;
+
+  function loadCtView() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CT_VIEW_KEY) || '{}');
+      if (CT_PAGE_SIZES.includes(saved.pageSize)) ctPageSize = saved.pageSize;
+      ctQuickDelete = saved.quickDelete === true;
+    } catch { /* unreadable or absent — the defaults above are the answer */ }
+  }
+  function saveCtView() {
+    try {
+      localStorage.setItem(CT_VIEW_KEY, JSON.stringify({ pageSize: ctPageSize, quickDelete: ctQuickDelete }));
+    } catch { /* nothing to do: the preference just won't outlive the tab */ }
+  }
+  loadCtView();
+
+  /** ‹ › and "showing 201–400 of 843", drawn above AND below the list — with a
+   *  full page of rows on screen, a pager only at the top is a scroll back up
+   *  for every single page. */
+  function ctPagerHtml(total, from, to, pages) {
+    if (pages < 2) return '';
+    return `<div class="row ct-pager">
+      <button type="button" class="btn-sm ct-prev"${ctPage === 0 ? ' disabled' : ''}>‹ ${I18n.t('Previous')}</button>
+      <span class="set-hint" style="margin:0">${from}–${to} ${I18n.t('of')} ${total}</span>
+      <button type="button" class="btn-sm ct-next"${ctPage >= pages - 1 ? ' disabled' : ''}>${I18n.t('Next')} ›</button>
+      <span class="set-hint" style="margin:0">${I18n.t('Page')} ${ctPage + 1} / ${pages}</span>
+    </div>`;
+  }
 
   /* ---------- contact groups (server/contactGroups.js) ----------
    *
@@ -4067,7 +4110,7 @@ const Settings = (() => {
         <input type="checkbox" class="ct-pick" data-id="${escAttr(c.id)}" ${ctSelected.has(c.id) ? 'checked' : ''}>
         <input class="ct-name grow" value="${escAttr(c.name)}" placeholder="Name">
         <input class="ct-email grow" value="${escAttr(c.email)}" placeholder="email@example.com">
-        <button class="link-btn ct-del" data-id="${escAttr(c.id)}">✕</button>
+        <button class="link-btn ct-del" data-id="${escAttr(c.id)}" title="${escAttr(ctQuickDelete ? I18n.t('Delete (no confirmation)') : I18n.t('Delete this contact?'))}">✕</button>
       </div></div>`;
     }
     const ro = c.readOnly ? 'disabled' : '';
@@ -4309,7 +4352,18 @@ const Settings = (() => {
     const ewsAccounts = allAccounts().filter((a) => a.type === 'ews' && !a.disabled);
     const graphAccounts = allAccounts().filter((a) => a.type === 'graph' && !a.disabled);
     const matches = filteredContacts();
-    const shown = matches.slice(0, CT_RENDER_CAP);
+    // A few thousand contacts is a few thousand pairs of <input>s — enough to
+    // make the tab visibly slow to open and to type in, which is what the page
+    // size is really protecting. `0` means the user has decided their address
+    // book is small enough not to need it.
+    const per = ctPageSize || Math.max(matches.length, 1);
+    const pages = Math.max(1, Math.ceil(matches.length / per));
+    // Deleting the last row of the last page, or narrowing the filter, leaves
+    // ctPage pointing past the end — clamp rather than draw an empty page.
+    if (ctPage > pages - 1) ctPage = pages - 1;
+    const from = ctPage * per;
+    const shown = matches.slice(from, from + per);
+    const pager = ctPagerHtml(matches.length, from + 1, from + shown.length, pages);
     const selectedCount = ctSelected.size;
     body().innerHTML = `
       <p>
@@ -4341,9 +4395,19 @@ const Settings = (() => {
         <label class="set-hint" style="margin:0" for="ct-filter">${I18n.t('Show')}</label>
         ${sel('ct-filter', CT_FILTERS.map(([v, l]) => [v, I18n.t(l)]), ctFilter)}
         ${ctFilter || ctSearch ? `<button type="button" class="link-btn" id="ct-reset-view">${I18n.t('Reset')}</button>` : ''}
+        <span class="spacer"></span>
+        <label class="set-hint" style="margin:0" for="ct-per">${I18n.t('Per page')}</label>
+        ${sel('ct-per', CT_PAGE_SIZES.map((n) => [String(n), n ? String(n) : I18n.t('All')]), String(ctPageSize))}
       </div>
       <div class="row" style="gap:8px;margin-bottom:10px">
-        <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ct-all" ${shown.length && shown.every((c) => ctSelected.has(c.id)) ? 'checked' : ''}> <span>${I18n.t('Select')}</span></label>
+        <label class="mini-toggle" style="gap:6px"
+          title="${escAttr(I18n.t('✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.'))}">
+          ${chk('ct-quickdel', ctQuickDelete)} <span>${I18n.t('Quick delete')}</span>
+        </label>
+        <span class="set-hint" style="margin:0">${I18n.t('✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.')}</span>
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:10px">
+        <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ct-all" ${shown.length && shown.every((c) => ctSelected.has(c.id)) ? 'checked' : ''}> <span>${pages > 1 ? I18n.t('Select page') : I18n.t('Select')}</span></label>
         ${matches.length > shown.length ? `<button type="button" class="link-btn" id="ct-select-matching">${I18n.t('Select all matching')} (${matches.length})</button>` : ''}
         ${selectedCount ? `<span class="set-hint" style="margin:0">${selectedCount} ${I18n.t('selected')}</span>
           <button type="button" class="link-btn" id="ct-clear-sel">${I18n.t('Clear selection')}</button>
@@ -4351,10 +4415,11 @@ const Settings = (() => {
           <span class="spacer"></span>
           <button type="button" class="btn-sm danger" id="ct-del-sel">${I18n.t('Delete selected')}</button>` : ''}
       </div>
+      ${pager}
       <div class="card-list" id="ct-list">
       ${shown.map((c) => contactRowHtml(c)).join('')}
       </div>
-      ${matches.length > shown.length ? `<p class="set-hint" style="grid-column:auto">${I18n.t('Showing the first')} ${shown.length} ${I18n.t('of')} ${matches.length} — ${I18n.t('search to narrow the list down.')}</p>` : ''}
+      ${pager}
       ${!matches.length ? `<p class="set-hint" style="grid-column:auto">${
         !contacts.length ? I18n.t('No contacts yet — add one, or import them above.')
           : ctFilter ? I18n.t('No contacts match this filter.')
@@ -4364,6 +4429,7 @@ const Settings = (() => {
     search.addEventListener('input', () => {
       collectContacts();
       ctSearch = search.value;
+      ctPage = 0;          // page 3 of the old result set means nothing in the new one
       renderContacts();
       // Re-rendering blows the focused element away — put the caret back so
       // typing a second character doesn't need a second click.
@@ -4378,19 +4444,52 @@ const Settings = (() => {
     document.getElementById('ct-sort').addEventListener('change', (e) => {
       collectContacts();
       ctSort = e.target.value;
+      ctPage = 0;
       renderContacts();
     });
     document.getElementById('ct-filter').addEventListener('change', (e) => {
       collectContacts();
       ctFilter = e.target.value;
+      ctPage = 0;
       renderContacts();
     });
     document.getElementById('ct-reset-view')?.addEventListener('click', () => {
       collectContacts();
       ctFilter = '';
       ctSearch = '';
+      ctPage = 0;
       renderContacts();
     });
+
+    document.getElementById('ct-per').addEventListener('change', (e) => {
+      collectContacts();
+      const size = Number(e.target.value);
+      // Stay where the user was reading rather than snapping to the top: the
+      // row that was first on the old page is first on the new one.
+      const firstRow = ctPage * (ctPageSize || 1);
+      ctPageSize = CT_PAGE_SIZES.includes(size) ? size : CT_PAGE_SIZE_DEFAULT;
+      ctPage = ctPageSize ? Math.floor(firstRow / ctPageSize) : 0;
+      saveCtView();
+      renderContacts();
+    });
+    document.getElementById('ct-quickdel').addEventListener('change', (e) => {
+      collectContacts();
+      ctQuickDelete = e.target.checked;
+      saveCtView();
+      renderContacts();
+    });
+    body().querySelectorAll('.ct-prev').forEach((b) => b.addEventListener('click', () => {
+      collectContacts();
+      ctPage = Math.max(0, ctPage - 1);
+      renderContacts();
+      body().querySelector('#ct-list')?.scrollIntoView({ block: 'start' });
+    }));
+    body().querySelectorAll('.ct-next').forEach((b) => b.addEventListener('click', () => {
+      collectContacts();
+      ctPage += 1;            // renderContacts clamps if this went past the end
+      renderContacts();
+      body().querySelector('#ct-list')?.scrollIntoView({ block: 'start' });
+    }));
 
     document.getElementById('ct-add').addEventListener('click', () => {
       collectContacts();
@@ -4401,6 +4500,7 @@ const Settings = (() => {
       // blank row does belong to, so that one is left alone.
       ctSearch = '';
       if (ctFilter && ctFilter !== 'noname') ctFilter = '';
+      ctPage = 0;            // the new row sorts to the top, which is page one
       // unshift, not push: only the first CT_RENDER_CAP rows are ever drawn, so
       // a row appended to the end of a longer list is added to the array and
       // then not rendered at all — the button looks completely dead. Reported
@@ -4454,12 +4554,27 @@ const Settings = (() => {
       renderContacts();
     });
 
-    body().querySelectorAll('.ct-del').forEach((b) => b.addEventListener('click', async () => {
-      if (!await Dialog.confirm(I18n.t('Delete this contact?'), { title: I18n.t('Delete'), okLabel: I18n.t('Delete'), danger: true })) return;
+    body().querySelectorAll('.ct-del').forEach((b, i) => b.addEventListener('click', async () => {
+      // Quick delete skips the question, and only for LOCAL rows: this deletes
+      // out of the draft, so Save is still the thing that makes it real and
+      // closing Settings without saving puts everything back. The synced ✕
+      // below always asks, because that one is an immediate write to somebody
+      // else's server with no draft in front of it and no undo behind it.
+      if (!ctQuickDelete
+        && !await Dialog.confirm(I18n.t('Delete this contact?'), { title: I18n.t('Delete'), okLabel: I18n.t('Delete'), danger: true })) return;
       collectContacts();
       contacts = contacts.filter((c) => c.id !== b.dataset.id);
       ctSelected.delete(b.dataset.id);
       renderContacts();
+      // Going through a few hundred rows deleting the dead ones means clicking
+      // ✕, having the list close up under the pointer, and aiming again. The
+      // row that moved up into this one's place takes the focus, so the rest of
+      // the pass can be done from the keyboard.
+      if (!ctQuickDelete) return;
+      const rest = body().querySelectorAll('#ct-list .ct-del');
+      const next = rest[Math.min(i, rest.length - 1)];
+      next?.focus();
+      next?.scrollIntoView({ block: 'nearest' });
     }));
     document.getElementById('ct-import').addEventListener('click', () => document.getElementById('ct-file').click());
     document.getElementById('ct-file').addEventListener('change', async (e) => {
