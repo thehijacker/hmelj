@@ -157,6 +157,7 @@
 <li><a data-scroll="contacts-auto" data-section="contacts" href="#contacts-auto">Learned automatically</a></li>
 <li><a data-scroll="contacts-sort" data-section="contacts" href="#contacts-sort">Sorting and filtering</a></li>
 <li><a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">Groups</a></li>
+<li><a data-scroll="contacts-sync" data-section="contacts" href="#contacts-sync">Syncing a live address book</a></li>
 <li><a data-scroll="contacts-import" data-section="contacts" href="#contacts-import">Importing</a></li>
 </ul>
 </li>
@@ -2475,6 +2476,34 @@ to.</li>
 share them — and they are included in the settings export.</li>
 </ul>
 
+<h2 id="contacts-sync">Syncing a live address book</h2>
+<p>
+  A <strong>source</strong> keeps reading an address book that lives somewhere else — a
+  CardDAV server, Google, Microsoft or Exchange — rather than copying it once. Synced rows
+  show a ☁ and say where they come from; they are not part of the local list that
+  <strong>Save</strong> writes, and read-only ones cannot be edited here at all.
+</p>
+
+<div class="callout warning">
+  <p>
+    <b>Google contacts need the CardDAV API switched on in your own Google Cloud project</b> —
+    the same project your <code>GOOGLE_CLIENT_ID</code> comes from. It is off by default, and
+    without it Google refuses every request with <code>accessNotConfigured</code> however
+    correct the sign-in is.
+  </p>
+  <p>
+    Open <a href="https://console.cloud.google.com/apis/library/carddav.googleapis.com" rel="noopener" target="_blank">console.cloud.google.com/apis/library/carddav.googleapis.com</a>,
+    pick the right project, press <b>Enable</b>, give it a minute, then add the source again.
+  </p>
+  <p>
+    <b>CalDAV and CardDAV are two separate APIs.</b> Enabling the one the calendar needs does
+    nothing for contacts, and the other way round — if you already switched on
+    <em>CalDAV API</em> for
+    <a data-scroll="cal-sources" data-section="calendar" href="#cal-sources">Google Calendar</a>,
+    this is still a second switch.
+  </p>
+</div>
+
 <h2 id="contacts-import">Importing</h2>
 <ul>
 <li><strong>CSV / vCard</strong> — a <code>.csv</code>, <code>.vcf</code> or <code>.txt</code> export</li>
@@ -2649,6 +2678,11 @@ share them — and they are included in the settings export.</li>
     Open <a href="https://console.cloud.google.com/apis/library/caldav.googleapis.com" rel="noopener" target="_blank">console.cloud.google.com/apis/library/caldav.googleapis.com</a>,
     pick the right project, press <b>Enable</b>, give it a minute, then add the calendar again.
     This is a one-off per Hmelj installation, not per account.
+  </p>
+  <p>
+    Syncing Google <em>contacts</em> needs a second, separate switch — <b>CardDAV API</b>. See
+    <a data-scroll="contacts-sync" data-section="contacts" href="#contacts-sync">Syncing a live
+    address book</a>.
   </p>
 </div>
 

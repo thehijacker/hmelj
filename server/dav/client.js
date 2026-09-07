@@ -340,23 +340,51 @@ function safeResolve(href, base) {
  * naming it is the difference between a two-minute fix and giving up.
  */
 function explain(status, method, url, body) {
-  const detail = String(body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  // `full` is for RECOGNISING what happened, `detail` for quoting it back. They
+  // are different lengths on purpose: Google's 403 runs well past 200
+  // characters, and matching against the truncated copy means the giveaway
+  // word can fall off the end of the string that decides the answer.
+  const full = String(body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const detail = full.slice(0, 200);
   const tail = detail ? ` — ${detail}` : '';
   switch (status) {
     case 401:
       return `The server rejected the credentials for ${url}. For a provider with two-factor authentication (iCloud, Fastmail, a Nextcloud with 2FA on) the account password will always be refused here — those need an app-specific password generated in that provider's own settings.${tail}`;
     case 403: {
       // Google answers a 403 for a cause that has nothing to do with the
-      // principal: the CalDAV API is not switched on in the Cloud project the
+      // principal: the DAV API is not switched on in the Cloud project the
       // OAuth client belongs to. It is one click to fix and impossible to guess
       // from "refused access", so it gets its own answer — including the
       // project number Google itself names, which is what the console URL needs.
-      const proj = /project (\d+)/.exec(detail)?.[1] || '';
-      if (/accessNotConfigured|has not been used in project|is disabled/i.test(detail)) {
-        return `Google refused this because the CalDAV API is switched off in the Google Cloud project your OAuth client belongs to${proj ? ` (project ${proj})` : ''}. `
-          + 'Enable "CalDAV API" at https://console.cloud.google.com/apis/library/caldav.googleapis.com'
-          + `${proj ? `?project=${proj}` : ''}, wait a minute for it to take effect, and add the calendar again. `
-          + `This is a setting on your own Google project, not on the account.${tail}`;
+      const proj = /project (\d+)/.exec(full)?.[1] || '';
+      // Google has said this several ways over the years — "accessNotConfigured",
+      // "Access Not Configured.", "has not been used in project … before or it
+      // is disabled", "is not enabled for project". All four mean the same one
+      // click, so all four are recognised; each is specific enough that no
+      // other server's 403 wanders in here.
+      if (/accessNotConfigured|access not configured|has not been used in project|is disabled|is not enabled for project/i.test(full)) {
+        // CalDAV and CardDAV are two SEPARATE APIs in the Cloud console, each
+        // enabled on its own. This used to name CalDAV whatever had failed,
+        // which sent anyone adding an address book to enable the calendar API
+        // and then watch contacts fail in exactly the same way — the report
+        // that prompted this said "a caldav api is enabled".
+        //
+        // Google names the API in its own message ("Google Contacts CardDAV
+        // API has not been used in project …"), and the request URL says the
+        // same thing independently (contacts go to /carddav/v1/, calendars to
+        // /caldav/v2/), so a reworded message still lands on the right one.
+        const card = /carddav/i.test(full) || /\/carddav\//i.test(url);
+        const api = card ? 'CardDAV API' : 'CalDAV API';
+        const host = card ? 'carddav.googleapis.com' : 'caldav.googleapis.com';
+        return `Google refused this because the ${api} is switched off in the Google Cloud project your OAuth client belongs to${proj ? ` (project ${proj})` : ''}. `
+          + `Enable "${api}" at https://console.cloud.google.com/apis/library/${host}`
+          + `${proj ? `?project=${proj}` : ''}, wait a minute for it to take effect, and add the `
+          + `${card ? 'address book' : 'calendar'} again. `
+          + 'CalDAV and CardDAV are separate APIs there — enabling one does not enable the other. '
+          // No `tail` here, deliberately: Google's own sentence ends in the
+          // same advice, and quoting 200 characters of it chops its console URL
+          // in half ("…/apis/a"), which reads like the message itself is broken.
+          + 'This is a setting on your own Google project, not on the account.';
       }
       return `The server accepted the sign-in but refused access to ${url}. Usually the wrong principal: the collection belongs to another account on the same server.${tail}`;
     }

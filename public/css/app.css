@@ -1308,13 +1308,34 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
 .modal {
-  background: var(--surface); border-radius: 12px; width: 920px; max-width: 94vw;
+  background: var(--surface); border-radius: 12px;
+  /* 920px was a fixed width from back when the only question was whether it fit
+   * on a laptop. On a 2560px display that is a third of the screen, and the
+   * tabs that actually want room — Contacts, Filters, Accounts, all lists of
+   * side-by-side inputs — were living in about 676px of it (190px of that
+   * width is the fixed nav column) while two thirds of the desktop sat empty.
+   *
+   * So it grows with the viewport. The floor is the old width, so nothing below
+   * a ~1480px viewport changes at all; the ceiling is because a dialog that
+   * keeps growing eventually stops reading as a dialog and starts reading as a
+   * page that failed to load properly.
+   *
+   * The FORM tabs deliberately do not sprawl to match: .set-grid stays capped
+   * at 640px, so a row of label + control keeps a readable measure and the new
+   * width goes where it is useful. Empty space beside a settings form is what
+   * every settings screen worth copying does. */
+  width: clamp(920px, 62vw, 1400px); max-width: 94vw;
   /* Fixed, not max-height — a max-height lets the dialog grow/shrink to fit
    * whichever tab's content is showing, which is what made switching tabs
    * visibly jump. Fixed height + the nav/body columns' own overflow-y:auto
    * (below) means only the content inside scrolls, the dialog itself never
-   * resizes. */
-  height: min(760px, 82vh);
+   * resizes.
+   *
+   * Raised with the width, for the same reason and with the same floor: on a
+   * 1440px-tall screen 760px was letterboxing a now-1400px-wide dialog, and
+   * on the list tabs vertical room is what shows more rows. Still one value per
+   * viewport, so it still never jumps. */
+  height: min(900px, 86vh);
   display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,.4);
 }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px 6px; }

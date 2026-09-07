@@ -9,6 +9,38 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Google contacts sync sent you to enable the wrong API
+Adding a Google address book and having it refused produced an error naming the **CalDAV**
+API and linking to the CalDAV page in the Cloud console — advice that is correct for
+calendars and useless for contacts, since those are two separate APIs. Enabling the one the
+message asked for changed nothing, and the next attempt failed identically.
+
+Google's own reply says which it means ("Google Contacts CardDAV API has not been used in
+project …"), and the request URL says it independently, so the message now reads both and
+names **CardDAV API** with the matching console link when it is contacts that were refused.
+It also says outright that CalDAV and CardDAV are enabled separately, which is the part that
+was actually costing the time.
+
+Two smaller things in the same message. Google's reply is longer than the 200 characters
+that were quoted back, so the giveaway word could fall off the end of the string the
+detection ran against — recognition now reads the whole reply and only the quote is
+trimmed. And that trimmed quote is dropped entirely for this case, because cutting Google's
+sentence mid-URL ("…/apis/a") made the answer look broken at precisely the moment it was
+telling you what to do.
+
+The docs gained the matching warning under Contacts, and the calendar one now points at it.
+
+### Settings uses the screen it is given
+The dialog was a fixed 920×760, which is a sensible size on a laptop and a third of the
+screen on a 2560px display — with Contacts, Filters and Accounts, the tabs built out of
+side-by-side inputs, squeezed into about 676px of it (190px of the width is the nav column)
+while two thirds of the desktop sat empty. It now grows with the viewport, up to 1400×900.
+
+Nothing changes below a viewport of about 1480px: the old size is the floor, not the
+starting point. And the form tabs deliberately do not sprawl to match — a row of label and
+control stays capped at a readable width, so the extra room goes to the lists, which are
+what wanted it.
+
 ### The contacts list can be sorted, filtered, and imported from anyone's CSV
 Three things that were all the same complaint: going through a few hundred contacts to throw
 the useless ones away was slower than it should be, and getting the company address book in
