@@ -1328,7 +1328,11 @@
     "Zoom in": "Povečaj",
     "Zoom out": "Pomanjšaj",
     "Reset zoom": "Ponastavi povečavo",
-    "Open with another app": "Odpri z drugo aplikacijo"
+    "Open with another app": "Odpri z drugo aplikacijo",
+    "Add to contacts": "Dodaj med stike",
+    "Already in contacts": "Že med stiki",
+    "This is your own address": "To je vaš lasten naslov",
+    "Added to contacts": "Dodano med stike"
   },
   "prefixes": [
     [

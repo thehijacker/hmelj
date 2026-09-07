@@ -5367,7 +5367,10 @@ function authBanner(msg) {
   }
   const impersonated = from && authSpoofCheck(from);
   if (impersonated) {
-    out += `<div class="mv-banner mv-banner-danger">⚠ <b>${esc(I18n.t('The sender\'s name does not match their address.'))}</b>
+    // Tagged with the address it is about: adding that address to the contacts
+    // is what answers this banner, and addAddressToContacts removes it on the
+    // spot rather than leaving a warning up that is no longer true.
+    out += `<div class="mv-banner mv-banner-danger mv-banner-spoof" data-addr="${escAttr(from.address || '')}">⚠ <b>${esc(I18n.t('The sender\'s name does not match their address.'))}</b>
       ${esc(I18n.t('You know this name as {addr} — this message came from somewhere else.').replace('{addr}', impersonated))}</div>`;
   }
   return out;
@@ -5452,7 +5455,62 @@ function showAddressMenu(el, x, y) {
     // The display name rides along when there is one, so the composer shows
     // "Support Desk <support@example.com>" the way it would for a contact.
     { label: 'New message', onClick: () => Compose.open({ to: name ? `${name} <${address}>` : address }) },
+    addToContactsItem(address, name),
   ], x, y);
+}
+
+/**
+ * The third entry: this person, in the address book, from where you are
+ * reading their mail.
+ *
+ * It is deliberately a note rather than a missing row in the two cases where
+ * there is nothing to do — see openCtxMenu on why. "Already in contacts" is
+ * the answer to the question the user came to the menu with; leaving the row
+ * out entirely just makes them wonder whether they mis-clicked.
+ */
+function addToContactsItem(address, name) {
+  const addr = address.toLowerCase();
+  if (isOwnAddress(addr)) return { label: 'This is your own address', disabled: true };
+  const known = (state.contacts || []).some((c) => String(c?.email || '').trim().toLowerCase() === addr);
+  if (known) return { label: 'Already in contacts', disabled: true };
+  return { label: 'Add to contacts', onClick: () => addAddressToContacts(address, name) };
+}
+
+/**
+ * Saves one address to the address book.
+ *
+ * The display name goes in exactly as the header spelled it, which matters
+ * beyond tidiness: the spoofed-name warning (authSpoofCheck) compares the two
+ * character for character, so a contact stored under a tidied-up name would
+ * leave the warning firing on every message this person sends.
+ *
+ * Which is the other half of this — the warning on any message open right now
+ * is answered the moment the contact exists, so it goes immediately rather
+ * than standing there until the message is reopened. That case is the whole
+ * reason for this menu entry: mail from a known person's second address is
+ * flagged, and the fix should be one gesture away from the flag.
+ *
+ * De-duplication is the server's (addContacts in server/contacts.js, on the
+ * lowercased address), so a second row for a name already in the book — a
+ * colleague's work address next to their private one — is added, and the same
+ * address twice is not.
+ */
+async function addAddressToContacts(address, name) {
+  try {
+    const { added } = await API.addContacts([{ name, email: address }]);
+    // Not the local array with a row pushed onto it: the server assigns the id
+    // and decides what counted as a duplicate, and compose's autocomplete reads
+    // this same list.
+    state.contacts = await API.contacts();
+    if (!added) { toast(I18n.t('Already in contacts')); return; }
+    const addr = address.toLowerCase();
+    $$('.mv-banner-spoof').forEach((b) => {
+      if ((b.dataset.addr || '').toLowerCase() === addr) b.remove();
+    });
+    toast(`${I18n.t('Added to contacts')}: ${name || address}`);
+  } catch (e) {
+    toast(I18n.t('Could not add contacts: ') + e.message, 5000);
+  }
 }
 
 async function copyAddress(address) {

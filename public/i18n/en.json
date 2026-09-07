@@ -1328,7 +1328,11 @@
     "Zoom in": "Zoom in",
     "Zoom out": "Zoom out",
     "Reset zoom": "Reset zoom",
-    "Open with another app": "Open with another app"
+    "Open with another app": "Open with another app",
+    "Add to contacts": "Add to contacts",
+    "Already in contacts": "Already in contacts",
+    "This is your own address": "This is your own address",
+    "Added to contacts": "Added to contacts"
   },
   "prefixes": [
     [

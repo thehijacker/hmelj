@@ -9,6 +9,21 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Add to contacts, from the message header
+The right-click / long-press menu on a name in a header had *Copy address* and *New message*.
+It has **Add to contacts** now, which saves that person with the display name spelled exactly
+as the header spells it.
+
+That spelling is the point. The warning that a sender's name does not match their address
+compares the two character for character, so mail from a colleague's *second* address — the
+work one next to the private one already in your address book — is flagged every time. The
+fix was a trip to Settings; it is now one gesture away from the warning itself, and the
+warning on the open message disappears the moment the contact exists rather than standing
+there until the message is reopened.
+
+Where there is nothing to add, the entry says so instead of quietly disappearing: *Already in
+contacts*, or *This is your own address*.
+
 ### Word and Excel attachments can be read without leaving Hmelj
 A `.docx` invoice or an `.xlsx` price list used to be the one common attachment the viewer
 could say nothing about: a paperclip, a filename, and a download you then had to open
