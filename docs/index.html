@@ -155,6 +155,7 @@
 <a data-section="contacts" href="#contacts">Contacts</a>
 <ul class="nav-sub">
 <li><a data-scroll="contacts-auto" data-section="contacts" href="#contacts-auto">Learned automatically</a></li>
+<li><a data-scroll="contacts-sort" data-section="contacts" href="#contacts-sort">Sorting and filtering</a></li>
 <li><a data-scroll="contacts-groups" data-section="contacts" href="#contacts-groups">Groups</a></li>
 <li><a data-scroll="contacts-import" data-section="contacts" href="#contacts-import">Importing</a></li>
 </ul>
@@ -2396,6 +2397,29 @@ Receiving mail is not consent to be in someone's address book.</li>
   from the composer's autocomplete list.
 </p>
 
+<h2 id="contacts-sort">Sorting and filtering the list</h2>
+<p>
+  Above the list, next to the search box: <strong>Sort</strong> and <strong>Show</strong>.
+</p>
+<ul>
+<li><strong>Sort</strong> — <em>Name A–Z</em> (the default), <em>E-mail A–Z</em>, or
+  <em>As added</em>, which is the order the file itself is in. Sorting is by what the row
+  shows, so a contact with no name sorts under its address instead of joining a block of
+  blanks at the top, and Slovene collation is used where the interface is Slovene — Č, Š
+  and Ž sort after C, S and Z, not after Z.</li>
+<li><strong>Show</strong> — <em>Without a name</em> is the one to reach for when pruning:
+  it is where addresses picked up automatically end up. <em>Same name, several
+  addresses</em> catches both real duplicates and the legitimate case of one person's work
+  and private address. <em>Local only</em> and <em>Synced only</em> split the rows you can
+  edit and bulk-delete from the ones that live on somebody else's server.</li>
+</ul>
+<p>
+  Both work with the search box and with <strong>Select all matching</strong>, so
+  "everything with no name, all of it selected, delete" is three clicks. Only the first 200
+  rows are ever drawn — narrowing the list is how you reach the rest, and every action that
+  says <em>matching</em> covers matches that are not currently on screen.
+</p>
+
 <h2 id="contacts-groups">Groups</h2>
 <p>
   A <strong>group</strong> is a name for a set of addresses — <em>Družina</em>, <em>the
@@ -2453,13 +2477,40 @@ share them — and they are included in the settings export.</li>
 
 <h2 id="contacts-import">Importing</h2>
 <ul>
-<li><strong>Google CSV / vCard</strong> — a <code>.csv</code>, <code>.vcf</code> or <code>.txt</code> export</li>
+<li><strong>CSV / vCard</strong> — a <code>.csv</code>, <code>.vcf</code> or <code>.txt</code> export</li>
 <li><strong>Import from Microsoft</strong> — pulls the contacts of a Microsoft account you have attached (needs the <code>Contacts.Read</code> permission)</li>
 <li><strong>Import from Exchange</strong> — the same, for an EWS account</li>
 </ul>
 <p>
   Hmelj also suggests people you correspond with who are not contacts yet, with how many
   messages you have exchanged, so you can add them in a batch.
+</p>
+
+<h3>Naming the columns of a CSV</h3>
+<p>
+  A vCard says what each field is, so it imports directly. A CSV does not — so picking one
+  opens a small dialog with three dropdowns, <strong>Name</strong>, <strong>Surname</strong>
+  and <strong>E-mail</strong>, listing the file's own columns with a sample value beside
+  each. <em>Name</em> and <em>Surname</em> are joined with a space; leave one on
+  <em>none</em> if the file keeps the whole name in one column. Underneath is a live preview
+  of the first few contacts exactly as they would be saved, and nothing is sent until it
+  says the right thing.
+</p>
+<p>
+  The columns are guessed first, and the guess is usually right — English and Slovene
+  headers alike (<code>First Name</code>, <code>Ime</code>, <code>Priimek</code>,
+  <code>E-mail Address</code>, <code>E-pošta</code>). Where the header gives nothing away,
+  the address column is found by looking for the column that actually contains <code>@</code>,
+  which is also how a file with no header row at all is handled — untick <em>First row names
+  the columns</em> and the first line is treated as a contact.
+</p>
+<p>
+  Commas, semicolons and tabs are all recognised, so a CSV out of a European Excel (which
+  writes semicolons) needs nothing done to it first; so are quoted fields containing commas
+  or line breaks, and the byte-order mark Excel puts in front of the first column name.
+  Rows with no address — a totals line, a blank, a repeated header — are skipped, and the
+  preview says how many. Addresses you already have are not duplicated, and the result says
+  how many were already there rather than only how many were added.
 </p>
 
 <a class="back-top" href="#about">↑ Top</a>

@@ -3505,14 +3505,70 @@ const Settings = (() => {
   let ctSearch = '';
   let ctSelected = new Set();
   let ctSuggestOpen = false;
+  /* Alphabetical by default. contacts.json's own order is the order things were
+     added — which is no order at all once "Add people I send to" has been on for
+     a year, and going through the list to prune it is exactly what that order
+     makes impossible. */
+  let ctSort = 'name';
+  let ctFilter = '';
 
-  /** Contacts matching the search box, in list order. Matches name or address,
-   * case-insensitively, on any substring — an address book is searched for
-   * "@firma.si" at least as often as for a name. */
+  const CT_SORTS = [
+    ['name', 'Name A–Z'],
+    ['email', 'E-mail A–Z'],
+    ['added', 'As added'],
+  ];
+  const CT_FILTERS = [
+    ['', 'All contacts'],
+    ['noname', 'Without a name'],
+    ['dupname', 'Same name, several addresses'],
+    ['local', 'Local only'],
+    ['synced', 'Synced only'],
+  ];
+
+  /** Every name held by more than one row, lowercased. The Simona case: one
+   *  person's work address beside their private one, which is legitimate, next
+   *  to the actual accidental duplicates — both are what you come to this
+   *  filter to look at. */
+  function duplicateNames() {
+    const seen = new Map();
+    for (const c of contacts) {
+      const n = String(c.name || '').trim().toLowerCase();
+      if (n) seen.set(n, (seen.get(n) || 0) + 1);
+    }
+    return new Set([...seen].filter(([, n]) => n > 1).map(([n]) => n));
+  }
+
+  /** Contacts matching the search box AND the filter, in the chosen order.
+   * Search matches name or address, case-insensitively, on any substring — an
+   * address book is searched for "@firma.si" at least as often as for a name. */
   function filteredContacts() {
     const q = ctSearch.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) => `${c.name} ${c.email}`.toLowerCase().includes(q));
+    let out = contacts;
+    if (q) out = out.filter((c) => `${c.name} ${c.email}`.toLowerCase().includes(q));
+    if (ctFilter === 'noname') out = out.filter((c) => !String(c.name || '').trim());
+    else if (ctFilter === 'local') out = out.filter((c) => !c.synced);
+    else if (ctFilter === 'synced') out = out.filter((c) => c.synced);
+    else if (ctFilter === 'dupname') {
+      const dups = duplicateNames();
+      out = out.filter((c) => dups.has(String(c.name || '').trim().toLowerCase()));
+    }
+    return ctSort === 'added' ? out : sortContacts(out);
+  }
+
+  /** A copy, sorted — never the `contacts` array itself, which is the draft
+   *  Save writes back and whose order is its own business.
+   *
+   *  Sorted by what the row actually SHOWS: a contact with no name sorts under
+   *  its address rather than joining every other nameless row in a block at the
+   *  top. localeCompare because č, š and ž belong after c, s and z here, not
+   *  after z; `numeric` so "Sector 2" precedes "Sector 10". */
+  function sortContacts(list) {
+    const key = ctSort === 'email'
+      ? (c) => String(c.email || '')
+      : (c) => String(c.name || '').trim() || String(c.email || '');
+    const lang = I18n.lang?.() || undefined;
+    return [...list].sort((a, b) =>
+      key(a).localeCompare(key(b), lang, { sensitivity: 'base', numeric: true }));
   }
 
   // A few thousand contacts is a few thousand pairs of <input>s — enough to make
@@ -4049,6 +4105,206 @@ const Settings = (() => {
     }
   }
 
+  /* ---------- CSV import, with the columns named by hand ----------
+   *
+   * "Export the company address book and import it here" used to work only if
+   * the export happened to be shaped like Google's, because the server picked
+   * its columns by pattern (see the /api/contacts/import route) and said
+   * nothing when it found none — an import that reported success and added
+   * zero contacts. Real exports have "Priimek" where Google has "Last Name",
+   * arrive semicolon-separated out of a European Excel, and keep the name in
+   * two columns that have to be joined.
+   *
+   * So the file is read here (public/js/csv.js), the columns are guessed, and
+   * the guess is shown as three dropdowns over a live preview of the first few
+   * contacts as they would be saved. Wrong guess, one dropdown, done — and
+   * nothing is sent until the preview says the right thing.
+   */
+
+  // Anchored, so "E-mail Address" cannot be mistaken for a name column.
+  const CT_COL_FIRST = /^(first[\s_-]*names?|given[\s_-]*names?|fore[\s_-]*names?|name|full[\s_-]*name|display[\s_-]*name|ime|polno[\s_-]*ime|naziv)$/i;
+  const CT_COL_LAST = /^(last[\s_-]*names?|surnames?|family[\s_-]*names?|priimek)$/i;
+  const CT_COL_MAIL = /(e-?mail|e-?po[sš]ta|elektronsk)/i;
+
+  /** The e-mail column, by header and then by what is actually IN the column.
+   *
+   * The data test is not a fallback for exotic files, it is the main event for
+   * Google's own: its header has "E-mail 1 - Type" sitting in front of
+   * "E-mail 1 - Value", and both match any pattern loose enough to match
+   * either. The one with addresses in it is the one that wins. It also rescues
+   * a file whose headers are in a language nobody thought of, and one with no
+   * header at all. */
+  function guessEmailColumn(header, dataRows) {
+    const width = Math.max(header.length, ...dataRows.map((r) => r.length), 0);
+    const hasAddresses = (i) => dataRows.some((r) => String(r[i] || '').includes('@'));
+    const named = [];
+    for (let i = 0; i < width; i++) if (CT_COL_MAIL.test(header[i] || '')) named.push(i);
+    return named.find(hasAddresses)
+      ?? named[0]
+      ?? [...Array(width).keys()].find(hasAddresses)
+      ?? -1;
+  }
+
+  function guessColumn(header, re) {
+    const i = header.findIndex((h) => re.test(h || ''));
+    return i === -1 ? -1 : i;
+  }
+
+  /** When neither name pattern matched anything — a file with no header at all,
+   *  or one whose columns are called things like "Sodelavec" — the first column
+   *  that holds text and is not the address is very nearly always the name.
+   *  Guessing it beats leaving the dialog with the name field empty, and the
+   *  preview underneath is where a wrong guess shows up immediately. */
+  function guessNameColumn(dataRows, emailColumn, width) {
+    for (let i = 0; i < width; i++) {
+      if (i === emailColumn) continue;
+      if (dataRows.some((r) => { const v = String(r[i] || '').trim(); return v && !v.includes('@'); })) return i;
+    }
+    return -1;
+  }
+
+  /** One column's label in the dropdowns: what it is called, and what is in it
+   *  — a header alone is not enough to choose by when two of them are called
+   *  "Name 1" and "Name 2". */
+  function columnLabel(i, header, dataRows, hasHeader) {
+    const name = hasHeader && header[i] ? header[i] : `${I18n.t('Column')} ${i + 1}`;
+    const sample = dataRows.map((r) => String(r[i] || '').trim()).find(Boolean) || '';
+    return sample ? `${name} — ${sample.slice(0, 28)}` : name;
+  }
+
+  /** The rows this mapping would save. Also what the preview draws, so what is
+   *  on screen and what is sent cannot disagree. */
+  function mappedRows(dataRows, map) {
+    const at = (r, i) => (i >= 0 ? String(r[i] || '').trim() : '');
+    const out = [];
+    for (const r of dataRows) {
+      const email = at(r, map.email);
+      if (!email.includes('@')) continue;      // a header repeated mid-file, a total row, a blank
+      const name = [at(r, map.first), at(r, map.last)].filter(Boolean).join(' ');
+      out.push({ name, email });
+    }
+    return out;
+  }
+
+  async function importCsvWithMapping(text, filename) {
+    const { delimiter, rows } = Csv.parse(text);
+    if (!rows.length) { toast(I18n.t('That file has no rows in it')); return; }
+
+    const delimiterName = { ',': ',', ';': ';', '\t': I18n.t('tab') }[delimiter] || delimiter;
+    const width = Math.max(...rows.map((r) => r.length));
+    let hasHeader = Csv.looksLikeHeader(rows[0]);
+
+    const bodyHtml = `
+      <p class="dialog-label">${esc(filename || 'CSV')} — <span id="cm-count"></span></p>
+      <label class="mini-toggle" style="gap:6px;margin-bottom:10px">
+        <input type="checkbox" id="cm-header"> <span>${I18n.t('First row names the columns')}</span>
+      </label>
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <label class="set-hint" style="margin:0;min-width:90px" for="cm-first">${I18n.t('Name')}</label>
+        <select id="cm-first" class="grow"></select>
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <label class="set-hint" style="margin:0;min-width:90px" for="cm-last">${I18n.t('Surname')}</label>
+        <select id="cm-last" class="grow"></select>
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:10px">
+        <label class="set-hint" style="margin:0;min-width:90px" for="cm-email">${I18n.t('E-mail')}</label>
+        <select id="cm-email" class="grow"></select>
+      </div>
+      <div class="set-hint" style="margin:0 0 4px">${I18n.t('Name and Surname are joined with a space. Leave one empty if the file keeps the whole name in one column.')}</div>
+      <div id="cm-preview"></div>`;
+
+    // Read back out of the dialog rather than kept in a variable: the selects
+    // ARE the state, and rebuilding them on a header toggle must not have to
+    // remember to write it back somewhere as well.
+    const readMap = (root) => ({
+      first: +root.querySelector('#cm-first').value,
+      last: +root.querySelector('#cm-last').value,
+      email: +root.querySelector('#cm-email').value,
+    });
+
+    const result = await Dialog.form(I18n.t('Import contacts from CSV'), bodyHtml, {
+      okLabel: I18n.t('Import'),
+      wide: true,
+      getValue: (root) => ({ ...readMap(root), hasHeader: root.querySelector('#cm-header').checked }),
+      onOpen: (root) => {
+        const headerBox = root.querySelector('#cm-header');
+        headerBox.checked = hasHeader;
+        const ok = root.querySelector('.dialog-buttons .send-btn');
+
+        // Rebuilds the three dropdowns and re-guesses. Called once at open and
+        // again whenever the header checkbox flips — which changes both what
+        // the columns are called and which rows are data, so the old guess is
+        // not worth keeping. Everything in between is the user's own choice and
+        // only ever redraws the preview (see draw).
+        const fill = () => {
+          const header = hasHeader ? rows[0] : [];
+          const dataRows = hasHeader ? rows.slice(1) : rows;
+          const guess = {
+            first: guessColumn(header, CT_COL_FIRST),
+            last: guessColumn(header, CT_COL_LAST),
+            email: guessEmailColumn(header, dataRows),
+          };
+          if (guess.first === -1 && guess.last === -1) {
+            guess.first = guessNameColumn(dataRows, guess.email, width);
+          }
+          for (const field of ['first', 'last', 'email']) {
+            const select = root.querySelector(`#cm-${field}`);
+            const chosen = guess[field];
+            select.innerHTML = `<option value="-1">— ${I18n.t('none')} —</option>`
+              + [...Array(width).keys()].map((i) =>
+                `<option value="${i}"${i === chosen ? ' selected' : ''}>${esc(columnLabel(i, header, dataRows, hasHeader))}</option>`).join('');
+          }
+          draw();
+        };
+
+        const draw = () => {
+          const dataRows = hasHeader ? rows.slice(1) : rows;
+          const mapped = mappedRows(dataRows, readMap(root));
+          root.querySelector('#cm-count').textContent =
+            `${dataRows.length} ${I18n.t('rows')} · ${I18n.t('separator')} “${delimiterName}”`;
+          // Disabled rather than "Import" followed by a complaint: with no
+          // e-mail column there is nothing this button could do.
+          ok.disabled = !mapped.length;
+          root.querySelector('#cm-preview').innerHTML = mapped.length
+            ? `<div class="set-hint" style="margin:0 0 4px">${I18n.t('Will import')} ${mapped.length} ${I18n.t('of')} ${dataRows.length}${
+              mapped.length < dataRows.length ? ` — ${I18n.t('rows with no e-mail address are skipped')}` : ''}</div>
+              <table class="cm-preview-table">
+                <thead><tr><th>${I18n.t('Name')}</th><th>${I18n.t('E-mail')}</th></tr></thead>
+                <tbody>${mapped.slice(0, 5).map((r) =>
+                  `<tr><td>${esc(r.name) || `<span class="set-hint" style="margin:0">${I18n.t('(no name)')}</span>`}</td><td>${esc(r.email)}</td></tr>`).join('')}</tbody>
+              </table>`
+            : `<div class="set-hint" style="margin:0">${I18n.t('Nothing to import yet — pick the column that holds the e-mail address.')}</div>`;
+        };
+
+        headerBox.addEventListener('change', () => { hasHeader = headerBox.checked; fill(); });
+        for (const field of ['first', 'last', 'email']) {
+          root.querySelector(`#cm-${field}`).addEventListener('change', draw);
+        }
+        fill();
+      },
+    });
+    if (!result) return;
+
+    const dataRows = result.hasHeader ? rows.slice(1) : rows;
+    const toAdd = mappedRows(dataRows, result);
+    if (!toAdd.length) return;
+    try {
+      const r = await API.addContacts(toAdd);
+      // Three numbers, because they answer three different questions: what the
+      // file held, what was new, and what was already here. "Imported 0" on its
+      // own reads as a failure when it usually means the opposite.
+      const already = toAdd.length - r.added;
+      toast(`${I18n.t('Imported')} ${r.added} ${I18n.t('contact(s)')}${
+        already ? ` — ${already} ${I18n.t('already in your contacts')}` : ''}`, 5000);
+      await adoptImportedContacts();
+      contactSuggestions = null;   // some suggestions are real contacts now
+      renderContacts();
+    } catch (e) {
+      toast(I18n.t('Could not add contacts: ') + e.message, 5000);
+    }
+  }
+
   function renderContacts() {
     const ewsAccounts = allAccounts().filter((a) => a.type === 'ews' && !a.disabled);
     const graphAccounts = allAccounts().filter((a) => a.type === 'graph' && !a.disabled);
@@ -4080,6 +4336,13 @@ const Settings = (() => {
         <span class="set-hint" style="margin:0">${matches.length}${matches.length !== contacts.length ? ` / ${contacts.length}` : ''}</span>
       </div>
       <div class="row" style="gap:8px;margin-bottom:10px">
+        <label class="set-hint" style="margin:0" for="ct-sort">${I18n.t('Sort')}</label>
+        ${sel('ct-sort', CT_SORTS.map(([v, l]) => [v, I18n.t(l)]), ctSort)}
+        <label class="set-hint" style="margin:0" for="ct-filter">${I18n.t('Show')}</label>
+        ${sel('ct-filter', CT_FILTERS.map(([v, l]) => [v, I18n.t(l)]), ctFilter)}
+        ${ctFilter || ctSearch ? `<button type="button" class="link-btn" id="ct-reset-view">${I18n.t('Reset')}</button>` : ''}
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:10px">
         <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ct-all" ${shown.length && shown.every((c) => ctSelected.has(c.id)) ? 'checked' : ''}> <span>${I18n.t('Select')}</span></label>
         ${matches.length > shown.length ? `<button type="button" class="link-btn" id="ct-select-matching">${I18n.t('Select all matching')} (${matches.length})</button>` : ''}
         ${selectedCount ? `<span class="set-hint" style="margin:0">${selectedCount} ${I18n.t('selected')}</span>
@@ -4092,7 +4355,10 @@ const Settings = (() => {
       ${shown.map((c) => contactRowHtml(c)).join('')}
       </div>
       ${matches.length > shown.length ? `<p class="set-hint" style="grid-column:auto">${I18n.t('Showing the first')} ${shown.length} ${I18n.t('of')} ${matches.length} — ${I18n.t('search to narrow the list down.')}</p>` : ''}
-      ${!matches.length ? `<p class="set-hint" style="grid-column:auto">${contacts.length ? I18n.t('No contacts match your search.') : I18n.t('No contacts yet — add one, or import them above.')}</p>` : ''}`;
+      ${!matches.length ? `<p class="set-hint" style="grid-column:auto">${
+        !contacts.length ? I18n.t('No contacts yet — add one, or import them above.')
+          : ctFilter ? I18n.t('No contacts match this filter.')
+            : I18n.t('No contacts match your search.')}</p>` : ''}`;
 
     const search = document.getElementById('ct-search');
     search.addEventListener('input', () => {
@@ -4106,11 +4372,35 @@ const Settings = (() => {
       s2.setSelectionRange(s2.value.length, s2.value.length);
     });
 
+    // collectContacts() before each: re-rendering rebuilds every <input>, so an
+    // edit that has not left its field yet is only in the DOM until it is read
+    // back into the draft.
+    document.getElementById('ct-sort').addEventListener('change', (e) => {
+      collectContacts();
+      ctSort = e.target.value;
+      renderContacts();
+    });
+    document.getElementById('ct-filter').addEventListener('change', (e) => {
+      collectContacts();
+      ctFilter = e.target.value;
+      renderContacts();
+    });
+    document.getElementById('ct-reset-view')?.addEventListener('click', () => {
+      collectContacts();
+      ctFilter = '';
+      ctSearch = '';
+      renderContacts();
+    });
+
     document.getElementById('ct-add').addEventListener('click', () => {
       collectContacts();
       // A new blank row can't match an active search, so it would be added and
       // then immediately hidden — clear the filter rather than lose it on screen.
+      // Same for "Same name, several addresses" and the two source filters: a
+      // blank row matches none of them. "Without a name" is the one filter a
+      // blank row does belong to, so that one is left alone.
       ctSearch = '';
+      if (ctFilter && ctFilter !== 'noname') ctFilter = '';
       // unshift, not push: only the first CT_RENDER_CAP rows are ever drawn, so
       // a row appended to the end of a longer list is added to the array and
       // then not rendered at all — the button looks completely dead. Reported
@@ -4173,12 +4463,22 @@ const Settings = (() => {
     }));
     document.getElementById('ct-import').addEventListener('click', () => document.getElementById('ct-file').click());
     document.getElementById('ct-file').addEventListener('change', async (e) => {
-      const f = e.target.files[0]; if (!f) return;
+      const f = e.target.files[0];
+      // Cleared whatever happens, or picking the SAME file again fires no
+      // change event — which is precisely what you do after a mapping you got
+      // wrong the first time.
+      e.target.value = '';
+      if (!f) return;
       const text = await f.text();
-      const r = await API.importContacts(text);
-      toast(`Imported ${r.added} contact(s)`);
-      await adoptImportedContacts();
-      renderContacts();
+      if (text.trimStart().startsWith('BEGIN:VCARD')) {
+        // A vCard says what each field is; there is nothing to map.
+        const r = await API.importContacts(text);
+        toast(`${I18n.t('Imported')} ${r.added} ${I18n.t('contact(s)')}`);
+        await adoptImportedContacts();
+        renderContacts();
+        return;
+      }
+      await importCsvWithMapping(text, f.name);
     });
 
     // ---- Exchange: pull the account's own Contacts folder (read-only) ----

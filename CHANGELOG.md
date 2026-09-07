@@ -9,6 +9,42 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### The contacts list can be sorted, filtered, and imported from anyone's CSV
+Three things that were all the same complaint: going through a few hundred contacts to throw
+the useless ones away was slower than it should be, and getting the company address book in
+was not possible at all.
+
+**Sorting.** *Name A–Z* is the new default, with *E-mail A–Z* and *As added* beside it —
+contacts.json's own order is the order things were added, which is no order at all once "Add
+people I send to" has been on for a year. Sorting is by what the row shows, so a contact with
+no name sorts under its address rather than joining a block of blanks at the top, and Slovene
+collation is used where the interface is Slovene: Č, Š and Ž after C, S and Z.
+
+**Filtering.** A *Show* dropdown beside the search box. **Without a name** is the one that
+matters for pruning — it is where addresses picked up automatically end up. **Same name,
+several addresses** finds both real duplicates and the legitimate case of one person's work
+address beside their private one. **Local only** and **Synced only** separate the rows you
+can bulk-delete from the ones that live on somebody else's server. All of it composes with
+the search box and with *Select all matching*, so "everything with no name, selected,
+deleted" is three clicks.
+
+**CSV imports name their own columns.** Picking a `.csv` now opens a dialog with three
+dropdowns — *Name*, *Surname*, *E-mail* — listing that file's columns with a sample value
+beside each, over a live preview of the first few contacts exactly as they would be saved.
+Name and Surname are joined with a space, or leave one empty if the whole name is in one
+column. Nothing is sent until the preview reads correctly.
+
+Before this, a CSV was handed to the server, which looked for a column called something like
+"Name" and something like "E-mail" — so anything not shaped like a Google export reported
+success and added nothing. Now the guess is only a starting point, and it is right far more
+often: English and Slovene headers alike, the address column found by looking for the one
+that actually contains an `@` where the header gives nothing away, and the same trick for a
+file with no header row. Commas, semicolons and tabs are all recognised — a CSV out of a
+European Excel needs nothing done to it first — as are quoted fields with commas or line
+breaks in them and the byte-order mark Excel writes in front of the first column name. Rows
+with no address are skipped and counted, and the result says how many addresses were already
+in the book rather than only how many were added.
+
 ### Add to contacts, from the message header
 The right-click / long-press menu on a name in a header had *Copy address* and *New message*.
 It has **Add to contacts** now, which saves that person with the display name spelled exactly

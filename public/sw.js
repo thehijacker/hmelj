@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20260907022';
+const VERSION = 'hmelj-20260907023';
 const SHELL = [
   '/',
   '/index.html',
@@ -38,6 +38,10 @@ const SHELL = [
   '/js/messageFind.js',
   '/js/attachmentViewer.js',
   '/js/oauth.js',
+  // Read by the contacts importer's field mapper (settings.js) at call time,
+  // but a global script all the same — missing offline it is an undefined
+  // global the moment somebody opens Settings and picks a file.
+  '/js/csv.js',
   '/js/settings.js',
   '/js/analytics.js',
   '/js/proofread.js',

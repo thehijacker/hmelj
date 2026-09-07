@@ -2379,6 +2379,19 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
    short its actual content was. max-height still caps genuinely long ones. */
 .dialog { max-width: 440px; width: min(440px, 92vw); height: auto; padding: 22px 24px; max-height: 90vh; overflow: auto; }
 .dialog:has(.dialog-wide) { max-width: 620px; width: min(620px, 94vw); }
+
+/* The CSV importer's live preview of the first few contacts as they would be
+   saved (see importCsvWithMapping in settings.js). Deliberately plain: it is
+   there to be checked against the file, not admired. */
+.cm-preview-table {
+  width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale));
+  table-layout: fixed;
+}
+.cm-preview-table th, .cm-preview-table td {
+  text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cm-preview-table th { color: var(--text-dim); font-weight: 500; }
 .dialog-title {
   font-size: calc(17px * var(--ui-scale)); font-weight: 500; margin-bottom: 12px;
   display: flex; align-items: baseline; gap: 10px;

@@ -141,7 +141,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Calendars from anywhere** — CalDAV, Google, Microsoft 365, Exchange, or one that lives in Hmelj itself, all in one month/week/day/agenda view
 - **Create and edit** — repeats, all-day events, attendees, time-zone-correct display, and *Add to calendar* straight from a message
 - **Reminders** delivered as push, whether or not Hmelj is open
-- **Contacts** — address book, learned from the mail you actually send, with Google-CSV and vCard import and a direct pull from Microsoft or Exchange
+- **Contacts** — address book, learned from the mail you actually send, sortable by name or address and filterable (*Without a name*, *Same name several addresses*, local vs synced) for going through it quickly, with vCard import, a direct pull from Microsoft or Exchange, and a **CSV importer you point at your own columns** — pick which is name, surname and e-mail over a live preview, so any company export goes in, not only a Google-shaped one
 - **Contact groups** — name a set of addresses, then type that name into To, Cc or Bcc; Hmelj puts the people in when the message goes out. Backspace at a recipient boundary takes the whole name, group or person, the way Outlook does
 - **Hmelj as a CalDAV/CardDAV server** — subscribe a phone or another app, with per-device app passwords and busy-only sharing
 
