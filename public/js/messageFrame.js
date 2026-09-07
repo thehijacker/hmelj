@@ -233,7 +233,7 @@ const MessageFrame = (() => {
     return doc.body.innerHTML;
   }
 
-  function buildDoc({ html, text, fontFamily, fontSize, dark, bg, fg, link, dim, fonts, fontOverride }) {
+  function buildDoc({ html, text, fontFamily, fontSize, dark, bg, fg, link, dim, fonts, fontOverride, expandQuote }) {
     let body;
     if (html) {
       body = linkifyBareUrlsInHtml(html);
@@ -351,7 +351,7 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
 ::highlight(hmelj-find){background:#ffe066;color:#1f1f1f;}
 ::highlight(hmelj-find-current){background:#ff8f1f;color:#1f1f1f;}
 </style>
-</head><body>${body}</body>
+</head><body${expandQuote ? ' data-quote-open="1"' : ''}>${body}</body>
 <script>
 (function(){
   // Force every element's own background to the theme color EXCEPT where
@@ -759,16 +759,11 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
   // buildDoc (splitQuotedText) and emits exactly the same two things.
   function showing(el) { return !el.classList.contains('hmelj-quoted'); }
 
-  document.addEventListener('click', function (e) {
-    var btn = e.target.closest && e.target.closest('.hmelj-quote-toggle');
-    if (!btn) return;
-    e.preventDefault();
+  function setQuoteShown(open) {
     var els = document.querySelectorAll('.hmelj-quoted, .hmelj-quote-shown');
-    var opening = false;
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
-      opening = !showing(el);
-      if (opening) {
+      if (open) {
         el.classList.remove('hmelj-quoted');
         el.classList.add('hmelj-quote-shown');
         // The server hid it with an inline style (nothing in a message's own
@@ -780,8 +775,29 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
         try { el.style.setProperty('display', 'none', 'important'); } catch (err) {}
       }
     }
-    btn.title = opening ? 'Hide trimmed content' : 'Show trimmed content';
+    var btns = document.querySelectorAll('.hmelj-quote-toggle');
+    for (var j = 0; j < btns.length; j++) {
+      btns[j].title = open ? 'Hide trimmed content' : 'Show trimmed content';
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.hmelj-quote-toggle');
+    if (!btn) return;
+    e.preventDefault();
+    var first = document.querySelector('.hmelj-quoted, .hmelj-quote-shown');
+    setQuoteShown(!!first && !showing(first));
   }, true);
+
+  // Open from the start when this message is being read on its OWN — the
+  // parent sets data-quote-open (see buildDoc's expandQuote, and the callers
+  // in app.js). Collapsing earns its keep in a conversation, where everything
+  // it hides is already on screen above as its own message; outside one there
+  // is nothing above it, so a forward with a line of comment on top arrives as
+  // that line and a button, and the mail that was actually being forwarded is
+  // behind a control the reader has no reason to suspect. The button stays
+  // either way, so a long quote can still be folded away by hand.
+  if (document.body && document.body.getAttribute('data-quote-open') === '1') setQuoteShown(true);
 })();
 (function(){
   // ── Find in message ───────────────────────────────────────────────────────

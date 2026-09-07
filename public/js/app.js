@@ -2817,7 +2817,7 @@ function renderScheduledPreview(view, data, item) {
     </article>`;
 
   const card = $('.mv-card', view);
-  card.__frameOpts = { html: data.html || undefined, text: data.text, fontFamily, fontSize, fontOverride, fonts: state.customFonts };
+  card.__frameOpts = { html: data.html || undefined, text: data.text, fontFamily, fontSize, fontOverride, fonts: state.customFonts, expandQuote: true };
   $('.mv-body-slot', view).appendChild(MessageFrame.create({ ...card.__frameOpts, ...themeColorsForFrame() }));
   $('#mv-more', view).addEventListener('click', (e) => {
     e.stopPropagation();
@@ -5495,8 +5495,12 @@ function bindAddressMenu(card) {
  * `listEntry` is the list row (or, inside a thread, that message's envelope
  * from the thread listing): the object flag changes are written back to, so
  * the list repaints without a round trip.
+ *
+ * `inThread` says this card is one of a stack rather than the whole reading
+ * pane, which is the only thing that decides whether the quoted half of a
+ * reply opens collapsed — see the quote block in messageFrame.js.
  */
-function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
+function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false } = {}) {
   const from = msg.from?.[0] || {};
   const fontFamily = migrateFontValue(state.settings.messageFont);
   const fontSize = state.settings.messageFontSize || 15;
@@ -5616,7 +5620,7 @@ function buildMessageCard(msg, listEntry, { collapsed = null } = {}) {
 
   // Everything a rebuild of just the iframe needs (theme change) and everything
   // a reload of the whole card needs (the user allowing this message's images).
-  card.__frameOpts = { html: msg.html, text: msg.text, fontFamily, fontSize, fontOverride, fonts: state.customFonts };
+  card.__frameOpts = { html: msg.html, text: msg.text, fontFamily, fontSize, fontOverride, fonts: state.customFonts, expandQuote: !inThread };
   card.__msg = msg;
   card.__listEntry = listEntry;
   $('.mv-body-slot', card).appendChild(MessageFrame.create({ ...card.__frameOpts, ...themeColorsForFrame() }));
@@ -5804,7 +5808,9 @@ async function reloadCard(card, { allowImages = false } = {}) {
   // Keeps this card's own header position across the rebuild — it is the same
   // message being redrawn, not a newly opened one.
   const collapsed = !!$('.mv-header-card.mv-head-collapsed', card);
-  card.replaceWith(buildMessageCard(fresh, listEntry, { collapsed }));
+  // Both of the things a rebuild must not silently change: where the header
+  // was, and whether this card is one of a conversation.
+  card.replaceWith(buildMessageCard(fresh, listEntry, { collapsed, inThread: !card.__frameOpts?.expandQuote }));
 }
 
 /**
@@ -5894,7 +5900,7 @@ async function openThread(m) {
   }
   newestMsg.__folder = newest.folder;
   newestMsg.__account = accountOf(newest);
-  const card = buildMessageCard(newestMsg, newest);
+  const card = buildMessageCard(newestMsg, newest, { inThread: true });
   view.appendChild(card);
   // Same read-marking rule as opening a single message — per message, as it is
   // opened, rather than marking a whole conversation read for having glanced at
@@ -5954,7 +5960,7 @@ async function expandThreadStub(stub, entry, { collapsed = true } = {}) {
   if (!stub.isConnected) return null;
   msg.__folder = entry.folder;
   msg.__account = accountOf(entry);
-  const card = buildMessageCard(msg, entry, { collapsed });
+  const card = buildMessageCard(msg, entry, { collapsed, inThread: true });
   stub.replaceWith(card);
   scheduleMarkRead(entry);
   return card;
@@ -6161,6 +6167,19 @@ function printMessage(msg) {
   const cleanup = () => iframe.remove();
   iframe.addEventListener('load', () => {
     const win = iframe.contentWindow;
+    // A reply arrives with its quoted half hidden behind the ⋯ button (marked
+    // by server/quoteCollapse.js, opened by the frame's own click handler —
+    // neither of which exists in here). On paper that button does nothing, and
+    // a printed reply with the mail it was replying to left out is not a
+    // printed reply, so this document gets the whole thing.
+    const doc = iframe.contentDocument;
+    if (doc) {
+      doc.querySelectorAll('.hmelj-quote-toggle').forEach((b) => b.remove());
+      doc.querySelectorAll('.hmelj-quoted').forEach((el) => {
+        el.classList.remove('hmelj-quoted');
+        el.style.removeProperty('display');
+      });
+    }
     win.addEventListener('afterprint', cleanup);
     win.focus();
     win.print();

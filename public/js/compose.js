@@ -603,6 +603,31 @@ const Compose = (() => {
     return d.textContent;
   }
 
+  /** Undoes Hmelj's own quote collapsing (server/quoteCollapse.js) in a message
+   *  that is about to be quoted into a new one.
+   *
+   *  That collapsing is a rendering decision made for the READING pane, and it
+   *  is made with an inline display:none!important plus a button that only does
+   *  anything inside the sandboxed message frame. Carried into an outgoing
+   *  message, both stop being decorations: the recipient's client has no such
+   *  handler, so the forwarded mail leaves here permanently invisible with a
+   *  dead ⋯ where it should have been. Reply to a reply, or forward anything
+   *  that was itself a reply, and this is the difference between sending the
+   *  conversation and sending a button. */
+  function unhideCollapsedQuote(html) {
+    if (!html || !html.includes('hmelj-quote')) return html;
+    const d = document.createElement('div');
+    d.innerHTML = html;
+    for (const b of d.querySelectorAll('.hmelj-quote-toggle')) b.remove();
+    for (const el of d.querySelectorAll('.hmelj-quoted, .hmelj-quote-shown')) {
+      el.classList.remove('hmelj-quoted', 'hmelj-quote-shown');
+      if (!el.getAttribute('class')) el.removeAttribute('class');
+      el.style.removeProperty('display');
+      if (!el.getAttribute('style')) el.removeAttribute('style');
+    }
+    return d.innerHTML;
+  }
+
   function quoteBlock(msg) {
     const when = fmtDate(msg.date, { long: true });
     const who = msg.from?.[0] ? (msg.from[0].name || msg.from[0].address) : '';
@@ -611,7 +636,7 @@ const Compose = (() => {
     // for whoever reads the reply, instead of quietly demoting them to text.
     // Only quoted mail — editDraft() below deliberately leaves the user's own
     // draft byte-for-byte as they wrote it.
-    const inner = msg.html || `<pre>${MessageFrame.linkifyText(msg.text)}</pre>`;
+    const inner = unhideCollapsedQuote(msg.html) || `<pre>${MessageFrame.linkifyText(msg.text)}</pre>`;
     return `<br><div class="quote-header">On ${esc(when)}, ${esc(who)} wrote:</div>
 <blockquote style="${QUOTE_STYLE}">${inner}</blockquote>`;
   }

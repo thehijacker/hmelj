@@ -153,6 +153,10 @@
       html: msg.html, text: msg.text, fontFamily: knownFont ? settings.messageFont : 'system-ui', fontSize: settings.messageFontSize,
       bg: v('--surface', '#ffffff'), fg: v('--text', '#1f1f1f'), link: v('--accent', '#0b57d0'), dim: v('--text-dim', '#888888'),
       fonts: customFonts,
+      // A popout is one message on its own: nothing above it, so the quoted
+      // half of a reply opens with it (see buildDoc, and buildMessageCard's
+      // inThread in app.js).
+      expandQuote: true,
     }));
     view.querySelectorAll('.attach-chip').forEach((a) => a.addEventListener('click', (e) => {
       e.preventDefault();

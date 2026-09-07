@@ -9,6 +9,21 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### A forwarded message is no longer hidden behind a ⋯
+The quoted half of a reply is collapsed behind a small ⋯ button, which is right in a
+conversation — everything it hides is on screen above it as its own message — and wrong
+everywhere else. Forward something with a line of comment on top and the reader got the
+line and the button, with the mail that was the whole point of the message as the one
+thing not shown. The collapsing is now the conversation view's alone; a message read on
+its own opens with its quote already open, and the button stays, so a long one can still
+be folded away by hand.
+
+Two related places where that hiding never belonged at all. **Printing** a reply left out
+the mail it was replying to and put a dead ⋯ on the paper. And **quoting** a collapsed
+message into a new one carried the hiding into outgoing mail — the recipient's client has
+no such button, so a message forwarded on from Hmelj could arrive with its contents
+permanently invisible.
+
 ### The unread stripe is thicker
 The line down the left of an unread row went from 3px to 5px. With the App font set to
 Bold it is not one of two signals but the only one — every row is bold then, so the stripe
