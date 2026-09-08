@@ -1372,7 +1372,9 @@
     "Discard the unsent draft for this message?": "Discard the unsent draft for this message?",
     "Could not open that draft": "Could not open that draft",
     "Could not discard that draft": "Could not discard that draft",
-    "Open drafts": "Open drafts"
+    "Open drafts": "Open drafts",
+    "Not searched by filename:": "Not searched by filename:",
+    "These accounts report only that a message has attachments, never their filenames.": "These accounts report only that a message has attachments, never their filenames."
   },
   "prefixes": [
     [

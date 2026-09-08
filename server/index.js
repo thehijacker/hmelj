@@ -69,7 +69,7 @@ import * as schedule from './schedule.js';
 import * as analytics from './analytics.js';
 import * as proofread from './proofread.js';
 import * as userLog from './userLog.js';
-import { queryNeedsBodySearch, extractStarredTerm } from './searchQuery.js';
+import { queryNeedsBodySearch, queryNeedsAttachmentSearch, extractStarredTerm } from './searchQuery.js';
 import * as subjectRules from './subjectRules.js';
 import { groupByKey, mergeGroupResults } from './unifiedMerge.js';
 import { log } from './log.js';
@@ -1071,6 +1071,40 @@ function searchFolderPaths(folders, account) {
  * where requireAuth already resolved the right one — including the owner-key swap for
  * a shared account, which re-wrapping in the VIEWER's identity would undo.
  */
+/* ---------- filetype: / has:attachment ----------
+ *
+ * These are the one kind of term no mail server can answer (see
+ * searchQuery.js#ATTACHMENT_FIELDS), so they are cache-only — the exact mirror
+ * of is:starred, which is live-only. Two consequences the routes below have to
+ * handle rather than paper over:
+ *
+ *  1. They cannot be combined with a term that MUST go live. Refusing that
+ *     combination in a sentence beats running half of it and returning a list
+ *     that looks like an answer.
+ *  2. An account whose backend does not supply filenames — Graph and EWS both
+ *     hand back only "has attachments", true or false — cannot contribute to a
+ *     filetype: search at all. Its messages are simply absent from the result,
+ *     which is invisible unless the answer says so. `notSearched` is that
+ *     saying-so; the browser puts it under the results.
+ */
+const FILENAMES_FROM = new Set(['imap']);
+
+function attachmentSearchGaps(q, accounts) {
+  if (!q || !queryNeedsAttachmentSearch(q)) return [];
+  // has:attachment alone is answerable everywhere — the boolean is cached for
+  // every backend. Only a filetype: term needs the names.
+  if (!/(^|\s)[+-]?filetype:/i.test(q)) return [];
+  return (accounts || []).filter((a) => !FILENAMES_FROM.has(a.type || 'imap')).map((a) => a.label || a.email);
+}
+
+/** The combinations that cannot both be honoured. Returns a sentence, or null. */
+function attachmentSearchConflict(q, { starred = false, needsLive = false } = {}) {
+  if (!q || !queryNeedsAttachmentSearch(q)) return null;
+  if (starred) return 'is:starred and filetype:/has:attachment cannot be combined — one is answered live by the mail server, the other from the local cache.';
+  if (needsLive) return 'body: and filetype:/has:attachment cannot be combined unless the account has a search index — one needs a live search, the other the local cache.';
+  return null;
+}
+
 async function sweepLive(targets, { page, pageSize, q, unreadOnly, flaggedOnly = false, fullText = false, label = 'sweep' }) {
   const need = page * pageSize;
   const stlog = log.scope('search');
@@ -1183,6 +1217,15 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
   // every account, which is the one thing neither the cache path nor unifiedLive (INBOX
   // only, per account) can do. The Sent box keeps its own scope — searching every
   // folder from there would answer a question nobody asked.
+  // Before either live branch: a filetype:/has: term can only be answered from
+  // the cache, so a query carrying one must not be sent down a live path at all.
+  const attachConflict = attachmentSearchConflict(q, {
+    starred: starredSearch, needsLive: !cache.bodySearchServable(q, list),
+  });
+  if (attachConflict) return res.status(400).json({ error: attachConflict });
+  const attachOnly = !!q && queryNeedsAttachmentSearch(q);
+  const attachGaps = attachmentSearchGaps(q, list);
+
   if (starredSearch) {
     const me = { id: currentUser().userId, username: currentUser().username };
     const targets = await Promise.all(list.map(async (a) => {
@@ -1199,7 +1242,10 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
   }
   // "Search everywhere", the unified view's own version of the per-folder route's
   // scope=account branch: every account, every folder, live, header and body.
-  if (q && req.query.scope === 'account') {
+  // …and "search everywhere" is a live sweep, so it is the other path a
+  // filetype: term must not take. It falls through to the cache below instead,
+  // which is where the filenames are.
+  if (q && req.query.scope === 'account' && !attachOnly) {
     const me = { id: currentUser().userId, username: currentUser().username };
     const targets = await Promise.all(list.map(async (a) => {
       const ownerKey = a.shared ? userKey(a.ownerUsername) : currentUser().userKey;
@@ -1261,7 +1307,13 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
     result = await unifiedLive({ id: currentUser().userId, username: currentUser().username }, list, { box, page, pageSize, q, unreadOnly, flaggedOnly, mutedPairs });
     scopeUsed = 'inboxes';
   }
-  res.json({ total: result.total, page, pageSize, unified: true, messages: shortenSubjects(result.messages), scope: scopeUsed });
+  res.json({
+    total: result.total, page, pageSize, unified: true, messages: shortenSubjects(result.messages), scope: scopeUsed,
+    // Which accounts a filetype: term could not cover, by name. Absent — not an
+    // empty array — when there is nothing to say, so the browser can test for
+    // it plainly.
+    ...(attachGaps.length ? { notSearched: attachGaps } : {}),
+  });
 }));
 
 // ---------- background sync status ----------
@@ -2886,6 +2938,17 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
   // the cache branch below never falls through to IMAP while it's on.
   const flaggedOnly = req.query.flagged === '1';
 
+  // Same two guards as the unified route: a filetype:/has: term is cache-only,
+  // so it must never be handed to a live sweep, and the accounts it cannot
+  // cover are named in the answer rather than silently dropped.
+  const searchAccForAttach = accounts.currentAccount();
+  const attachConflict = attachmentSearchConflict(q, {
+    starred: starredSearch, needsLive: !cache.bodySearchServable(q, [searchAccForAttach]),
+  });
+  if (attachConflict) return res.status(400).json({ error: attachConflict });
+  const attachOnly = !!q && queryNeedsAttachmentSearch(q);
+  const attachGaps = attachmentSearchGaps(q, [searchAccForAttach]);
+
   // `is:starred` from a single account's folder view keeps that view's scope — this
   // folder and everything under it, the same subtree the ★ button covers — but sweeps
   // it live, so it finds stars on mail older than the cache window. No runAsAccount
@@ -2917,7 +2980,9 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
   // explicit escalation: every folder of the account (All Mail where the
   // provider has one), asked live, matching header AND body. Costs a SELECT +
   // SEARCH per folder, which is why it is a link you click and not the default.
-  if (q && req.query.scope === 'account') {
+  // Falls through to the cache when a filetype: term is present — that is where
+  // the filenames are, and a live sweep cannot see them.
+  if (q && req.query.scope === 'account' && !attachOnly) {
     const acc = accounts.currentAccount();
     const folders = await starredFoldersFor(acc, currentUser().userKey, (fn) => fn(), searchFolderPaths);
     const swept = await sweepLive([{ account: acc, run: (fn) => fn(), folders }],
@@ -2977,7 +3042,11 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
       // asked. Better to report only what the cache holds (this folder tree's newest
       // syncBackfillLimit messages per folder) than to change the scope underfoot.
       if (flaggedOnly || (!searchCameUpEmpty && !unreadIncomplete)) {
-        return res.json({ ...cached, messages: shortenSubjects(cached.messages, acc.id), scope: indexAnswered ? 'index' : 'cache' });
+        return res.json({
+          ...cached, messages: shortenSubjects(cached.messages, acc.id),
+          scope: indexAnswered ? 'index' : 'cache',
+          ...(attachGaps.length ? { notSearched: attachGaps } : {}),
+        });
       }
     }
   }

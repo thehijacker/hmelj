@@ -28,6 +28,14 @@ const AttachmentViewer = (() => {
   // attribute early. Titles below come from translations, so they are not ours
   // to vouch for.
   function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
+  /** One icon from public/images, masked so it takes the bar's own colour — the
+   *  same markup app.js#iconHtml produces. Repeated here rather than shared
+   *  because message.html loads this file WITHOUT app.js, and a viewer whose
+   *  buttons are blank in the standalone message window would be a poor trade
+   *  for saving four lines. */
+  function icon(name) {
+    return `<span class="app-icon" style="--icon:url(/images/${name}.svg)" aria-hidden="true"></span>`;
+  }
   function t(s) { return (typeof I18n !== 'undefined' && I18n.t) ? I18n.t(s) : s; }
 
   function fmtBytes(n) {
@@ -94,7 +102,23 @@ const AttachmentViewer = (() => {
    *  the whole difference between "Download" being instant and it being the
    *  same multi-second wait a second time. `a.download` supplies the filename
    *  the Content-Disposition header would have. */
-  async function triggerDownload(url, filename) {
+  async function triggerDownload(url, filename, contentType = '') {
+    // The Android shell is the exception, and it fails SILENTLY otherwise: a
+    // WebView's DownloadListener only ever sees a real navigation, so an anchor
+    // pointed at a blob: URL — which is what the fast path below produces
+    // whenever the preview has already fetched the bytes — clicks and does
+    // nothing at all. Reported as "I tried to download the docx but it failed".
+    // The shell's own hand-off re-fetches the server URL with the session
+    // cookie and saves it properly, which is what Download means on a phone.
+    //
+    // Online only, and that is not a detail: handOffToOS's offline branch calls
+    // straight back into this function, so taking this path while offline would
+    // be an infinite bounce between the two.
+    const bridge = window.AndroidApp || window.AndroidCodexa;
+    if (bridge?.openAttachment && window.Connection?.isOnline?.() !== false) {
+      handOffToOS(url, filename, contentType);
+      return;
+    }
     let cached = recall(url);
     // Offline, `downloadUrl(url)` is a navigation to a server that is not
     // there, which a browser answers with its own error page over the top of
@@ -410,21 +434,99 @@ const AttachmentViewer = (() => {
     return p;
   }
 
-  /* The rendered document is somebody else's HTML and CSS, arriving by email,
-     so it goes exactly where a message body goes: a srcdoc iframe with no
-     allow-scripts and no allow-same-origin. Word's own styles then cannot
-     reach the app, and nothing in the file can run. `allow-popups` and the
-     <base> are what keep a link in the document clickable — it opens a real
-     tab, which is all a link in a document should ever do. */
-  function frameDoc(css, bodyHtml) {
+  /* The rendered document is somebody else's HTML and CSS, arriving by email, so
+     it goes into a srcdoc iframe with **no allow-same-origin**: an opaque origin
+     cannot read this page, its cookies, or anything else on this server. Word's
+     own styles cannot escape it either. `allow-popups` and the <base> are what
+     keep a link in the document clickable.
+     `allow-scripts` IS granted, for one reason: events inside a frame never
+     reach its parent, so without a script in there Ctrl+wheel and pinch over the
+     document could not zoom it — the pointer is over the frame, and the frame is
+     where the event stops. The only script that should be in there is
+     FRAME_EVENTS below, which is why the document is stripped of active
+     content first (see stripActiveContent) and rendered with renderAltChunks
+     off. Scripts plus an opaque origin is the same posture the message reading
+     pane has used all along (messageFrame.js). */
+  const FRAME_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox';
+
+  /**
+   * The gestures a frame has to hand outwards, because a frame is where they
+   * stop: Ctrl/⌘+wheel and two-finger pinch (zoom), and Escape (close).
+   *
+   * Escape matters more than it looks. The document-level handler in this file
+   * catches it fine — right up until somebody clicks into the document, at
+   * which point the keystroke belongs to the frame and the page around it never
+   * hears about it. That is precisely when a reader wants out.
+   *
+   * Nothing crosses this channel but an intent: a direction, or "close". The
+   * parent decides what either means, so the most a hostile frame could do with
+   * it is resize or dismiss itself.
+   */
+  const FRAME_EVENTS = `
+    (function () {
+      var send = function (m) { parent.postMessage(m, '*'); };
+      addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); send({ hmeljClose: 1 }); }
+      });
+      var zoom = function (dir) { send({ hmeljZoom: dir }); };
+      addEventListener('wheel', function (e) {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        zoom(e.deltaY < 0 ? 1 : -1);
+      }, { passive: false });
+      var start = null;
+      var gap = function (t) { return Math.hypot(t[1].clientX - t[0].clientX, t[1].clientY - t[0].clientY); };
+      addEventListener('touchstart', function (e) { if (e.touches.length === 2) start = gap(e.touches); }, { passive: true });
+      addEventListener('touchmove', function (e) {
+        if (e.touches.length !== 2 || !start) return;
+        var now = gap(e.touches);
+        // A threshold, not every pixel: the parent's step is 10% and firing one
+        // per frame would take the zoom from 100% to 300% in half a swipe.
+        if (Math.abs(now - start) < 28) return;
+        zoom(now > start ? 1 : -1);
+        start = now;
+      }, { passive: true });
+      addEventListener('touchend', function (e) { if (e.touches.length < 2) start = null; });
+    })();`;
+
+  /**
+   * Everything in a rendered document that could execute, removed.
+   *
+   * The frame runs scripts now (see FRAME_SANDBOX), so "the docx cannot bring
+   * its own" has to be true rather than assumed. Two things could carry one: an
+   * altChunk (a raw HTML part embedded in the docx — turned off at the renderer
+   * instead, since it is content rather than markup), and an event-handler
+   * attribute or javascript: URL surviving out of the document's own XML.
+   *
+   * Works on the DETACHED tree, before it is ever serialised into the frame.
+   */
+  function stripActiveContent(root) {
+    root.querySelectorAll('script, iframe, object, embed, link, meta, base, form').forEach((n) => n.remove());
+    for (const el of root.querySelectorAll('*')) {
+      for (const a of [...el.attributes]) {
+        if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+        else if (/^(href|src|xlink:href)$/i.test(a.name) && /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+      }
+    }
+    return root;
+  }
+
+  function frameDoc(css, bodyHtml, { zoomable = false } = {}) {
     return `<!doctype html><html><head><meta charset="utf-8">`
       + `<meta name="viewport" content="width=device-width, initial-scale=1">`
-      + `<base target="_blank"><style>${css}</style></head><body>${bodyHtml}</body></html>`;
+      + `<base target="_blank"><style>${css}</style></head><body>${bodyHtml}`
+      + (zoomable ? `<script>${FRAME_EVENTS}<\/script>` : '')
+      + `</body></html>`;
   }
 
   const DOC_BASE_CSS = `
     html, body { margin: 0; padding: 0; background: #eceff1; color: #202124;
-      font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+      font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      /* Scrolling stays the browser's; pinching becomes ours (FRAME_EVENTS),
+         which zooms the whole frame from outside rather than the browser's own
+         zoom of the frame's contents — the two fighting over the same gesture
+         is how a document ends up at two different scales at once. */
+      touch-action: pan-x pan-y; }
     .av-note { margin: 0; padding: 8px 14px; background: #fff8e1; color: #5f4b00;
       border-bottom: 1px solid #f0e0a8; font-size: 12px; position: sticky; top: 0; z-index: 2; }`;
 
@@ -478,11 +580,25 @@ const AttachmentViewer = (() => {
     applyZoom();
   }
 
+  /* The frame asking to be zoomed. Registered once, not per document, and it
+     answers only the frame currently on screen — `source` is the only thing
+     worth checking here, since an opaque origin reports its origin as "null"
+     and comparing that would accept every sandboxed frame on the page. */
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', (e) => {
+      if (!zoomTarget || e.source !== zoomTarget.contentWindow) return;
+      if (e.data?.hmeljClose) { close(); return; }
+      const dir = e.data?.hmeljZoom;
+      if (dir !== 1 && dir !== -1) return;
+      setZoom(zoom + dir * 0.1);
+    });
+  }
+
   /** Frame + optional sheet tabs, in place of whatever the body was showing. */
   function officeShell(body, srcdoc, tabsHtml = '') {
     body.innerHTML = `<div class="attach-viewer-doc-shell">${tabsHtml}`
       + `<div class="attach-viewer-doc-wrap">`
-      + `<iframe class="attach-viewer-doc" sandbox="allow-popups allow-popups-to-escape-sandbox"></iframe>`
+      + `<iframe class="attach-viewer-doc" sandbox="${FRAME_SANDBOX}"></iframe>`
       + `</div></div>`;
     const frame = body.querySelector('.attach-viewer-doc');
     frame.srcdoc = srcdoc;
@@ -490,6 +606,49 @@ const AttachmentViewer = (() => {
     applyZoom();
     return frame;
   }
+
+  /** Is the viewer itself narrow — a phone, or a very small window? Asked of the
+   *  VIEWPORT rather than the user agent: what a page of A4 does here is a
+   *  question about pixels, not about which device is holding them. Same 900px
+   *  the app's own layout breaks at. */
+  function isNarrowViewport() {
+    return window.matchMedia?.('(max-width: 900px)').matches ?? (window.innerWidth <= 900);
+  }
+
+  /* docx-preview's own stylesheet centres the page inside its wrapper
+     (`.docx-wrapper { align-items: center }`). When the page is WIDER than the
+     frame — always, on a phone: A4 is ~816px against ~380 — a centred flex item
+     overflows equally at both ends, and the left overflow cannot be scrolled
+     to. That is the "half the text was missing on the left" report: the words
+     were there, just at a negative offset with no way to reach them.
+     `body >` to outrank it: docx-preview's styles are spliced into the BODY, so
+     they come after this and win on equal specificity.
+
+     flex-start plus AUTO MARGINS rather than `center`, because those two differ
+     in exactly the case that matters: an auto margin gives up and resolves to
+     zero when there is no room, so a page narrower than the frame is centred in
+     the grey exactly as it should be, and a wider one starts at the left edge
+     where it can actually be scrolled to. (`align-items: safe center` says the
+     same thing in one word, but silently drops the whole declaration on a
+     browser that does not know it — and dropping it restores the bug.) */
+  const DOCX_WIDE_CSS = `
+    body > .docx-wrapper { align-items: flex-start; }
+    body > .docx-wrapper > section.docx { margin-left: auto; margin-right: auto; }`;
+
+  /* On a narrow screen, don't make it scrollable — make it fit. The page is
+     rendered without its fixed width (see ignoreWidth below) so the text
+     reflows to the frame, and the page's own margins are cut back: a 2.5cm
+     Word margin is 94px at each edge, which on a 380px phone leaves under half
+     the width for the words. !important because docx-preview writes the page
+     geometry as INLINE styles on the section, which a stylesheet cannot
+     otherwise reach. */
+  const DOCX_NARROW_CSS = `
+    body > .docx-wrapper { align-items: stretch; padding: 8px; }
+    body section.docx {
+      width: auto !important; min-width: 0 !important; max-width: 100% !important;
+      padding-left: 12px !important; padding-right: 12px !important;
+    }
+    body section.docx img, body section.docx table { max-width: 100% !important; height: auto; }`;
 
   /** .docx → HTML, with its page layout, tables and embedded images intact. */
   async function renderDocx(body, blob) {
@@ -502,6 +661,7 @@ const AttachmentViewer = (() => {
     // in the app's own document.
     const bodyEl = document.createElement('div');
     const styleEl = document.createElement('div');
+    const narrow = isNarrowViewport();
     await window.docx.renderAsync(blob, bodyEl, styleEl, {
       className: 'docx',
       inWrapper: true,
@@ -510,12 +670,26 @@ const AttachmentViewer = (() => {
       // would come out blank — silently, which is the worst way for it to
       // fail. Base64 travels into the srcdoc with the markup.
       useBase64URL: true,
+      // A phone cannot show a page of A4 at its real width, and a preview you
+      // have to pan sideways to read a line of is not a preview. Dropping the
+      // page geometry lets the text reflow to the screen; the desktop keeps the
+      // document looking like the document.
+      ignoreWidth: narrow,
+      ignoreHeight: narrow,
       experimental: false,
       renderComments: false,
       renderChanges: false,
+      // An altChunk is a raw HTML part embedded in the docx, rendered verbatim —
+      // the one route by which an author's own markup, scripts included, could
+      // reach the frame. Off, because the frame runs scripts now (see
+      // FRAME_SANDBOX). Rare in practice: it is what some export tools emit.
+      renderAltChunks: false,
     });
     if (!isCurrent(body)) return;
-    officeShell(body, frameDoc(DOC_BASE_CSS, styleEl.innerHTML + bodyEl.innerHTML));
+    stripActiveContent(bodyEl);
+    stripActiveContent(styleEl);
+    officeShell(body, frameDoc(DOC_BASE_CSS + (narrow ? DOCX_NARROW_CSS : DOCX_WIDE_CSS),
+      styleEl.innerHTML + bodyEl.innerHTML, { zoomable: true }));
   }
 
   /* A preview, not a spreadsheet application: no formulas, no styling, no
@@ -586,7 +760,7 @@ const AttachmentViewer = (() => {
         ? `<div class="attach-viewer-sheet-tabs">${names.map((n, i) =>
           `<button class="attach-viewer-sheet-tab${i === active ? ' is-active' : ''}" data-sheet="${i}">${esc(n)}</button>`).join('')}</div>`
         : '';
-      officeShell(body, frameDoc(SHEET_CSS, sheetHtml(wb.Sheets[names[active]])), tabs);
+      officeShell(body, frameDoc(SHEET_CSS, sheetHtml(wb.Sheets[names[active]]), { zoomable: true }), tabs);
       body.querySelectorAll('[data-sheet]').forEach((b) => b.addEventListener('click', () => {
         active = Number(b.dataset.sheet);
         draw();
@@ -653,10 +827,10 @@ const AttachmentViewer = (() => {
   }
 
   /** The error panel, with its two buttons wired. */
-  function showError(body, filename, message, retry, url) {
+  function showError(body, filename, message, retry, url, contentType = '') {
     body.innerHTML = errorHtml(filename, message);
     body.querySelector('[data-av="retry"]')?.addEventListener('click', retry);
-    body.querySelector('[data-av="save"]')?.addEventListener('click', () => triggerDownload(url, filename));
+    body.querySelector('[data-av="save"]')?.addEventListener('click', () => triggerDownload(url, filename, contentType));
   }
 
   /** Bytes in hand → a document on screen. Both renderers have to load a
@@ -711,9 +885,9 @@ const AttachmentViewer = (() => {
           <button class="attach-viewer-zoom-level" id="av-zoom-level" title="${attr(t('Reset zoom'))}">100%</button>
           <button class="icon-btn" id="av-zoom-in" title="${attr(t('Zoom in'))}">+</button>
         </span>
-        <button class="icon-btn" id="av-openwith" title="${attr(t('Open with another app'))}" hidden>📤</button>
+        <button class="icon-btn" id="av-openwith" title="${attr(t('Open with another app'))}" hidden>${icon('open-with')}</button>
         <button class="icon-btn" id="av-share" title="Share" hidden>⇧</button>
-        <button class="icon-btn" id="av-download" title="Download">⬇</button>
+        <button class="icon-btn" id="av-download" title="Download">${icon('download')}</button>
         <button class="icon-btn" id="av-close" title="Close">✕</button>
       </div>
       <div class="attach-viewer-body"></div>`;
@@ -724,7 +898,7 @@ const AttachmentViewer = (() => {
     // Click outside the media itself (the empty backdrop/body area) closes.
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay || e.target === body) close(); });
     overlay.querySelector('#av-close').addEventListener('click', close);
-    overlay.querySelector('#av-download').addEventListener('click', () => triggerDownload(url, filename));
+    overlay.querySelector('#av-download').addEventListener('click', () => triggerDownload(url, filename, contentType));
 
     // A Word page and a spreadsheet are laid out to a width of their own
     // rather than fitted to the screen, so they are the two that need a zoom.
@@ -744,6 +918,13 @@ const AttachmentViewer = (() => {
       const openWith = overlay.querySelector('#av-openwith');
       openWith.hidden = false;
       openWith.addEventListener('click', () => handOffToOS(url, filename, contentType));
+      // …and then Download is the same button twice. In the Android shell a
+      // download IS this hand-off (see triggerDownload: a WebView cannot save a
+      // blob: URL, so it routes through the bridge, which saves the file and
+      // then offers to open it). Two buttons doing one thing is worse than one.
+      if (window.AndroidApp?.openAttachment || window.AndroidCodexa?.openAttachment) {
+        overlay.querySelector('#av-download').hidden = true;
+      }
     }
 
     if (navigator.share && navigator.canShare) {
@@ -779,7 +960,7 @@ const AttachmentViewer = (() => {
     // file into a Blob first would turn a video you can start watching into a
     // progress bar you have to sit through. The spinner over it is only for
     // the gap before the first frame, when the element is still a black box.
-    if (kind === 'video') { playVideo(body, url, filename); return; }
+    if (kind === 'video') { playVideo(body, url, filename, contentType); return; }
 
     // Already fetched once this session: straight to the picture, no spinner,
     // no flash of an empty viewer.
@@ -792,7 +973,7 @@ const AttachmentViewer = (() => {
   /** A player on the live URL, with the spinner left on top until it has
    *  something to show. Nothing is cached: the browser's media stack is
    *  already doing that, and far better than a Blob would. */
-  function playVideo(body, url, filename) {
+  function playVideo(body, url, filename, contentType = '') {
     body.innerHTML = loadingHtml(filename);
     // Over the player, not beside it: this one is a sibling of the <video>,
     // where every other use of the panel is the only thing in the body.
@@ -804,8 +985,8 @@ const AttachmentViewer = (() => {
     video.addEventListener('loadeddata', () => { body.querySelector('.attach-viewer-status')?.remove(); });
     video.addEventListener('error', () => {
       body.innerHTML = errorHtml(filename, '');
-      body.querySelector('[data-av="retry"]')?.addEventListener('click', () => playVideo(body, url, filename));
-      body.querySelector('[data-av="save"]')?.addEventListener('click', () => triggerDownload(url, filename));
+      body.querySelector('[data-av="retry"]')?.addEventListener('click', () => playVideo(body, url, filename, contentType));
+      body.querySelector('[data-av="save"]')?.addEventListener('click', () => triggerDownload(url, filename, contentType));
     });
     body.appendChild(video);
   }
@@ -843,7 +1024,7 @@ const AttachmentViewer = (() => {
       mine.querySelector('[data-av="retry"]')?.addEventListener('click',
         () => load(mine, url, filename, contentType, kind));
       mine.querySelector('[data-av="save"]')?.addEventListener('click',
-        () => triggerDownload(url, filename));
+        () => triggerDownload(url, filename, contentType));
     });
   }
 

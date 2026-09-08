@@ -15,6 +15,12 @@
 //   field:word        - scoped to exactly one field instead of "anywhere": from, to,
 //                       subject, or body. Composes with +/- and quoting, e.g.
 //                       -from:newsletter, subject:"weekly report", -subject:"out of office"
+//   filetype:pdf      - messages carrying an attachment with that extension (pdf, docx,
+//                       xlsx, …). Matched on the EXTENSION, so filetype:doc does not
+//                       also find .docx. Composes with +/- like any other term.
+//   has:attachment    - messages with any attachment at all.
+//                       Both are answered from the local cache only — see
+//                       ATTACHMENT_FIELDS below for why no mail server can answer them.
 //   is:starred        - flag predicate, not text: starred/flagged mail only, searched
 //                       LIVE across every folder rather than from the cache. Handled by
 //                       extractStarredTerm below, not by parseSearchQuery.
@@ -35,7 +41,35 @@
 // scope at all; it's kept as plain text exactly as typed, so it still matches literally
 // rather than silently losing everything before its colon.
 
-const FIELD_NAMES = new Set(['from', 'to', 'subject', 'body']);
+const FIELD_NAMES = new Set(['from', 'to', 'subject', 'body', 'filetype', 'has']);
+
+/**
+ * `filetype:pdf` and `has:attachment` — the two terms that can ONLY be answered
+ * from the local cache, and the exact mirror of `is:starred`, which can only be
+ * answered live.
+ *
+ * Why cache-only: IMAP SEARCH has no key for an attachment's filename. `HEADER`
+ * reaches only a message's top-level headers, and a part's filename is not one
+ * of those; `TEXT` would match the word "pdf" anywhere in any body. So there is
+ * no way to ask a mail server this question and get an answer that means what it
+ * says. The cache can answer it because the filenames arrive free with the
+ * BODYSTRUCTURE that is already fetched to decide whether a message has an
+ * attachment at all (see imapClient.js#attachmentNames).
+ *
+ * They are ordinary parsed terms rather than something split off the front like
+ * is:starred, because unlike that one they compose normally: +/-, several at
+ * once, and alongside any other term. `-filetype:pdf` means "nothing with a PDF
+ * on it", which is a reasonable thing to ask for.
+ */
+export const ATTACHMENT_FIELDS = new Set(['filetype', 'has']);
+
+/** True if the query asks anything about attachments — which routes it to the
+ *  cache, and is what server/index.js checks before reaching for a live sweep
+ *  that could not answer it. */
+export function queryNeedsAttachmentSearch(raw) {
+  const { required, excluded } = parseSearchQuery(raw);
+  return [...required, ...excluded].some((t) => ATTACHMENT_FIELDS.has(t.field));
+}
 
 // `is:starred` (alias `is:flagged`) — not a text term at all but a flag predicate, and
 // the one search term answered LIVE from every mailbox rather than from the local
@@ -92,7 +126,11 @@ export function parseSearchQuery(raw) {
     const [, sign, fieldRaw, quoted, bare] = m;
     const rawText = quoted !== undefined ? quoted : bare;
     if (!rawText) continue; // a lone "+"/"-" with nothing after it, or empty ""
-    const field = fieldRaw && FIELD_NAMES.has(fieldRaw.toLowerCase()) ? fieldRaw.toLowerCase() : null;
+    let field = fieldRaw && FIELD_NAMES.has(fieldRaw.toLowerCase()) ? fieldRaw.toLowerCase() : null;
+    // `has:` has exactly one meaning. Anything else after it — has:money, a
+    // sentence with "has:" in it — is not a field at all and falls back to
+    // literal text, the same way an unknown prefix does.
+    if (field === 'has' && rawText.toLowerCase() !== 'attachment') field = null;
     // Recognized field prefix consumed the "field:" part already; an unrecognized one
     // (fieldRaw set but not a known field) needs putting back together with its colon.
     const text = field || !fieldRaw ? rawText : `${fieldRaw}:${rawText}`;

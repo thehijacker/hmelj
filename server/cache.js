@@ -116,6 +116,16 @@ CREATE TABLE IF NOT EXISTS messages (
   -- Added after this table shipped — see addColumn() below.
   message_id TEXT,
   thread_id TEXT,
+  -- Every attachment filename on the message, lowercased, space-separated, and
+  -- space-padded at both ends so a LIKE can anchor on a whole name. Filled from
+  -- the bodystructure the envelope fetch already carries (imapClient.js#
+  -- attachmentNames), so it costs nothing extra; this is what answers a
+  -- filetype: search, which no mail server can be asked directly. NULL means "we
+  -- do not know" rather than "none" — a row cached before this column existed,
+  -- or an account whose backend does not supply names (Graph, EWS), which is
+  -- why a filetype search reports the accounts it could not cover instead of
+  -- quietly leaving them out.
+  attachment_names TEXT,
   PRIMARY KEY (user_key, account_id, folder, uid)
 );
 CREATE INDEX IF NOT EXISTS idx_messages_date ON messages (user_key, date DESC);
@@ -255,6 +265,10 @@ addColumn('messages', 'forwarded', 'INTEGER');
 addColumn('messages', 'message_id', 'TEXT');
 addColumn('messages', 'thread_id', 'TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (user_key, account_id, thread_id)');
+// Attachment filenames — see the column's comment in the schema. No index: every
+// query against it is a LIKE with a leading wildcard, which an index cannot serve
+// anyway, and the rows are already narrowed by account and folder first.
+addColumn('messages', 'attachment_names', 'TEXT');
 // When this row's body was written into message_fts — NULL means "not indexed
 // yet", which is both the initial state and what saveMessageContent() resets it
 // to whenever the content changes. That makes "what still needs indexing?" a
@@ -313,13 +327,13 @@ export function uidOut(u) {
 }
 
 const upsertStmt = db.prepare(`
-  INSERT INTO messages (user_key, account_id, folder, uid, subject, from_name, from_addr, to_json, date, size, seen, flagged, answered, forwarded, deleted, draft, has_attachment, special_use, message_id, thread_id)
-  VALUES (@userKey, @accountId, @folder, @uid, @subject, @fromName, @fromAddr, @toJson, @date, @size, @seen, @flagged, @answered, @forwarded, @deleted, @draft, @hasAttachment, @specialUse, @messageId, @threadId)
+  INSERT INTO messages (user_key, account_id, folder, uid, subject, from_name, from_addr, to_json, date, size, seen, flagged, answered, forwarded, deleted, draft, has_attachment, special_use, message_id, thread_id, attachment_names)
+  VALUES (@userKey, @accountId, @folder, @uid, @subject, @fromName, @fromAddr, @toJson, @date, @size, @seen, @flagged, @answered, @forwarded, @deleted, @draft, @hasAttachment, @specialUse, @messageId, @threadId, @attachmentNames)
   ON CONFLICT (user_key, account_id, folder, uid) DO UPDATE SET
     subject=excluded.subject, from_name=excluded.from_name, from_addr=excluded.from_addr, to_json=excluded.to_json,
     date=excluded.date, size=excluded.size, seen=excluded.seen, flagged=excluded.flagged, answered=excluded.answered, forwarded=excluded.forwarded,
     deleted=excluded.deleted, draft=excluded.draft, has_attachment=excluded.has_attachment, special_use=excluded.special_use,
-    message_id=excluded.message_id, thread_id=excluded.thread_id
+    message_id=excluded.message_id, thread_id=excluded.thread_id, attachment_names=excluded.attachment_names
 `);
 
 /**
@@ -335,12 +349,12 @@ const upsertStmt = db.prepare(`
  * See sync.js#pollFolder's `preserveFlags`.
  */
 const upsertKeepFlagsStmt = db.prepare(`
-  INSERT INTO messages (user_key, account_id, folder, uid, subject, from_name, from_addr, to_json, date, size, seen, flagged, answered, forwarded, deleted, draft, has_attachment, special_use, message_id, thread_id)
-  VALUES (@userKey, @accountId, @folder, @uid, @subject, @fromName, @fromAddr, @toJson, @date, @size, @seen, @flagged, @answered, @forwarded, @deleted, @draft, @hasAttachment, @specialUse, @messageId, @threadId)
+  INSERT INTO messages (user_key, account_id, folder, uid, subject, from_name, from_addr, to_json, date, size, seen, flagged, answered, forwarded, deleted, draft, has_attachment, special_use, message_id, thread_id, attachment_names)
+  VALUES (@userKey, @accountId, @folder, @uid, @subject, @fromName, @fromAddr, @toJson, @date, @size, @seen, @flagged, @answered, @forwarded, @deleted, @draft, @hasAttachment, @specialUse, @messageId, @threadId, @attachmentNames)
   ON CONFLICT (user_key, account_id, folder, uid) DO UPDATE SET
     subject=excluded.subject, from_name=excluded.from_name, from_addr=excluded.from_addr, to_json=excluded.to_json,
     date=excluded.date, size=excluded.size, has_attachment=excluded.has_attachment, special_use=excluded.special_use,
-    message_id=excluded.message_id, thread_id=excluded.thread_id
+    message_id=excluded.message_id, thread_id=excluded.thread_id, attachment_names=excluded.attachment_names
 `);
 
 // ---------- search-box word index (see suggestWord() below) ----------
@@ -406,6 +420,10 @@ export function upsertMessages(userKey, accountId, folder, specialUse, messages,
         // A client that doesn't supply them — or a message with no usable ids —
         // stores NULL, which every read below treats as a conversation of one.
         messageId: m.messageId || null, threadId: m.threadKey || null,
+        // '' from a backend that supplies names and found none; null from one
+        // that cannot supply them at all. The difference is what lets a search
+        // say which accounts it could not cover.
+        attachmentNames: m.attachmentNames ?? null,
       });
       // Only for genuinely new-to-cache messages — not on every re-upsert
       // of an already-cached row (sync.js's periodic full rescan re-fetches
@@ -542,6 +560,17 @@ export function suggestWord(userKey, prefix) {
  *  body-needing query elsewhere first (see buildCacheSearchClause below). */
 function termToLikeClause({ field, text }) {
   const like = `%${likeEscape(text)}%`;
+  // has:attachment — the one term every backend can answer, since the boolean is
+  // cached for all of them. Kept separate from filetype: for exactly that reason.
+  if (field === 'has') return { sql: 'has_attachment = 1', params: [] };
+  // filetype:pdf. Matched as ".pdf" immediately before a space, which is what
+  // the space-padded, space-separated storage format is for: a bare substring
+  // would make filetype:doc find every .docx, and filetype:pdf find a file
+  // called "pdf-notes.txt". A name with no extension simply never matches.
+  if (field === 'filetype') {
+    const ext = String(text).replace(/^\./, '').toLowerCase();
+    return { sql: "attachment_names LIKE ? ESCAPE '\\'", params: [`%.${likeEscape(ext)} %`] };
+  }
   if (field === 'subject') return { sql: "subject LIKE ? ESCAPE '\\'", params: [like] };
   if (field === 'from') return { sql: "(from_name LIKE ? ESCAPE '\\' OR from_addr LIKE ? ESCAPE '\\')", params: [like, like] };
   if (field === 'to') return { sql: "to_json LIKE ? ESCAPE '\\'", params: [like] };

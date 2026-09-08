@@ -9,6 +9,86 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Search by attachment type — `filetype:pdf`
+Two new search terms: **`filetype:pdf`** (also `docx`, `xlsx`, or anything else) finds
+messages carrying an attachment with that extension, and **`has:attachment`** finds messages
+with any file on them at all. Both compose like every other term — `racun filetype:xlsx`,
+`-filetype:pdf`, `from:ana filetype:docx`.
+
+Matched on the extension rather than as a substring, so `filetype:doc` does not also return
+every `.docx`, and a file called `pdf-notes.txt` is not a PDF.
+
+This costs nothing to run. Attachment filenames arrive free with the message summary already
+fetched from IMAP — the same structure that decides whether to draw a 📎 — so they are simply
+kept now instead of thrown away, and the search is a local query.
+
+Two limits, both stated rather than hidden:
+
+- **No mail server can answer this**, so it is the mirror of `is:starred`: that one is
+  always live, this one always local. Combining them, or combining `filetype:` with `body:`
+  on an account without a search index, is refused with a sentence saying why rather than
+  half-answered.
+- **Microsoft and Exchange accounts report only *that* a message has attachments**, never
+  their names. A `filetype:` search names those accounts under the results — *"Not searched
+  by filename: Služba"* — instead of quietly leaving them out. `has:attachment` covers every
+  account, since that boolean is cached for all of them.
+
+Existing cached mail fills in its filenames as the poller next sweeps each folder, so the
+answers get more complete over the first cycle rather than all at once.
+
+### The document viewer, finished off
+**Escape closes a preview even after you have clicked into the document.** It always worked
+until you touched the page — at which point the keystroke belonged to the frame, and the
+viewer around it never heard it. Which is exactly when someone reaches for Escape.
+
+**Pinch, and Ctrl/⌘+wheel, now zoom a document or a spreadsheet** — not just the ± buttons.
+This needed a small change of approach: events inside a frame never reach the page around
+it, so the preview forwards the gesture out instead. The frame is allowed to run scripts for
+that, which is only honest if the document cannot bring its own — so a rendered `.docx` is
+now stripped of anything executable before it goes in, and embedded raw-HTML parts are not
+rendered at all. It still has no access to this page, its cookies or the server: the frame's
+origin is opaque, exactly as the message reading pane's has always been. What crosses the
+boundary is an intent — a direction, or "close" — never a command; the page decides what
+either means.
+
+**A document fills the screen on a phone.** The top bar stays — it is the way out, and the
+zoom — and everything under it is the document, rather than a panel with wasted margin
+around it.
+
+**And it is centred again on a desktop.** Fixing the phone bug (a page wider than the screen
+overflowed at both ends, and the left half could not be scrolled to) had left every document
+flush against the left of its grey surround. Auto margins do both jobs: centred when the
+page fits, flush left when it does not, so nothing is ever out of reach.
+
+**On Android, an Office file's Download button is gone** — it was the same button as
+*Open with…* twice over. A WebView cannot save a `blob:` URL, so Download already routed
+through the same hand-off, which saves the file and then offers to open it.
+
+### Three things that only went wrong on a phone
+**The message header's buttons were microscopic.** `.icon-btn` is a fixed 36px box and
+everything in this app is `border-box`, so the generous padding meant to make them
+finger-sized on mobile was taken *out* of the content box instead — leaving about eight
+pixels for the icon, which then shrank to fit because nothing stopped it. They are sized by
+the box now (34px on a desktop, 44px on a phone) and the icon inside is pinned against
+shrinking.
+
+**With an unsubscribe offer beside them the four buttons crowded the row.** They travel
+together as a group now and drop to a line of their own when there is not room for both.
+
+**A .docx was cut off down the left on a phone, with no way to scroll to it.** docx-preview
+centres the page inside its wrapper, and a page that is wider than the screen — A4 is about
+816px against a phone's 380 — overflows equally at *both* ends, where the left overflow
+cannot be reached. On a narrow screen the page is now rendered without its fixed width so
+the text reflows to the screen, and its Word margins are cut back (2.5cm at each edge leaves
+under half a phone's width for the words). A desktop still gets the document laid out as the
+document.
+
+**And downloading it failed silently.** A WebView's DownloadListener only sees real
+navigations, so the Download button — which points at a `blob:` URL whenever the preview has
+already fetched the bytes — clicked and did nothing at all. In the Android app it now goes
+through the same hand-off the *Open with…* button uses, which re-fetches with the session
+cookie, saves the file, and then offers to open it.
+
 ### Reply all shows you who else is on it
 Reply-all to a message with people copied put them in Cc — and left the Cc row collapsed. The
 composer said "To: Simona" while it was about to write to four people, at exactly the moment

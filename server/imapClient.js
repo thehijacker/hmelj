@@ -679,6 +679,10 @@ export async function listMessages(path, { page = 1, pageSize = 50, query = '', 
 
 async function toEnvelope(msg) {
   const hasAttachment = hasAttachments(msg.bodyStructure);
+  // Joined with a leading and trailing space too, so a LIKE can anchor on word
+  // boundaries — see cache.js#termToLikeClause, which matches '% *.pdf %'-ish
+  // rather than a bare substring, or filetype:doc would find every .docx.
+  const attachNames = attachmentNames(msg.bodyStructure);
   // Some minimal servers return an empty ENVELOPE — fall back to raw headers
   let env = msg.envelope || {};
   if (!env.subject && !env.from && msg.headers) {
@@ -707,6 +711,7 @@ async function toEnvelope(msg) {
     draft: msg.flags?.has('\\Draft') || false,
     size: msg.size || 0,
     hasAttachment,
+    attachmentNames: attachNames.length ? ` ${attachNames.join(' ')} ` : '',
     // Conversation grouping (see server/threading.js). messageId and inReplyTo
     // come free with the ENVELOPE that is already fetched; only `references`
     // was added to the HEADER.FIELDS list above, and only its first entry —
@@ -865,6 +870,28 @@ function hasAttachments(node) {
   if (node.disposition === 'attachment') return true;
   if (node.childNodes) return node.childNodes.some(hasAttachments);
   return false;
+}
+
+/**
+ * Every attachment filename on a message, from the SAME bodystructure that
+ * hasAttachments() above already walks — so this costs nothing over the wire.
+ * That is the whole reason `filetype:` can exist at all: no mail server can be
+ * asked about a part's filename (see searchQuery.js#ATTACHMENT_FIELDS), but the
+ * envelope fetch has been carrying the answer all along.
+ *
+ * Returned as one lowercased, space-separated string, which is what the cache
+ * stores and matches with LIKE. Two spellings of the same thing, because
+ * senders disagree: RFC 2183's `Content-Disposition: attachment; filename=` and
+ * the older `Content-Type: …; name=`.
+ */
+function attachmentNames(node, out = []) {
+  if (!node) return out;
+  if (node.disposition === 'attachment') {
+    const name = node.dispositionParameters?.filename || node.parameters?.name || '';
+    if (name) out.push(String(name).toLowerCase());
+  }
+  if (node.childNodes) for (const child of node.childNodes) attachmentNames(child, out);
+  return out;
 }
 
 // ---------- single message ----------

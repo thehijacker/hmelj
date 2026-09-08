@@ -1703,11 +1703,14 @@ address is read — not always what you want on mail you never asked for.
 <h3>Word and Excel</h3>
 <p>
   A <code>.docx</code> is rendered with its own page layout — margins, fonts, tables, embedded
-  images, headers and footers — rather than being flattened into plain HTML. A spreadsheet
+  images, headers and footers — rather than being flattened into plain HTML. On a phone the
+  page geometry is dropped instead, so the text reflows to the screen rather than needing to
+  be panned sideways, and the preview fills the screen under the top bar. A spreadsheet
   (<code>.xlsx</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.xls</code>,
   <code>.csv</code>, <code>.ods</code>) opens as a scrollable grid with sticky row numbers and
   column letters, a tab per sheet, and every value formatted the way Excel formats it. Zoom
-  buttons in the top bar apply to both. Very large sheets are capped at the first few thousand
+  buttons in the top bar apply to both, as do <strong>pinch</strong> and
+  <strong>Ctrl</strong>/<strong>⌘</strong> + mouse wheel. Very large sheets are capped at the first few thousand
   rows, and the preview says so rather than quietly cutting them.
 </p>
 <p>
@@ -2142,8 +2145,26 @@ one timestamp risks the message coming back subtly different from the one you ap
 <tr><td><code>-from:noreply</code></td><td>Scoping composes with <code>+</code>, <code>-</code> and quoting</td></tr>
 <tr><td><code>subject:"weekly report"</code></td><td>A scoped phrase</td></tr>
 <tr><td><code>is:starred</code></td><td>Starred mail only — a flag, not text, and searched live across every folder</td></tr>
+<tr><td><code>filetype:pdf</code></td><td>Messages with an attachment of that type — <code>pdf</code>, <code>docx</code>, <code>xlsx</code>, anything. Matched on the extension, so <code>filetype:doc</code> does not also find <code>.docx</code></td></tr>
+<tr><td><code>has:attachment</code></td><td>Messages with any attachment at all</td></tr>
 </tbody>
 </table>
+<p>
+  <code>filetype:</code> and <code>has:attachment</code> are answered from the local cache —
+  the exact opposite of <code>is:starred</code>, which is always answered live. No mail
+  server can be asked what an attachment is called: IMAP's search has no key for it, and
+  matching the word "pdf" anywhere in a message would find far more than you meant. Hmelj can
+  answer it because the filenames arrive with the message summary it already fetches.
+</p>
+<p>
+  Two consequences. <strong>Combining <code>filetype:</code> with <code>is:starred</code></strong>
+  — or with <code>body:</code> on an account that has no search index — is refused with an
+  explanation, since one of the two would have to be ignored. And <strong>Microsoft and
+  Exchange accounts cannot contribute</strong>: those report only <em>that</em> a message has
+  attachments, never their names, so a <code>filetype:</code> search names them under the
+  results rather than leaving them out silently. <code>has:attachment</code> works
+  everywhere.
+</p>
 </div>
 
 <div class="callout">

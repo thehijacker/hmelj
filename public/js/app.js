@@ -3150,6 +3150,9 @@ async function loadMessages() {
   state.total = data.total;
   state.listLocal = !!data._local;
   state.searchScopeUsed = data.scope || null;
+  // Accounts a filetype: search could not cover — see attachmentSearchGaps in
+  // server/index.js. Absent on every ordinary search.
+  state.searchNotSearched = data.notSearched || null;
   // Before the first paint, so a row's ✎ is there from the start rather than
   // appearing a moment later — it is one small request against a table with one
   // entry per open draft.
@@ -4610,16 +4613,24 @@ function searchScopeRow() {
   if (!state.query) return null;
   const li = document.createElement('li');
   li.className = 'search-scope-row';
+  // A filetype: search cannot reach a Microsoft or Exchange account — those
+  // backends report only whether a message HAS attachments, never their names
+  // (server/searchQuery.js#ATTACHMENT_FIELDS). Saying which ones were left out
+  // is the difference between an incomplete answer and a misleading one.
+  const gaps = state.searchNotSearched?.length
+    ? `<span class="search-scope-gap" title="${escAttr(I18n.t('These accounts report only that a message has attachments, never their filenames.'))}">${
+      esc(I18n.t('Not searched by filename:'))} ${esc(state.searchNotSearched.join(', '))}</span>`
+    : '';
   // 'account' and 'starred' already span every folder there is to span — there
   // is nothing left to escalate to, so they get the line without the button.
   const used = state.searchScopeUsed || 'cache';
   if (used === 'account' || used === 'starred') {
-    li.innerHTML = `<span>${esc(I18n.t(SEARCH_SCOPE_TEXT[used]))}</span>
+    li.innerHTML = `<span>${esc(I18n.t(SEARCH_SCOPE_TEXT[used]))}</span>${gaps}
       <button type="button" class="link-btn" id="search-save">${esc(I18n.t('Save this search'))}</button>`;
     $('#search-save', li).addEventListener('click', saveCurrentSearch);
     return li;
   }
-  li.innerHTML = `<span>${esc(I18n.t(SEARCH_SCOPE_TEXT[used] || SEARCH_SCOPE_TEXT.cache))}</span>
+  li.innerHTML = `<span>${esc(I18n.t(SEARCH_SCOPE_TEXT[used] || SEARCH_SCOPE_TEXT.cache))}</span>${gaps}
     <button type="button" class="link-btn" id="search-everywhere">${esc(I18n.t('Search everywhere'))}</button>
     <button type="button" class="link-btn" id="search-save">${esc(I18n.t('Save this search'))}</button>`;
   $('#search-save', li).addEventListener('click', saveCurrentSearch);
@@ -5758,10 +5769,12 @@ function messageActionsHtml(unsubBanner = '') {
   // buttons right, so the row reads the same with or without it.
   return `<div class="mv-actions">
     <div class="mv-actions-left">${unsubBanner}</div>
-    ${act('mv-act-reply', 'reply', 'Reply')}
-    ${act('mv-act-replyall', 'reply-all', 'Reply all')}
-    ${act('mv-act-forward', 'forward', 'Forward')}
-    ${act('mv-act-delete', 'delete', 'Delete')}
+    <div class="mv-actions-btns">
+      ${act('mv-act-reply', 'reply', 'Reply')}
+      ${act('mv-act-replyall', 'reply-all', 'Reply all')}
+      ${act('mv-act-forward', 'forward', 'Forward')}
+      ${act('mv-act-delete', 'delete', 'Delete')}
+    </div>
   </div>`;
 }
 

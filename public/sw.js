@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20260907036';
+const VERSION = 'hmelj-20260907040';
 const SHELL = [
   '/',
   '/index.html',
@@ -73,6 +73,8 @@ const SHELL = [
   // Select mode's own toolbar (unread.svg and delete.svg above serve it too).
   '/images/read.svg',
   '/images/close.svg',
+  '/images/download.svg',
+  '/images/open-with.svg',
   '/images/reorder.svg',
   // The user menu, which is reachable offline like everything else here.
   '/images/mail-accounts.svg',

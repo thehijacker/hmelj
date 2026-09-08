@@ -921,6 +921,10 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
   padding: 10px 16px; border-top: 1px solid var(--border);
   color: var(--text-dim); font-size: calc(12.5px * var(--ui-scale));
 }
+/* "Not searched by filename: Služba" — the coverage caveat on a filetype:
+   search. Dim and inline, not a warning: the result is correct, it is just not
+   everything, and the row already carries the other scope caveats. */
+.search-scope-gap { color: var(--text-dim); margin-left: 8px; }
 .search-scope-row .link-btn { font-size: inherit; }
 
 /* ---------- reading pane ---------- */
@@ -969,7 +973,12 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
  * prefix, and a mask that silently fails paints a solid currentColor block.
  */
 .app-icon {
-  display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em;
+  /* flex:0 0 auto because these sit inside .icon-btn, which is display:flex with
+     a FIXED width — and with border-box a button's padding eats its content box
+     before the icon gets a say. Without this the icon shrinks to whatever is
+     left, which on a 36px button with generous padding is a few pixels. That is
+     what made the message header's buttons come out microscopic on a phone. */
+  display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em; flex: 0 0 auto;
   background-color: currentColor;
   -webkit-mask: var(--icon) center / contain no-repeat;
   mask: var(--icon) center / contain no-repeat;
@@ -1026,13 +1035,19 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    They shared that line to begin with, and three buttons and a list of
    addresses competing for one width meant the addresses wrapped to three lines
    on a two-recipient message. Right-aligned, out of the way of the reading. */
-.mv-actions { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.mv-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+/* The four buttons travel together: with an unsubscribe offer beside them there
+   may not be room for both on one line, and half the set wrapping while the
+   other half stays put is worse than the whole group moving down. */
+.mv-actions-btns { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 /* Takes the slack, which is what pushes the buttons to the right — and holds
    the unsubscribe offer when there is one. min-width:0 so a long expanded
    banner wraps inside it instead of shoving the buttons off the edge. */
 .mv-actions-left { flex: 1; min-width: 0; display: flex; align-items: center; }
 .mv-actions-left:empty { display: block; }
-.mv-actions .mv-act { padding: 5px 9px; font-size: calc(15px * var(--ui-scale)); color: var(--text-dim); }
+/* No padding override: .icon-btn is a fixed 36px box, so padding only takes
+   room away from the icon (see .app-icon). Size it with the box itself. */
+.mv-actions .mv-act { width: 34px; height: 34px; font-size: calc(17px * var(--ui-scale)); color: var(--text-dim); }
 .mv-actions .mv-act:hover { color: var(--accent); }
 /* The one on this row that cannot be undone by pressing it again. */
 .mv-actions .mv-act-delete:hover { color: var(--danger); }
@@ -1815,6 +1830,16 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
   width: 92vw; height: 86vh; display: flex; flex-direction: column;
   border-radius: 4px; overflow: hidden; background: #fff;
 }
+/* On a phone the margin around a document is wasted screen. The bar at the top
+   stays (it is the way out, and the zoom); everything under it is the document.
+   padding-bottom for the gesture bar — the backdrop is fixed to the whole
+   screen, so at full height the last line would otherwise sit under it. */
+@media (max-width: 900px) {
+  .attach-viewer-doc-shell {
+    width: 100%; height: 100%; border-radius: 0;
+    padding-bottom: var(--sab, 0px); background: #fff;
+  }
+}
 /* The frame is scaled by the zoom buttons and sized to compensate, so the
    overflow it can produce at scale > 1 is clipped here rather than escaping
    over the backdrop. */
@@ -2058,9 +2083,12 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 .mv-top-row { display: none; }
 
 @media (max-width: 900px) {
-  /* A finger is not a pointer: the same three buttons, with room to hit them. */
-  .mv-actions { gap: 2px; }
-  .mv-actions .mv-act { padding: 8px 14px; font-size: calc(17px * var(--ui-scale)); }
+  /* A finger is not a pointer: 44px is the smallest target worth aiming at, and
+     the icon inside grows with it. Set on the BOX — padding on a fixed-width
+     .icon-btn shrinks the icon instead of enlarging the button. */
+  .mv-actions { gap: 6px; }
+  .mv-actions .mv-act { width: 44px; height: 44px; font-size: calc(22px * var(--ui-scale)); }
+  .mv-actions-btns { gap: 6px; }
   /* Long folder names, short screen. */
   .mv-folder { max-width: 22ch; }
 
