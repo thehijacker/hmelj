@@ -325,7 +325,7 @@ const AttachmentViewer = (() => {
    *  it is played from the live URL and never becomes a Blob (see playVideo).
    *  `entry` is the blob-cache entry: the object URL for the kinds a browser
    *  can draw by itself, the Blob itself for the ones a library has to parse. */
-  function render(body, entry, kind, filename, url) {
+  function render(body, entry, kind, filename, url, contentType = '') {
     body.innerHTML = '';
     if (kind === 'image') {
       const img = document.createElement('img');
@@ -340,8 +340,8 @@ const AttachmentViewer = (() => {
       embed.type = 'application/pdf';
       embed.className = 'attach-viewer-pdf';
       body.appendChild(embed);
-    } else if (kind === 'docx' || kind === 'sheet') {
-      renderOffice(body, entry.blob, kind, filename, url);
+    } else if (kind === 'docx' || kind === 'sheet' || kind === 'text') {
+      renderOffice(body, entry.blob, kind, filename, url, contentType);
     } else {
       body.innerHTML = `<div class="attach-viewer-fallback"><div class="attach-viewer-fallback-icon">📎</div><p>${esc(filename)}</p></div>`;
     }
@@ -376,21 +376,34 @@ const AttachmentViewer = (() => {
   /** Types that say "bytes", i.e. that tell us nothing and let the name speak. */
   const VAGUE = new Set(['', 'application/octet-stream', 'application/binary', 'binary/octet-stream']);
 
+  /* Plain text, which needs no library at all — the frame and the <pre> that
+     already draw a legacy .doc's extracted text draw this directly.
+     text/csv is deliberately absent: it is in OFFICE_TYPES above, where SheetJS
+     turns it into a grid, which is a better answer than its raw commas. */
+  const TEXT_EXTS = new Set(['txt', 'log', 'md', 'markdown', 'ini', 'cfg', 'conf']);
+
   function kindOf(contentType, filename) {
     const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+    const ext = String(filename || '').split('.').pop().toLowerCase();
     if (type.startsWith('image/')) return 'image';
     if (type.startsWith('video/')) return 'video';
     if (type === 'application/pdf') return 'pdf';
     if (OFFICE_TYPES[type]) return OFFICE_TYPES[type];
-    if (VAGUE.has(type)) {
-      const ext = String(filename || '').split('.').pop().toLowerCase();
-      if (OFFICE_EXTS[ext]) return OFFICE_EXTS[ext];
-    }
+    // The filename gets the casting vote over a type that says little: not just
+    // octet-stream now but text/plain too, because plenty of senders label a
+    // .csv that way and a grid beats a screen of commas. Only over those two —
+    // a type that names something specific is still believed.
+    const vagueish = VAGUE.has(type) || type === 'text/plain';
+    if (vagueish && OFFICE_EXTS[ext]) return OFFICE_EXTS[ext];
+    if (type === 'text/plain' || (VAGUE.has(type) && TEXT_EXTS.has(ext))) return 'text';
     return 'other';
   }
 
-  /** The three kinds this file renders itself, from a library and a blob. */
-  function isOffice(kind) { return kind === 'docx' || kind === 'sheet' || kind === 'doc'; }
+  /** The kinds this file renders into a frame itself, rather than handing to a
+   *  library-less browser or to the OS. */
+  function isDocument(kind) {
+    return kind === 'docx' || kind === 'sheet' || kind === 'doc' || kind === 'text';
+  }
 
   /* ---------- Office documents ----------
    *
@@ -769,6 +782,42 @@ const AttachmentViewer = (() => {
     draw();
   }
 
+  /* A plain text file is capped like the .doc route is, and for the same reason:
+     a log can be tens of megabytes, and a <pre> holding all of it is a frozen
+     tab rather than a preview. */
+  const TEXT_MAX_CHARS = 2 * 1024 * 1024;
+
+  /**
+   * The bytes, as characters.
+   *
+   * `blob.text()` always decodes UTF-8, which is wrong for a good share of the
+   * .txt files that actually arrive by mail — a Slovene one written on Windows
+   * is very often cp1250, and decoded as UTF-8 every š, č and ž becomes a
+   * replacement character. The part's own Content-Type usually says which, so
+   * that is used when it does; anything the browser does not know falls back to
+   * UTF-8, which is the right guess for everything else.
+   */
+  async function decodeText(blob, contentType) {
+    const charset = /charset=["']?([\w-]+)/i.exec(contentType || '')?.[1];
+    const buf = await blob.arrayBuffer();
+    for (const enc of [charset, 'utf-8']) {
+      if (!enc) continue;
+      try { return new TextDecoder(enc, { fatal: false }).decode(buf); }
+      catch { /* not a label this browser knows — try the next */ }
+    }
+    return blob.text();
+  }
+
+  /** A .txt, .log, .md — straight into the same frame the .doc text uses. */
+  async function renderText(body, blob, contentType) {
+    const full = await decodeText(blob, contentType);
+    if (!isCurrent(body)) return;
+    const text = full.slice(0, TEXT_MAX_CHARS);
+    const note = full.length > text.length
+      ? `<p class="av-note">${esc(t('Long file — showing the first part only.'))}</p>` : '';
+    officeShell(body, frameDoc(TEXT_CSS, `${note}<pre>${esc(text)}</pre>`, { zoomable: true }));
+  }
+
   /** The attachment's text route — `/text` before the query, which carries the
    *  account the rest of the URL was built with (see API.attachmentUrl). */
   function textUrl(url) {
@@ -836,15 +885,17 @@ const AttachmentViewer = (() => {
   /** Bytes in hand → a document on screen. Both renderers have to load a
    *  library and parse a whole file first, so the loading panel stays up until
    *  one of them has something to show. */
-  function renderOffice(body, blob, kind, filename, url) {
+  function renderOffice(body, blob, kind, filename, url, contentType = '') {
     body.innerHTML = loadingHtml(filename);
     const line = body.querySelector('.attach-viewer-status-line');
     if (line) line.textContent = t('Preparing the preview…');
     const mine = body;
-    const done = kind === 'docx' ? renderDocx(mine, blob) : renderSheet(mine, blob);
+    const done = kind === 'docx' ? renderDocx(mine, blob)
+      : kind === 'text' ? renderText(mine, blob, contentType)
+        : renderSheet(mine, blob);
     done.catch((e) => {
       if (!isCurrent(mine)) return;
-      showError(mine, filename, e?.message || '', () => renderOffice(mine, blob, kind, filename, url), url);
+      showError(mine, filename, e?.message || '', () => renderOffice(mine, blob, kind, filename, url, contentType), url, contentType);
     });
   }
 
@@ -869,7 +920,7 @@ const AttachmentViewer = (() => {
     // as any browser. They stay in the app — and keep the hand-off too, as a
     // button (see #av-openwith), because a spreadsheet you actually mean to
     // work on still belongs in a spreadsheet app.
-    if (kind !== 'image' && kind !== 'video' && !isOffice(kind) && isMobile()) {
+    if (kind !== 'image' && kind !== 'video' && !isDocument(kind) && isMobile()) {
       handOffToOS(url, filename, contentType);
       return;
     }
@@ -900,11 +951,11 @@ const AttachmentViewer = (() => {
     overlay.querySelector('#av-close').addEventListener('click', close);
     overlay.querySelector('#av-download').addEventListener('click', () => triggerDownload(url, filename, contentType));
 
-    // A Word page and a spreadsheet are laid out to a width of their own
-    // rather than fitted to the screen, so they are the two that need a zoom.
-    // An image already has pinch and wheel (makeZoomable); a PDF has the
-    // viewer's own controls.
-    if (kind === 'docx' || kind === 'sheet') {
+    // A Word page, a spreadsheet and a wall of monospaced text are all laid out
+    // to a width of their own rather than fitted to the screen, so they are the
+    // ones that need a zoom. An image already has pinch and wheel
+    // (makeZoomable); a PDF has the viewer's own controls.
+    if (kind === 'docx' || kind === 'sheet' || kind === 'text') {
       overlay.querySelector('#av-zoom').hidden = false;
       overlay.querySelector('#av-zoom-out').addEventListener('click', () => setZoom(zoom - 0.1));
       overlay.querySelector('#av-zoom-in').addEventListener('click', () => setZoom(zoom + 0.1));
@@ -914,7 +965,7 @@ const AttachmentViewer = (() => {
     // The hand-off this file used to get automatically on a phone, kept as a
     // choice now that there is a preview to choose it from: the Android
     // shell's "Open with…" chooser, a forced download everywhere else.
-    if (isOffice(kind) && isMobile()) {
+    if (isDocument(kind) && isMobile()) {
       const openWith = overlay.querySelector('#av-openwith');
       openWith.hidden = false;
       openWith.addEventListener('click', () => handOffToOS(url, filename, contentType));
@@ -965,7 +1016,7 @@ const AttachmentViewer = (() => {
     // Already fetched once this session: straight to the picture, no spinner,
     // no flash of an empty viewer.
     const cached = recall(url);
-    if (cached) { render(body, cached, kind, filename, url); return; }
+    if (cached) { render(body, cached, kind, filename, url, contentType); return; }
 
     load(body, url, filename, contentType, kind);
   }
@@ -1016,7 +1067,7 @@ const AttachmentViewer = (() => {
       if (inflight !== controller) return;          // closed, or superseded by another open()
       inflight = null;
       const entry = remember(url, blob);
-      render(mine, entry, kind, filename, url);
+      render(mine, entry, kind, filename, url, contentType);
     }).catch((e) => {
       if (controller.signal.aborted || inflight !== controller) return;
       inflight = null;

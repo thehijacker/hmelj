@@ -9,6 +9,23 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Plain text files preview too
+A `.txt` was one of the last ordinary attachments that still had to be downloaded to be
+read. It opens in the viewer now — as do `.log`, `.md` and a few of the other extensions
+that are plain text by any reasonable reading — with the same zoom, and full-screen on a
+phone like the rest.
+
+Its **encoding is honoured** rather than assumed. A text file written on Windows in Slovene
+is very often cp1250, and decoded as UTF-8 every š, č and ž turns into a replacement
+character: "Številka čisto" arrives as "�tevilka �isto". The part's own Content-Type usually
+says which encoding it is, so that is what is used, falling back to UTF-8 where it does not.
+A very long file is cut with a note rather than freezing the tab.
+
+**`.csv` was already covered** — it opens as a table, the same grid an `.xlsx` gets, rather
+than a screen of commas. One thing did improve there: a `.csv` that its sender labelled
+`text/plain` (which happens often) used to fall through to a plain-text reading. The
+filename now outranks a type that vague, so it lands in the grid where it belongs.
+
 ### Search by attachment type — `filetype:pdf`
 Two new search terms: **`filetype:pdf`** (also `docx`, `xlsx`, or anything else) finds
 messages carrying an attachment with that extension, and **`has:attachment`** finds messages

@@ -1374,7 +1374,8 @@
     "Could not discard that draft": "Osnutka ni bilo mogoče zavreči",
     "Open drafts": "Odpri osnutke",
     "Not searched by filename:": "Iskanje po imenu datoteke ni zajelo:",
-    "These accounts report only that a message has attachments, never their filenames.": "Ti računi sporočajo samo, da ima sporočilo priponke, nikoli njihovih imen."
+    "These accounts report only that a message has attachments, never their filenames.": "Ti računi sporočajo samo, da ima sporočilo priponke, nikoli njihovih imen.",
+    "Long file — showing the first part only.": "Dolga datoteka — prikazan je samo prvi del."
   },
   "prefixes": [
     [

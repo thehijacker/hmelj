@@ -1374,7 +1374,8 @@
     "Could not discard that draft": "Could not discard that draft",
     "Open drafts": "Open drafts",
     "Not searched by filename:": "Not searched by filename:",
-    "These accounts report only that a message has attachments, never their filenames.": "These accounts report only that a message has attachments, never their filenames."
+    "These accounts report only that a message has attachments, never their filenames.": "These accounts report only that a message has attachments, never their filenames.",
+    "Long file — showing the first part only.": "Long file — showing the first part only."
   },
   "prefixes": [
     [

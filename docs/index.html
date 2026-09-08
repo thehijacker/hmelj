@@ -1689,7 +1689,7 @@ address is read — not always what you want on mail you never asked for.
 <h2 id="read-attach">Attachments</h2>
 <p>
   Attachments appear as chips under the message. Clicking one opens a preview overlay for
-  images, PDFs, audio, video and Office documents; anything else downloads.
+  images, PDFs, audio, video, Office documents and plain text; anything else downloads.
 </p>
 <ul>
 <li>The download shows a <strong>progress bar</strong> with the real byte count, and can be cancelled.</li>
@@ -1699,6 +1699,15 @@ address is read — not always what you want on mail you never asked for.
 <li>From two attachments up, a <strong>Download all</strong> chip appears beside them and hands
   over the lot as a single <code>.zip</code>, named after the message.</li>
 </ul>
+
+<h3>Plain text</h3>
+<p>
+  A <code>.txt</code> — and <code>.log</code>, <code>.md</code> and friends — opens straight
+  in the viewer. Its declared character encoding is used rather than assumed, which matters
+  for anything written on Windows in Slovene: read as UTF-8, a cp1250 file turns every š, č
+  and ž into a replacement character. A very long file is shown from the beginning, with a
+  note saying so.
+</p>
 
 <h3>Word and Excel</h3>
 <p>
