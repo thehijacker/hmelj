@@ -178,7 +178,7 @@
       </div>
       <div class="sidebar-actions">
         <button class="compose-btn" id="btn-compose">✏️&nbsp; Compose</button>
-        <button class="icon-btn" id="btn-accounts-edit" title="Reorder accounts">↕</button>
+        <button class="icon-btn" id="btn-accounts-edit" title="Reorder accounts"><span class="app-icon" style="--icon:url(/images/reorder.svg)" aria-hidden="true"></span></button>
       </div>
       <div class="sidebar-scroll">
         <ul class="account-list" id="account-list"></ul>
@@ -213,9 +213,9 @@
           <button class="icon-btn" id="btn-refresh" title="Refresh">⟳</button>
         </div>
         <div class="list-toolbar">
-          <button class="icon-btn" id="btn-select-mode" title="Select messages">☑</button>
+          <button class="icon-btn" id="btn-select-mode" title="Select messages"><span class="app-icon" style="--icon:url(/images/select.svg)" aria-hidden="true"></span></button>
           <div class="layout-menu-wrap">
-            <button class="icon-btn" id="btn-layout" title="Layout">▤</button>
+            <button class="icon-btn" id="btn-layout" title="Layout"><span class="app-icon" style="--icon:url(/images/layout.svg)" aria-hidden="true"></span></button>
             <div class="layout-menu" id="layout-menu">
               <button data-layout="table">☰ <span>Table</span></button>
               <button data-layout="small">▁ <span>Small</span></button>
@@ -224,20 +224,20 @@
               <button data-layout="wide">▆ <span>Wide</span></button>
             </div>
           </div>
-          <button type="button" class="icon-btn small" id="btn-unread-only" title="Show only unread messages" aria-pressed="false">●</button>
-          <button type="button" class="icon-btn small" id="btn-show-muted" title="Also show (and count) messages hidden by the notification scheduler" aria-pressed="false" hidden>🔔</button>
-          <button type="button" class="icon-btn small" id="btn-starred-only" title="Show only starred messages" aria-pressed="false">★</button>
+          <button type="button" class="icon-btn small" id="btn-unread-only" title="Show only unread messages" aria-pressed="false"><span class="app-icon" style="--icon:url(/images/unread.svg)" aria-hidden="true"></span></button>
+          <button type="button" class="icon-btn small" id="btn-show-muted" title="Also show (and count) messages hidden by the notification scheduler" aria-pressed="false" hidden><span class="app-icon" style="--icon:url(/images/mute.svg)" aria-hidden="true"></span></button>
+          <button type="button" class="icon-btn small" id="btn-starred-only" title="Show only starred messages" aria-pressed="false"><span class="app-icon" style="--icon:url(/images/star.svg)" aria-hidden="true"></span></button>
           <span class="spacer"></span>
           <span id="pager" class="pager"></span>
         </div>
         <div class="select-toolbar" id="select-toolbar" hidden>
           <button class="select-count" id="select-count" title="Select all / none">0 selected</button>
           <span class="spacer"></span>
-          <button class="icon-btn" id="sel-read" title="Mark read">✉</button>
-          <button class="icon-btn" id="sel-unread" title="Mark unread">📩</button>
-          <button class="icon-btn" id="sel-delete" title="Delete">🗑</button>
+          <button class="icon-btn" id="sel-read" title="Mark read"><span class="app-icon" style="--icon:url(/images/read.svg)" aria-hidden="true"></span></button>
+          <button class="icon-btn" id="sel-unread" title="Mark unread"><span class="app-icon" style="--icon:url(/images/unread.svg)" aria-hidden="true"></span></button>
+          <button class="icon-btn" id="sel-delete" title="Delete"><span class="app-icon" style="--icon:url(/images/delete.svg)" aria-hidden="true"></span></button>
           <select id="sel-move-target" title="Move selected to…"><option value="">Move to…</option></select>
-          <button class="icon-btn" id="sel-exit" title="Exit selection">✕</button>
+          <button class="icon-btn" id="sel-exit" title="Exit selection"><span class="app-icon" style="--icon:url(/images/close.svg)" aria-hidden="true"></span></button>
         </div>
         <div class="msg-list-header" id="msg-list-header">
           <span class="lh-cb" aria-hidden="true"></span>
@@ -339,7 +339,7 @@
              message body, instead of stopping on chrome nobody tabs to on
              purpose. Still fully clickable; the Cc/Bcc inputs it reveals are
              normal tab stops once shown. -->
-        <button class="link-btn" id="btn-cc-toggle" tabindex="-1">Cc/Bcc</button>
+        <button class="link-btn" id="btn-cc-toggle" tabindex="-1" aria-expanded="false">Cc/Bcc</button>
       </div>
       <div class="compose-row cc-row" hidden><label>Cc</label><input id="c-cc"></div>
       <div class="compose-row cc-row" hidden><label>Bcc</label><input id="c-bcc"></div>
@@ -482,15 +482,15 @@
         <span class="user-avatar" id="user-menu-avatar-lg"></span>
         <span id="user-menu-username"></span>
       </div>
-      <button class="sheet-item" id="btn-accounts-manage">✉️ <span>Mail accounts</span></button>
-      <button class="sheet-item" id="btn-folders-manage">📁 <span>Manage folders</span></button>
-      <button class="sheet-item" id="btn-contacts">👥 <span>Contacts</span></button>
-      <button class="sheet-item" id="btn-run-filters">🧹 <span>Run filters</span></button>
-      <button class="sheet-item" id="btn-analytics">📊 <span>Mailbox analytics</span></button>
+      <button class="sheet-item" id="btn-accounts-manage"><span class="app-icon" style="--icon:url(/images/mail-accounts.svg)" aria-hidden="true"></span><span>Mail accounts</span></button>
+      <button class="sheet-item" id="btn-folders-manage"><img class="app-icon-img" src="/images/manage-folders.svg" alt="" aria-hidden="true"><span>Manage folders</span></button>
+      <button class="sheet-item" id="btn-contacts"><img class="app-icon-img" src="/images/contacts.svg" alt="" aria-hidden="true"><span>Contacts</span></button>
+      <button class="sheet-item" id="btn-run-filters"><img class="app-icon-img" src="/images/run-filters.svg" alt="" aria-hidden="true"><span>Run filters</span></button>
+      <button class="sheet-item" id="btn-analytics"><img class="app-icon-img" src="/images/analytics.svg" alt="" aria-hidden="true"><span>Mailbox analytics</span></button>
       <div class="sheet-divider"></div>
-      <button class="sheet-item" id="btn-theme">◐ <span>Theme</span></button>
-      <button class="sheet-item" id="btn-settings">⚙ <span>Settings</span></button>
-      <button class="sheet-item danger" id="btn-logout">⏻ <span>Log out</span></button>
+      <button class="sheet-item" id="btn-theme"><img class="app-icon-img" src="/images/theme.svg" alt="" aria-hidden="true"><span>Theme</span></button>
+      <button class="sheet-item" id="btn-settings"><span class="app-icon" style="--icon:url(/images/settings.svg)" aria-hidden="true"></span><span>Settings</span></button>
+      <button class="sheet-item danger" id="btn-logout"><img class="app-icon-img" src="/images/logout.svg" alt="" aria-hidden="true"><span>Log out</span></button>
     </div>
   </div>
 

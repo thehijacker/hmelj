@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20260907028';
+const VERSION = 'hmelj-20260907036';
 const SHELL = [
   '/',
   '/index.html',
@@ -53,6 +53,36 @@ const SHELL = [
   '/js/shortcuts.js',
   '/js/composeGuards.js',
   '/js/app.js',
+  // Icons drawn into the app's own chrome (see app.js#iconHtml). They are in
+  // the shell rather than left to runtime caching because they are on the
+  // message header, which is one of the first things an offline app draws — a
+  // runtime-cached file is only there after it has been fetched once, and the
+  // first fetch would be the one that fails. Add new ones here as they arrive.
+  '/images/reply.svg',
+  '/images/reply-all.svg',
+  '/images/forward.svg',
+  '/images/delete.svg',
+  // The message list's own toolbar — select, layout, unread-only, show-muted,
+  // starred-only. These are in the HTML rather than built by iconHtml(), and
+  // the list is the first thing the app draws, offline included.
+  '/images/select.svg',
+  '/images/layout.svg',
+  '/images/unread.svg',
+  '/images/mute.svg',
+  '/images/star.svg',
+  // Select mode's own toolbar (unread.svg and delete.svg above serve it too).
+  '/images/read.svg',
+  '/images/close.svg',
+  '/images/reorder.svg',
+  // The user menu, which is reachable offline like everything else here.
+  '/images/mail-accounts.svg',
+  '/images/manage-folders.svg',
+  '/images/contacts.svg',
+  '/images/run-filters.svg',
+  '/images/analytics.svg',
+  '/images/theme.svg',
+  '/images/settings.svg',
+  '/images/logout.svg',
   '/manifest.webmanifest',
   '/icons/icon.svg',
   // The transparent logo variant — the login card and the no-mailbox empty

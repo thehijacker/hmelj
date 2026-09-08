@@ -210,6 +210,17 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
     if (res.req?.query?.v && /[/\\](?:js|css)[/\\]/.test(filePath)) {
       res.set('Cache-Control', 'public, max-age=31536000, immutable');
     }
+    // public/images — the app's own icon set (see app.js#iconHtml). These are
+    // referenced from JS at runtime rather than from the HTML, so the ?v=
+    // rewriter above never sees them and they would otherwise revalidate on
+    // every single load. A day, not a year: without a stamp in the URL there is
+    // nothing to invalidate, and an icon replaced in place should not be able
+    // to stay wrong for a year on the one client that has no service worker to
+    // fall back on — the Android shell, which reads its whole app out of the
+    // WebView's HTTP cache when there is no network (see the note above).
+    else if (/[/\\]images[/\\]/.test(filePath)) {
+      res.set('Cache-Control', 'public, max-age=86400');
+    }
     // Everything else falls through to send's own default (`public, max-age=0`,
     // i.e. revalidate every time), which it only applies when nothing has set
     // the header already — exactly today's behaviour for every unstamped file.

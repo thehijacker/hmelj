@@ -9,6 +9,67 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Reply all shows you who else is on it
+Reply-all to a message with people copied put them in Cc — and left the Cc row collapsed. The
+composer said "To: Simona" while it was about to write to four people, at exactly the moment
+that field is worth seeing. Cc and Bcc are now open whenever the message being composed has
+a Cc, and closed when it does not.
+
+It looked like a remembered preference, and it was not: the compose window is shown and
+hidden rather than rebuilt, so whatever state the Cc row was left in carried into the next
+message — reveal it once by hand and it stayed open on every unrelated mail afterwards.
+Nothing was remembering anything. Each opening now decides for itself.
+
+### Real icons instead of unicode glyphs
+Twenty icons now come from SVG files in `public/images` rather than from characters like
+☑ ▤ ● ★ ✉ 📩 🗑 ⚙ ◐ ⏻ ↕, which every platform renders differently, some render in colour
+whether you wanted it or not, and some render as a box:
+
+- the message list's toolbar — select, layout, unread-only, show-muted, starred-only;
+- select mode's toolbar — mark read, mark unread, delete, close;
+- the message header's actions — reply, reply all, forward, delete;
+- the user menu — mail accounts, manage folders, contacts, run filters, analytics, theme,
+  settings, log out;
+- and the sidebar's *Reorder accounts* button.
+
+The toolbars and the message header are painted with a CSS mask, so a single file follows the
+theme, the hover state and a toggle's pressed colour instead of needing a variant for each —
+the filter toggles turn accent-blue when pressed, and the two delete buttons turn red on
+hover. The **user menu** keeps its icons in colour instead: those are illustrations rather
+than symbols, and the colour is most of what tells them apart at a glance.
+
+All of them are precached by the service worker and served with a day-long cache header, so
+an offline app still has its buttons.
+
+### The message header does more, in less space
+Two changes to the message header, both about the same thing: what you can tell, and what you
+can do, without leaving it.
+
+**Four actions** — Reply, Reply all, Forward and Delete — are icon buttons on their own row
+under the recipients, right-aligned, and on a newsletter the **Unsubscribe** offer shares
+that row on the left instead of taking a line of its own between the recipients and the
+message. They are what anyone actually does with an open message, and they were two
+clicks deep in the ⋯ menu — where none of them appears any more, because offering them in
+both places would only make that menu longer to say the same thing twice. They stay put when the
+header is collapsed (less header must not mean no way to reply) and get bigger tap targets
+on a phone. <kbd>r</kbd>, <kbd>a</kbd> and <kbd>f</kbd> are unchanged.
+
+The icons come from **`public/images`** as real SVG files rather than unicode arrows, which
+render differently on every platform and at every font. They are drawn with a CSS mask, not
+an `<img>`: the files are authored with `fill="currentColor"`, and an `<img>` resolves that
+against the image's own document — black — so each one would have stayed black in dark mode.
+A mask paints the shape in whatever colour it sits in, so one file covers both themes and
+hover. They are precached by the service worker for offline use, and served with a day-long
+cache header for the Android shell, which has no service worker and reads the app out of the
+WebView's own cache when there is no network.
+
+**Where a message lives** now shows beside the date as a small `📁 Arhiv` chip. In *All
+inboxes* the one thing the view could not tell you was which folder a message had been filed
+into; a search across folders and a conversation drawing in replies from Sent had the same
+gap. It appears only where it adds something — never for the folder you are already looking
+at, and never for INBOX, which is where mail is unless stated otherwise, so the usual All
+inboxes row is exactly as clean as it was.
+
 ### A reply you started and left is now visible from the message it answers
 Reply to something, type half of it, close the window. The draft is saved — and until now
 the only trace of it was a row in the Drafts folder, to be found again by subject.

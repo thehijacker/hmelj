@@ -5684,6 +5684,88 @@ function bindAddressMenu(card) {
 }
 
 /**
+ * "…and it lives in Arhiv" — the one thing a message read outside its own
+ * folder does not otherwise say.
+ *
+ * Shown only where it ADDS something, which is three exclusions rather than a
+ * rule about the unified view: nothing when the folder is the one already being
+ * looked at (the folder list on the left is saying it), nothing for INBOX
+ * (which is where mail is unless stated otherwise, and a chip on every row of
+ * All inboxes is noise), and nothing for a pseudo-folder, which is not a place
+ * mail can be. What is left is exactly the interesting case — a message the
+ * unified view, a search, or a conversation is showing from somewhere else.
+ *
+ * The leaf name, not the path: "[Gmail]/Poslano" is read as "Poslano", with the
+ * whole path on hover. Its icon comes from the folder tree when this account's
+ * tree is loaded (it is not, in the unified view), and falls back to a plain
+ * folder otherwise.
+ */
+function folderChipHtml(msg) {
+  const path = msg.__folder;
+  if (!path || path.startsWith('__')) return '';
+  if (path === state.currentFolder) return '';
+  if (path.toUpperCase() === 'INBOX') return '';
+  const known = (state.folders || []).find((f) => f.path === path);
+  // '/' first. A '.' is only treated as a hierarchy delimiter under an INBOX.
+  // prefix — that is the Courier-style layout ("INBOX.Arhiv") the dot actually
+  // means something in. Splitting on any dot would turn a folder NAMED
+  // "Racuni 2026.arhiv" into "arhiv", and a dot in a name is the commoner case
+  // of the two.
+  const leaf = known?.name
+    || (path.includes('/') ? path.slice(path.lastIndexOf('/') + 1)
+      : /^INBOX\./i.test(path) ? path.slice(path.lastIndexOf('.') + 1)
+        : path);
+  const icon = known ? folderIcon(known) : '📁';
+  return `<span class="mv-folder" title="${escAttr(path)}">${icon} ${esc(leaf)}</span>`;
+}
+
+/**
+ * One icon from public/images, as markup.
+ *
+ * Drawn with a CSS mask rather than an `<img>`, which is what lets a file on
+ * disk still take the colour of the thing it sits in: the SVGs are authored
+ * with `fill="currentColor"`, and an `<img>` resolves that against the image's
+ * OWN document — black — so every one of them would stay black in dark mode.
+ * A mask ignores the file's colours entirely and paints its shape in
+ * `currentColor`, so one file serves both themes, hover, and the disabled
+ * state.
+ *
+ * Sized in `em`, so an icon tracks whatever text size its button is set at.
+ *
+ * Adding an icon: drop the .svg in public/images and use its basename here.
+ * If it is one that appears on a screen someone may open OFFLINE, add it to
+ * SHELL in public/sw.js as well — the service worker runtime-caches everything
+ * else it serves, but only after it has been fetched once.
+ */
+function iconHtml(name, cls = '') {
+  return `<span class="app-icon${cls ? ' ' + cls : ''}" style="--icon:url(/images/${name}.svg)" aria-hidden="true"></span>`;
+}
+
+/** Reply / Reply all / Forward, on the message itself rather than two clicks
+ *  into the ⋯ menu — they are most of what anybody does with an open message.
+ *
+ *  Icon-only, and on a row of their own under the To: line: sharing that line
+ *  with the recipients meant three labelled buttons competing with a list of
+ *  addresses for the same width, and the addresses lost — a two-recipient
+ *  message wrapped to three lines. The name is on the tooltip and on the
+ *  aria-label. */
+function messageActionsHtml(unsubBanner = '') {
+  const act = (cls, icon, label) =>
+    `<button class="icon-btn mv-act ${cls}" title="${escAttr(I18n.t(label))}" aria-label="${escAttr(I18n.t(label))}">${iconHtml(icon)}</button>`;
+  // The unsubscribe offer shares this row, on the left — it used to sit on a
+  // line of its own above, which for a newsletter meant two rows of chrome
+  // between the recipients and the message. Left of a gap that pushes the
+  // buttons right, so the row reads the same with or without it.
+  return `<div class="mv-actions">
+    <div class="mv-actions-left">${unsubBanner}</div>
+    ${act('mv-act-reply', 'reply', 'Reply')}
+    ${act('mv-act-replyall', 'reply-all', 'Reply all')}
+    ${act('mv-act-forward', 'forward', 'Forward')}
+    ${act('mv-act-delete', 'delete', 'Delete')}
+  </div>`;
+}
+
+/**
  * One message, rendered: header card, sandboxed body frame, attachments, and
  * every control that acts on that message.
  *
@@ -5734,6 +5816,7 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
   // is sent without the button, but unsubscribing does tell a sender the address
   // is read, which on mail you never asked for is not always what you want.
   const unsub = state.settings.unsubscribeButton !== false ? msg.headers?.listUnsubscribe : null;
+  let unsubBanner = '';
   if (unsub) {
     const what = unsub.source === 'body'
       // Said differently on purpose: the sender didn't publish a way out, this
@@ -5758,7 +5841,11 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
     const said = already
       ? unsubSaid(already, already.at)
       : `${esc(I18n.t('Newsletter'))} — ${esc(what)} (${esc(unsub.label || '')}).`;
-    banner += `<div class="mv-banner mv-unsub-banner${unsubMin ? ' mv-unsub-min' : ''}${already ? ' mv-unsub-done' : ''}">
+    // Into its own variable, not onto `banner`: this one is rendered INSIDE the
+    // actions row (left of Reply/Forward/Delete) rather than on a line of its
+    // own. It is a small standing offer about the sender, not a warning about
+    // this message, so it belongs beside the buttons and not above them.
+    unsubBanner = `<div class="mv-banner mv-unsub-banner${unsubMin ? ' mv-unsub-min' : ''}${already ? ' mv-unsub-done' : ''}">
       <button class="mv-unsub-expand" title="${escAttr(I18n.t('Newsletter'))}" aria-expanded="${unsubMin ? 'false' : 'true'}">${already && already.method !== 'open' ? '✅' : '📭'}</button>
       <span class="mv-unsub-what">${said}</span>
       <button class="link-btn mv-unsubscribe">${esc(I18n.t(already ? 'Unsubscribe again' : 'Unsubscribe'))}</button></div>`;
@@ -5803,8 +5890,9 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
       </div>
       <div class="mv-head-brief">${brief}</div>
       <div class="mv-from-line">${fromLine} ${prio} ${authed}</div>
-      <div class="mv-date">${esc(fmtDate(msg.date, { long: true }))}</div>
+      <div class="mv-date">${esc(fmtDate(msg.date, { long: true }))}${folderChipHtml(msg)}</div>
       <div class="mv-to-line">${toLine}</div>
+      ${messageActionsHtml(unsubBanner)}
       ${answerNoteHtml(listEntry, msg)}
       ${banner}
     </div>
@@ -5959,13 +6047,18 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
     setHeadCollapsed(false);
   });
   $('.mv-star-btn', card).addEventListener('click', mvToggleStar);
+  $('.mv-act-reply', card).addEventListener('click', () => Compose.reply(msg, false));
+  $('.mv-act-replyall', card).addEventListener('click', () => Compose.reply(msg, true));
+  $('.mv-act-forward', card).addEventListener('click', () => Compose.forward(msg, msg.__folder));
+  $('.mv-act-delete', card).addEventListener('click', () => quickDelete(listEntry));
   $('.mv-more', card).addEventListener('click', (e) => {
     e.stopPropagation();
     const r = e.currentTarget.getBoundingClientRect();
     openCtxMenu([
-      { label: 'Reply', onClick: () => Compose.reply(msg, false) },
-      { label: 'Reply all', onClick: () => Compose.reply(msg, true) },
-      { label: 'Forward', onClick: () => Compose.forward(msg, msg.__folder) },
+      // Reply / Reply all / Forward are NOT here any more: they are buttons on
+      // the header itself (messageActionsHtml), which is where the three things
+      // people actually do with an open message belong. Keeping them in both
+      // places would have made this menu longer to say the same thing twice.
       { label: listEntry?.seen ? 'Mark as unread' : 'Mark as read', onClick: mvToggleRead },
       { label: 'Move', onClick: () => showMoveDialog(msg, listEntry) },
       ...refileMenuItems(listEntry),
@@ -5987,7 +6080,8 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
       // give it anyway) — desktop only, same width breakpoint every other
       // mobile-vs-desktop UI difference in this app already uses.
       ...(!isMobileViewport() ? [{ label: 'Open in new view', onClick: () => openMessageInNewView(msg) }] : []),
-      { label: 'Delete', danger: true, onClick: () => quickDelete(listEntry) },
+      // Delete is a button on the header now (messageActionsHtml), beside the
+      // three it belongs with — same reasoning as Reply/Reply all/Forward.
     ], r.right - 180, r.bottom + 4);
   });
   return card;

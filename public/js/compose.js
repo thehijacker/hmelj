@@ -210,6 +210,12 @@ const Compose = (() => {
 
   function isPlain() { return document.getElementById('c-plain').checked; }
 
+  /** Cc and Bcc together — they are one disclosure, opened by one button. */
+  function setCcVisible(on) {
+    document.querySelectorAll('.cc-row').forEach((r) => (r.hidden = !on));
+    document.getElementById('btn-cc-toggle')?.setAttribute('aria-expanded', String(!!on));
+  }
+
   function setBodyHtml(html) {
     document.getElementById('c-editor').innerHTML = html;
   }
@@ -551,6 +557,17 @@ const Compose = (() => {
     document.getElementById('c-to').value = to;
     document.getElementById('c-cc').value = cc;
     document.getElementById('c-bcc').value = '';
+    // Shown when this message HAS a Cc, hidden when it does not — decided here
+    // every time rather than left as whatever the last window was.
+    //
+    // Both halves of that were wrong before. Reply-all to a message with three
+    // people copied put them in Cc and left the row hidden, so the composer
+    // said "To: Simona" while it was about to write to four people — the one
+    // moment the field is worth seeing. And because the compose window is shown
+    // and hidden rather than rebuilt, revealing Cc once by hand left it open on
+    // every unrelated message afterwards; it looked like a remembered
+    // preference, but nothing was remembering anything.
+    setCcVisible(!!cc);
     document.getElementById('c-subject').value = subject;
     setPriority('normal');
     document.getElementById('c-receipt').checked = !!state.settings.requestReadReceipt;
@@ -823,7 +840,9 @@ const Compose = (() => {
     // Everything open() doesn't take as an argument, and the two fields it
     // deliberately resets (attachments, replyMeta) — restored after, not before.
     document.getElementById('c-bcc').value = p.bcc || '';
-    if (p.cc || p.bcc) document.querySelectorAll('.cc-row').forEach((r) => (r.hidden = false));
+    // open() above already showed them for a Cc; a queued message with only a
+    // Bcc is the case it cannot see, since open() takes no bcc.
+    if (p.cc || p.bcc) setCcVisible(true);
     setPriority(p.priority || 'normal');
     document.getElementById('c-receipt').checked = !!p.readReceipt;
     attachments = (p.attachments || []).map((a) => ({ ...a }));
@@ -2498,7 +2517,7 @@ const Compose = (() => {
 
     document.getElementById('c-plain').addEventListener('change', (e) => togglePlain(e.target.checked));
     document.getElementById('btn-cc-toggle').addEventListener('click', () =>
-      document.querySelectorAll('.cc-row').forEach((r) => (r.hidden = !r.hidden)));
+      setCcVisible(document.querySelector('.cc-row').hidden));
 
     ['c-to', 'c-cc', 'c-bcc', 'c-subject'].forEach((id) =>
       document.getElementById(id).addEventListener('input', () => (dirty = true)));

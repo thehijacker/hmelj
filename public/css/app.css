@@ -543,6 +543,9 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
   background: var(--accent-soft);
 }
 .select-toolbar select { max-width: 130px; }
+/* Same as the message header's: the one button on the strip that cannot be
+   undone by pressing it again. */
+.select-toolbar #sel-delete:hover { color: var(--danger); }
 .select-count { font-size: calc(13px * var(--ui-scale)); font-weight: 600; padding: 5px 10px; border-radius: 14px; }
 .select-count:hover { background: var(--hover); }
 
@@ -952,6 +955,37 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    compete with the actual message for screen space, especially on a phone
    where the old version ran to a third of the viewport before you'd even
    reached the body. */
+/* ---------- icons from public/images (see app.js#iconHtml) ----------
+ *
+ * A MASK, not an <img>. The files are authored with fill="currentColor", and an
+ * <img> resolves that inside the image's own document — black — so every icon
+ * would stay black in dark mode. A mask throws the file's colours away and
+ * paints its shape in currentColor instead, so one file covers both themes,
+ * hover, and disabled, and an icon inherits the colour of whatever it sits in
+ * without anybody having to think about it.
+ *
+ * Sized in em, so it tracks its button's font-size rather than needing its own.
+ * The unprefixed and -webkit- properties are both set: Safari still wants the
+ * prefix, and a mask that silently fails paints a solid currentColor block.
+ */
+.app-icon {
+  display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+/* The other kind: an icon that IS its own picture, drawn with a real <img> so
+   its colours survive. A mask keeps only the shape, which is right for a
+   toolbar — one file that follows the theme, hover, and a pressed state — and
+   wrong for the user menu, where the icons are illustrations and the colour is
+   most of what tells them apart at a glance.
+   Sized rather than left at its intrinsic size: these files range from 24px to
+   800px square and would otherwise each land at a different size. */
+.app-icon-img {
+  display: inline-block; width: 1em; height: 1em; object-fit: contain;
+  vertical-align: -0.125em; flex: 0 0 auto;
+}
+
 .mv-header-card { margin: 14px 20px 0; padding: 12px 16px; background: var(--surface-2); border-radius: var(--radius); }
 .mv-body { padding: 12px 26px 20px; }
 .mv-header-top { display: flex; align-items: flex-start; gap: 8px; }
@@ -974,9 +1008,39 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .mv-addr:hover { background: var(--hover); color: var(--text); }
 .mv-addr-email { color: var(--text-dim); font-weight: 400; }
 .mv-date { color: var(--text-dim); font-size: calc(12px * var(--ui-scale)); margin-top: 1px; }
+/* "…and it lives in Arhiv", on the date line rather than a line of its own —
+   that line is one short dim string and had the room, and where a message is
+   filed is the same kind of fact as when it arrived. Only drawn when it says
+   something the view does not (see folderChipHtml). */
+.mv-folder {
+  display: inline-block; margin-left: 8px; padding: 0 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text-dim);
+  max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
 .mv-to-line {
   margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
   color: var(--text-dim); font-size: calc(12px * var(--ui-scale));
+}
+/* Reply / Reply all / Forward, on a row of their own under the recipients.
+   They shared that line to begin with, and three buttons and a list of
+   addresses competing for one width meant the addresses wrapped to three lines
+   on a two-recipient message. Right-aligned, out of the way of the reading. */
+.mv-actions { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+/* Takes the slack, which is what pushes the buttons to the right — and holds
+   the unsubscribe offer when there is one. min-width:0 so a long expanded
+   banner wraps inside it instead of shoving the buttons off the edge. */
+.mv-actions-left { flex: 1; min-width: 0; display: flex; align-items: center; }
+.mv-actions-left:empty { display: block; }
+.mv-actions .mv-act { padding: 5px 9px; font-size: calc(15px * var(--ui-scale)); color: var(--text-dim); }
+.mv-actions .mv-act:hover { color: var(--accent); }
+/* The one on this row that cannot be undone by pressing it again. */
+.mv-actions .mv-act-delete:hover { color: var(--danger); }
+/* Collapsing the header hides the details, not the actions: "less header" must
+   not also mean "no way to reply". Without the To line above it the row carries
+   the separator itself. */
+.mv-header-card.mv-head-collapsed .mv-actions {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
 }
 /* Collapsed header (the ▾ button; remembered in settings.messageHeaderCollapsed).
    Four lines of header — subject, sender+address, long date, To/Cc — become
@@ -1014,11 +1078,16 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .mv-auth-pass { color: var(--text-dim); }
 .mv-auth-fail { color: var(--danger); font-weight: 600; }
 
-/* The newsletter banner is the one that appears on EVERY message of a kind,
-   directly above the first line of it — so it is a size down from the others,
-   and by default (settings.unsubscribeBannerCompact) folded to just the icon
-   and the button. Clicking the icon unfolds the explanation for that message. */
-.mv-unsub-banner { font-size: calc(11.5px * var(--ui-scale)); padding: 4px 8px; gap: 6px; margin-top: 8px; }
+/* The newsletter banner is the one that appears on EVERY message of a kind, so
+   it is a size down from the others, and by default
+   (settings.unsubscribeBannerCompact) folded to just the icon and the button.
+   Clicking the icon unfolds the explanation for that message.
+
+   It shares the actions row (app.js#messageActionsHtml) rather than taking a
+   line of its own: on a newsletter that line sat between the recipients and the
+   message, and the row beside Reply/Forward/Delete was already there. No
+   margin-top for the same reason — the row does its own spacing. */
+.mv-unsub-banner { font-size: calc(11.5px * var(--ui-scale)); padding: 4px 8px; gap: 6px; margin-top: 0; min-width: 0; }
 .mv-unsub-banner .link-btn { font-size: inherit; padding: 2px 6px; }
 .mv-unsub-expand {
   background: none; border: 0; padding: 0; cursor: pointer; line-height: 1;
@@ -1973,6 +2042,10 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 }
 #user-menu-username { font-size: calc(13.5px * var(--ui-scale)); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheet-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; font-size: calc(14px * var(--ui-scale)); text-align: left; }
+/* A shade larger than the label beside it — an icon set at the text's own size
+   reads as a mark rather than a button. The emoji these replaced were drawn
+   oversized by the font, which is the proportion the row was built around. */
+.sheet-item .app-icon, .sheet-item .app-icon-img { font-size: 1.3em; flex: 0 0 auto; }
 .sheet-item:hover { background: var(--hover); }
 .sheet-item.danger { color: var(--danger); }
 .sheet-divider { height: 1px; background: var(--border); margin: 6px 0; }
@@ -1985,6 +2058,12 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 .mv-top-row { display: none; }
 
 @media (max-width: 900px) {
+  /* A finger is not a pointer: the same three buttons, with room to hit them. */
+  .mv-actions { gap: 2px; }
+  .mv-actions .mv-act { padding: 8px 14px; font-size: calc(17px * var(--ui-scale)); }
+  /* Long folder names, short screen. */
+  .mv-folder { max-width: 22ch; }
+
   /* ---- sidebar as an overlay, closed by default (app.js sets this) ---- */
   /* #sidebar (not .sidebar) so this reliably beats the desktop resizable-
      column rule further down (.sidebar { width: var(--folder-col) }) — same
