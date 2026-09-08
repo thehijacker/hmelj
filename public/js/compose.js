@@ -586,7 +586,7 @@ const Compose = (() => {
     // handler below uses to swap it when the identity changes mid-compose.
     applySignatureForIdentity(currentIdentity(), context);
     startAutosave();
-    (to ? document.getElementById('c-subject') : document.getElementById('c-to')).focus();
+    placeInitialFocus(to, context, plain);
     // Deferred one tick: reply()/forward() call open() and then set replyMeta
     // synchronously right after it returns — capturing the pristine snapshot
     // inside open() itself would miss those fields and make an untouched
@@ -595,6 +595,64 @@ const Compose = (() => {
     // After the body is populated, so the first check sees the real text — and
     // late enough that the signature is already in place to be skipped.
     Proofread.open({ plain });
+  }
+
+  /**
+   * Where the caret goes when a composer opens — and, just as much, what the
+   * user is looking at when it does.
+   *
+   * TWO things scroll in here: the panel (.compose-body) and the editor itself
+   * (.compose-editor is overflow-y:auto). The window is shown and hidden rather
+   * than rebuilt, so both keep whatever offset the LAST message left behind,
+   * and replacing the editor's innerHTML does not clear it — a browser only
+   * clamps scrollTop when the new content is shorter than the old scroll
+   * position. So a reply opened wherever the previous one happened to be left,
+   * which in practice meant halfway down somebody else's quoted mail.
+   *
+   * The caret was part of the same complaint. A reply and a forward arrive with
+   * their recipients and their subject already filled in, so the only thing
+   * left to do with them is write — and focus went to the Subject field, one
+   * Tab short of the place the message actually gets typed. It now starts on
+   * the first line of the writing area, above the signature and above the
+   * quote. A new message still starts at To, and one opened with a recipient
+   * already known still starts at Subject: there, the empty field IS the next
+   * thing to do.
+   */
+  function placeInitialFocus(to, context, plain) {
+    const panel = document.getElementById('compose-body');
+    const ed = document.getElementById(plain ? 'c-editor-plain' : 'c-editor');
+    const writing = plain ? null : (ed.querySelector(`:scope > .${BODY_CLASS}`) || ed);
+
+    // preventScroll on every one of these: the scroll position is settled
+    // below, deliberately, and letting focus() nudge it first only means
+    // undoing that.
+    if (context !== 'reply') {
+      (to ? document.getElementById('c-subject') : document.getElementById('c-to')).focus({ preventScroll: true });
+    } else if (plain) {
+      ed.focus({ preventScroll: true });
+      ed.setSelectionRange(0, 0);
+    } else {
+      ed.focus({ preventScroll: true });
+      // Offset 0 of the first line, not of the wrapper: on the wrapper the
+      // caret sits before the first block rather than inside it, and the first
+      // character typed can end up outside the styled writing area.
+      const first = writing.firstChild || writing;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    // Clear the inherited position, always — this is the part that was missing.
+    panel.scrollTop = 0;
+    ed.scrollTop = 0;
+    // With "quote above the reply" the writing area is BELOW the quoted
+    // original, so the top is exactly where the caret is not. `nearest` does
+    // nothing in the ordinary quote-below case, where the line is already on
+    // screen after the reset.
+    if (context === 'reply' && writing) writing.scrollIntoView({ block: 'nearest' });
   }
 
   function htmlToText(html) {
@@ -783,7 +841,21 @@ const Compose = (() => {
     setTimeout(() => { pristinePayload = null; dirty = true; }, 0);
   }
 
-  function editDraft(msg) {
+  /**
+   * A draft, back in the composer.
+   *
+   * `link` is the "unfinished answer to X" record (server/draftLinks.js), passed
+   * when the draft was opened from the ✎ on the message it answers. It carries
+   * what a draft on the mail server cannot: a draft is APPENDed from its body
+   * and recipients alone (index.js#saveDraft), with no In-Reply-To and no
+   * References, so a reply saved yesterday and sent today used to arrive as the
+   * start of a new thread and leave the original unmarked. Restoring replyMeta
+   * here is what makes continuing a reply produce a reply.
+   *
+   * Opening the same draft from the Drafts FOLDER passes no link and behaves
+   * exactly as before — there is nothing there to recover the linkage from.
+   */
+  function editDraft(msg, link = null) {
     open({
       to: msg.to.map((a) => a.address).join(', '),
       cc: msg.cc.map((a) => a.address).join(', '),
@@ -792,6 +864,15 @@ const Compose = (() => {
       context: 'new',
     });
     draftUid = msg.uid;
+    // After open(), which clears it — same ordering, and the same reason, as
+    // reply() and forward() above.
+    if (link?.original) {
+      replyMeta = {
+        inReplyTo: link.inReplyTo || undefined,
+        references: link.references || undefined,
+        original: link.original,
+      };
+    }
     restoreDraftParts(msg);
   }
 
@@ -2011,6 +2092,11 @@ const Compose = (() => {
     // The highlight ranges point at text nodes this window is done with.
     Proofread.close();
     el().hidden = true;
+    // Whatever just happened here — saved, sent, discarded, scheduled — is what
+    // decides whether the message being answered wears a ✎ in the list behind
+    // this window (see server/draftLinks.js). One place rather than five,
+    // because every one of those paths ends here.
+    if (typeof syncDraftMarks === 'function') syncDraftMarks();
   }
 
   /** Whether compose is on screen as something the user is actually editing —

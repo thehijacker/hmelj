@@ -74,6 +74,7 @@ import * as subjectRules from './subjectRules.js';
 import { groupByKey, mergeGroupResults } from './unifiedMerge.js';
 import { log } from './log.js';
 import * as pushI18n from './pushI18n.js';
+import * as draftLinks from './draftLinks.js';
 
 const reqLog = log.scope('http');
 const htmlLog = log.scope('html');
@@ -4183,13 +4184,33 @@ app.post('/api/messages/:folder/copy', wrap(async (req, res) => {
 app.post('/api/messages/:folder/delete', wrap(async (req, res) => {
   const folder = decodeURIComponent(req.params.folder);
   const result = await imap.deleteMessages(folder, req.body.uids);
+  // Discarding a draft — the composer's own "delete this draft" goes through
+  // here — must also retire its "unfinished answer to X" marker, or the message
+  // list keeps offering to open something that is gone. Cheap and unconditional
+  // rather than guarded on the folder being Drafts: unlinkDraft only matches a
+  // uid the table actually holds.
+  forgetDraftLink((table) => {
+    for (const uid of req.body.uids || []) draftLinks.unlinkDraft(table, currentUserAccountId(), uid);
+  });
   if (config.cacheEnabled) {
     const uKey = currentUser().userKey, acctId = currentUser().accountId;
     sync.noteLocalWrite(uKey, acctId, folder);
     // A \Deleted-flagged message is still IN the folder (and still unread if
     // it was) — only the "gone from this folder" branch shifts the counts.
     if (result.action === 'flagged') cache.applyFlags(uKey, acctId, folder, req.body.uids, { add: ['\\Deleted'] });
-    else cache.adjustFolderCounts(uKey, acctId, folder, cache.removeMessages(uKey, acctId, folder, req.body.uids)); // moved to trash or expunged — either way, gone from this folder
+    else {
+      // moved to trash or expunged — either way, gone from this folder
+      const removed = cache.removeMessages(uKey, acctId, folder, req.body.uids);
+      // removeMessages measures the delta from the rows it actually holds, and
+      // for the Drafts folder it holds none: that folder is never synced
+      // (scope.js#EXCLUDED_SPECIAL_USE), so its cached total is maintained by
+      // Hmelj's own writes alone (see saveDraft). Without this a discarded
+      // draft left the count where it was — "Open drafts (1)" pointing at an
+      // empty folder.
+      const acc = accounts.getAccount(acctId);
+      if (!removed.totalDelta && folder === acc?.draftsFolder) removed.totalDelta = -(req.body.uids?.length || 0);
+      cache.adjustFolderCounts(uKey, acctId, folder, removed);
+    }
   }
   events.broadcastForAccount(currentUser().userKey, currentUserAccountId());
   res.json(result);
@@ -4261,6 +4282,13 @@ async function saveDraft(payload, acc, previousUid) {
   // the /api/send failure path below now explicitly runs this under the
   // account's owner (runAsAccount), not just accountId-overridden
   // (runWithAccount used to leave userKey wrong for a shared account).
+  // The Drafts folder is never synced (scope.js#EXCLUDED_SPECIAL_USE), so the
+  // cached `total` the sidebar and "Open drafts" both read has no other way of
+  // learning that a draft was added. Only for a genuinely new one: an autosave
+  // replaces its predecessor (hardDelete + append above), which is net zero.
+  if (config.cacheEnabled && !previousUid) {
+    cache.adjustFolderCounts(currentUser().userKey, acc.id, acc.draftsFolder, { totalDelta: 1 });
+  }
   events.broadcastForAccount(currentUser().userKey, acc.id);
   return uid;
 }
@@ -4308,6 +4336,107 @@ scheduledSend.setHooks({
   },
 });
 
+/* ---------- "you left a reply unfinished" (see server/draftLinks.js) ----------
+ *
+ * The message list draws a ✎ against a message that has an unsent draft
+ * answering it, and offers to continue or discard it from the row's own menu —
+ * instead of the trip to the Drafts folder to find it by subject.
+ */
+
+/**
+ * Is that entry still worth keeping?
+ *
+ * NOT "is the draft still in the cache" — that question cannot be asked here.
+ * `\\Drafts` is in scope.js's EXCLUDED_SPECIAL_USE, so the background poller
+ * never syncs the Drafts folder and the cache never holds a single row from it.
+ * Checking against the cache therefore answered "gone" for every draft ever
+ * written, and the sweep below deleted each link the first time it was read —
+ * which is exactly the "I saved a reply and no ✎ appeared" report.
+ *
+ * So the authoritative events are the ones Hmelj performs itself: a send and a
+ * discard both unlink explicitly, and a draft that fails to open unlinks from
+ * the browser (see continueDraft in app.js). What is left for this is the case
+ * nothing tells us about — a draft deleted in another client — and the only
+ * honest answer there is time. A stale entry costs one click, which then
+ * cleans it up.
+ */
+const DRAFT_LINK_MAX_AGE_MS = 90 * 24 * 60 * 60e3;
+
+function draftLinkWorthKeeping(entry) {
+  return Date.now() - (entry.savedAt || 0) < DRAFT_LINK_MAX_AGE_MS;
+}
+
+/**
+ * A draft has just left the Drafts folder by a route that does not go through
+ * the delete endpoint — the hardDelete every send path runs on the draft it was
+ * composed from.
+ *
+ * It needs saying out loud because that folder is never synced
+ * (scope.js#EXCLUDED_SPECIAL_USE), so nothing else will ever notice: without
+ * this, sending a reply left "Open drafts (1)" pointing at an empty folder,
+ * exactly as discarding one did.
+ */
+function noteDraftRemoved(uKey, acc) {
+  if (config.cacheEnabled) cache.adjustFolderCounts(uKey, acc.id, acc.draftsFolder, { totalDelta: -1 });
+}
+
+/** Reads the table, drops what has gone, and writes it back only if something
+ *  actually went. */
+function liveDraftLinks() {
+  const table = store.getDraftLinks();
+  const { entries, changed } = draftLinks.live(table, draftLinkWorthKeeping);
+  if (changed) store.saveDraftLinks(table);
+  return entries;
+}
+
+function forgetDraftLink(mutate) {
+  const table = store.getDraftLinks();
+  const before = JSON.stringify(table);
+  mutate(table);
+  if (JSON.stringify(table) !== before) store.saveDraftLinks(table);
+}
+
+/**
+ * Every message the user has an unfinished answer to.
+ *
+ * One flat list rather than per-account: the unified view mixes accounts in one
+ * list of rows, so the browser wants the whole (small — one entry per open
+ * draft) table in a single request and matches rows against it itself.
+ */
+/**
+ * Both halves of "what unfinished mail is there", in one request: which
+ * messages have an unsent answer, and how full each account's Drafts folder is.
+ *
+ * One route rather than two because the browser wants them at the same moments
+ * — a list load, and a composer closing — and because they must not disagree:
+ * discarding a draft has to clear its ✎ and drop the account's count in the
+ * same repaint.
+ *
+ * Counts come from the CACHED folder row, the same `total` the sidebar draws,
+ * so this costs one indexed SELECT per account and never touches the mail
+ * server. That number is only right because the two places that change it —
+ * saveDraft below and the delete route — now adjust it themselves; the
+ * background poller cannot, since it never looks at Drafts at all
+ * (scope.js#EXCLUDED_SPECIAL_USE).
+ */
+app.get('/api/draft-state', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const counts = {};
+  if (config.cacheEnabled) {
+    const uKey = currentUser().userKey;
+    for (const acc of accounts.listAccounts()) {
+      if (acc.disabled || !acc.draftsFolder) continue;
+      // A shared-in account's folders are cached under its OWNER's key — the
+      // same resolution the folder tree itself uses. Reading them under the
+      // viewer's key would find nothing and quietly hide the entry.
+      const key = acc.shared ? userKey(acc.ownerUsername) : uKey;
+      const folder = cache.getFolders(key, acc.id).find((f) => f.path === acc.draftsFolder);
+      if (folder?.total > 0) counts[acc.id] = { folder: acc.draftsFolder, total: folder.total };
+    }
+  }
+  res.json({ links: Object.values(liveDraftLinks()), counts });
+});
+
 app.post('/api/drafts', wrap(async (req, res) => {
   const acc = accounts.currentAccount(); // route is called with ?account=<identity's account>
   // Groups are resolved here too, so a draft written to the mail server holds
@@ -4318,6 +4447,23 @@ app.post('/api/drafts', wrap(async (req, res) => {
   // reason to lose what somebody wrote. See contactGroups.js#expandPayloadGroups.
   expandPayloadGroups(req.body, store.getContactGroups(), { strict: false });
   const uid = await saveDraft(req.body, acc, req.body.previousUid);
+  // What this draft is an answer to, if anything. `original` rides in on the
+  // compose payload (it is the same field /api/send uses to mark the original
+  // \\Answered), so a reply, a reply-all and a forward all carry it and a new
+  // message carries nothing — normalizeOriginal returns null and link() is a
+  // no-op. previousUid matters as much as the new one: every autosave appends
+  // a new draft, and without clearing the old entry the table would grow one
+  // dead row per keystroke-batch.
+  forgetDraftLink((table) => draftLinks.link(table, {
+    original: req.body.original,
+    draftUid: uid,
+    draftFolder: acc.draftsFolder,
+    draftAccountId: acc.id,
+    previousUid: req.body.previousUid,
+    subject: req.body.subject,
+    inReplyTo: req.body.inReplyTo,
+    references: req.body.references,
+  }));
   res.json({ ok: true, uid });
 }));
 
@@ -4391,6 +4537,16 @@ app.post('/api/send', wrap(async (req, res) => {
   // resolveAccountForSending checks access against currentUser().
   const originalTarget = resolveOriginalTarget(payload.original);
 
+  // The reply is on its way, so it is no longer unfinished. Done here rather
+  // than after sendMail() resolves, and for all three exits below (undo-hold,
+  // scheduled, immediate) at once: from the user's point of view pressing Send
+  // is the moment the draft stops being a draft, and a send that later fails
+  // writes a NEW recovery draft further down, which links itself again.
+  forgetDraftLink((table) => {
+    draftLinks.unlinkOriginal(table, payload.original);
+    if (payload.previousUid != null) draftLinks.unlinkDraft(table, acc.id, payload.previousUid);
+  });
+
   // Send later. Everything above still runs first on purpose: a message with no
   // usable identity, or aimed at an account the caller can't send from, should
   // be refused NOW, while there is a compose window open to show the error in —
@@ -4405,6 +4561,7 @@ app.post('/api/send', wrap(async (req, res) => {
     const rec = scheduledSend.schedule(currentUser().viewerKey, { ...payload, undo: true }, Date.now() + undoSeconds * 1000);
     if (payload.previousUid) {
       await runAsAccount(ownerUser, acc.id, () => imap.hardDelete(acc.draftsFolder, [payload.previousUid])).catch(() => {});
+      noteDraftRemoved(userKey(ownerUser.username), acc);
       events.broadcastForAccount(userKey(ownerUser.username), acc.id);
     }
     // `undo` rather than `scheduled` so the composer knows to show a countdown
@@ -4418,6 +4575,7 @@ app.post('/api/send', wrap(async (req, res) => {
     // after an immediate send.
     if (payload.previousUid) {
       await runAsAccount(ownerUser, acc.id, () => imap.hardDelete(acc.draftsFolder, [payload.previousUid])).catch(() => {});
+      noteDraftRemoved(userKey(ownerUser.username), acc);
       events.broadcastForAccount(userKey(ownerUser.username), acc.id);
     }
     return res.json({ scheduled: rec });
@@ -4449,6 +4607,7 @@ app.post('/api/send', wrap(async (req, res) => {
     }
     if (payload.previousUid) {
       await runAsAccount(ownerUser, acc.id, () => imap.hardDelete(acc.draftsFolder, [payload.previousUid])).catch(() => {});
+      noteDraftRemoved(userKey(ownerUser.username), acc);
     }
     events.broadcastForAccount(ownerKey, acc.id); // Sent folder (and the now-gone draft, if any) changed — let other open tabs (owner's and every grantee's) know
   } catch (e) {

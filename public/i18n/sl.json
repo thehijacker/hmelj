@@ -1363,7 +1363,16 @@
     "Quick delete": "Hitro brisanje",
     "✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.": "✕ izbriše takoj, brez vprašanja. Nič ni zapisano, dokler ne pritisnete Shrani, zato zapiranje nastavitev brez shranjevanja vse razveljavi.",
     "Delete (no confirmation)": "Izbriši (brez potrditve)",
-    "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.": "✕ izbriše takoj — razveljavite z zaprtjem nastavitev brez shranjevanja. Zapomnjeno za ta brskalnik."
+    "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.": "✕ izbriše takoj — razveljavite z zaprtjem nastavitev brez shranjevanja. Zapomnjeno za ta brskalnik.",
+    "You have an unsent reply to this message": "Imate neposlan odgovor na to sporočilo",
+    "You have an unsent forward of this message": "Imate neposlano posredovanje tega sporočila",
+    "Continue unsent reply": "Nadaljuj neposlan odgovor",
+    "Continue unsent forward": "Nadaljuj neposlano posredovanje",
+    "Discard unsent draft": "Zavrzi neposlan osnutek",
+    "Discard the unsent draft for this message?": "Ali želite zavreči neposlan osnutek za to sporočilo?",
+    "Could not open that draft": "Osnutka ni bilo mogoče odpreti",
+    "Could not discard that draft": "Osnutka ni bilo mogoče zavreči",
+    "Open drafts": "Odpri osnutke"
   },
   "prefixes": [
     [

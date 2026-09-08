@@ -1363,7 +1363,16 @@
     "Quick delete": "Quick delete",
     "✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.": "✕ deletes at once, without asking. Nothing is written until you press Save, so closing Settings without saving undoes the lot.",
     "Delete (no confirmation)": "Delete (no confirmation)",
-    "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.": "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser."
+    "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.": "✕ deletes at once — undone by closing Settings without saving. Remembered for this browser.",
+    "You have an unsent reply to this message": "You have an unsent reply to this message",
+    "You have an unsent forward of this message": "You have an unsent forward of this message",
+    "Continue unsent reply": "Continue unsent reply",
+    "Continue unsent forward": "Continue unsent forward",
+    "Discard unsent draft": "Discard unsent draft",
+    "Discard the unsent draft for this message?": "Discard the unsent draft for this message?",
+    "Could not open that draft": "Could not open that draft",
+    "Could not discard that draft": "Could not discard that draft",
+    "Open drafts": "Open drafts"
   },
   "prefixes": [
     [

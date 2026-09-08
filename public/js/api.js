@@ -440,6 +440,12 @@ const API = {
     if (opts.scope) q.set('scope', opts.scope); // see API.unified
     return API.get(API._acct('/api/messages/' + encodeURIComponent(folder) + '?' + q, accountId));
   },
+  /** Unfinished mail, both halves at once: `links` — every message with an
+   *  unsent reply/forward waiting for it (see server/draftLinks.js), one flat
+   *  list because the unified view mixes accounts in one list of rows — and
+   *  `counts` — {accountId: {folder, total}} for each account whose Drafts
+   *  folder is not empty. One request, so the two can never disagree. */
+  draftState: () => API.get('/api/draft-state'),
   message: (folder, uid, allowImages, accountId) =>
     API.get(API._acct('/api/message/' + encodeURIComponent(folder) + '/' + encodeURIComponent(uid) + (allowImages ? '?allowImages=1' : ''), accountId)),
   /** Every message of one conversation, oldest first (envelopes only — bodies

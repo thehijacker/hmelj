@@ -1490,14 +1490,41 @@ function showFolderMenu(path, x, y) {
  * Server-side scope is scope.js#isUnreadScope: INBOX + subfolders, never
  * Sent/Drafts/hidden — see server/index.js's markReadScope. */
 function showAccountMenu(accountId, x, y) {
-  openCtxMenu([{
+  const items = [{
     label: 'Mark all as read',
     onClick: () => markAllReadOptimistic(
       accountId === 'all' ? () => true : (m) => (m.account?.id ?? state.currentAccount) === accountId,
       () => (accountId === 'all' ? API.markAllAccountsRead() : API.markAccountRead(accountId))
     ),
-  }], x, y);
+  }];
+  // Only when there is something to open, and never on "All inboxes", which is
+  // not one account and so has no one Drafts folder to go to. draftCounts is
+  // refreshed with the folder list (see loadFolders), so this is a Map lookup
+  // rather than a request made while a menu is waiting to appear.
+  const drafts = accountId !== 'all' ? draftCounts.get(accountId) : null;
+  if (drafts) {
+    items.push({
+      label: `${I18n.t('Open drafts')} (${drafts.total})`,
+      onClick: () => openAccountDrafts(accountId, drafts.folder),
+    });
+  }
+  openCtxMenu(items, x, y);
 }
+
+/** Goes to that account's Drafts folder, switching account first when the menu
+ *  was opened on a row that is not the one being viewed — which is the usual
+ *  case, since it is reachable from every account row and from the unified
+ *  view. switchAccount lands on INBOX and reloads the folder list, so the
+ *  folder move has to come after it rather than instead of it. */
+async function openAccountDrafts(accountId, folder) {
+  if (state.currentAccount !== accountId) await switchAccount(accountId);
+  await openFolder(folder);
+}
+
+/* {accountId: {folder, total}} for every account with a non-empty Drafts
+ * folder — what puts "Open drafts" in the account menu above. Filled by
+ * refreshDraftState alongside the ✎ marks, from one request. */
+const draftCounts = new Map();
 
 /** Nudge the folder-list and account-sidebar unread badges by `delta` (±1) for message m's
  * own folder, using local arithmetic instead of a network round-trip. This matters because
@@ -1619,6 +1646,11 @@ async function quickDelete(m, { confirm = true } = {}) {
   let res;
   try {
     res = await op;
+    // What was just deleted may have BEEN a draft (this is how one is thrown
+    // away from the Drafts folder) or may have been a message with an unsent
+    // answer waiting on it. Either way the ✎ marks and the accounts' draft
+    // counts have moved, and nothing else on this path reloads the list.
+    syncDraftMarks();
   } catch (e) {
     if (idx !== -1) state.messages.splice(idx, 0, m);
     if (unread) adjustUnreadCounts(m, unread);
@@ -1840,6 +1872,100 @@ function offerUndoRefile(r, res) {
 }
 
 /** Quick actions for a single message row — right-click on desktop, long-press on mobile (see bindLongPress). */
+/* ---------- unfinished replies (see server/draftLinks.js) ----------
+ *
+ * A reply started and left unsent used to be invisible from the message it
+ * answers: the only trace of it was a row in the Drafts folder, to be found by
+ * subject. The list now draws a ✎ against the message itself, and the row's own
+ * menu continues or discards the draft.
+ *
+ * Held as a flat Map keyed by account+folder+uid, because that is what a row
+ * knows about itself — the unified view mixes accounts in one list, so there is
+ * no ambient account to key on. Small by nature: one entry per open draft.
+ */
+const draftLinks = new Map();
+
+function draftLinkKey(accountId, folder, uid) { return `${accountId} ${folder} ${uid}`; }
+
+/** The unfinished answer to this ROW, if there is one. A conversation row is
+ *  addressed by its own uid like every other row action (msgCtx), so a draft
+ *  answering an older message in the same thread is shown against that message
+ *  and not against the whole conversation. */
+function draftLinkFor(m) {
+  if (!draftLinks.size) return null;
+  const { folder, accountId } = msgCtx(m);
+  const acct = accountId || state.currentAccount;
+  return draftLinks.get(draftLinkKey(acct, folder, m.uid)) || null;
+}
+
+/** Re-reads both small tables in one request. Cheap enough to do on every list
+ *  load, and that is also the only way a draft saved in ANOTHER tab shows up
+ *  here. Never allowed to break a list render: without it the rows simply lack
+ *  their mark and the account menu its entry. */
+async function refreshDraftState() {
+  try {
+    const { links, counts } = await API.draftState();
+    draftLinks.clear();
+    for (const l of links || []) {
+      draftLinks.set(draftLinkKey(l.original.accountId, l.original.folder, l.original.uid), l);
+    }
+    draftCounts.clear();
+    for (const [id, info] of Object.entries(counts || {})) draftCounts.set(id, info);
+  } catch { /* offline, or the server is older than this feature — no marks, no harm */ }
+}
+
+/** Re-reads the links and repaints the list only if the SET of marked messages
+ *  changed. Called by the composer as it closes — saving, sending or discarding
+ *  a draft all change whether a row wears a ✎, and the list is usually sitting
+ *  right behind the window. Comparing keys is the right test: a new draft uid
+ *  for the same original changes what the menu opens, which is refreshed
+ *  regardless, but not what is drawn. */
+async function syncDraftMarks() {
+  const before = [...draftLinks.keys()].sort().join('|');
+  await refreshDraftState();
+  if ([...draftLinks.keys()].sort().join('|') !== before) renderList();
+}
+
+/** Opens the draft that answers `m` in the composer, with its reply linkage
+ *  restored — see Compose.editDraft's second argument for why that matters. */
+async function continueDraft(link) {
+  try {
+    const msg = await API.message(link.draftFolder, link.draftUid, false, link.draftAccountId);
+    msg.__folder = link.draftFolder;
+    msg.__account = link.draftAccountId;
+    Compose.editDraft(msg, link);
+  } catch (e) {
+    // The usual cause is a draft deleted elsewhere since the list was drawn.
+    toast(I18n.t('Could not open that draft') + ': ' + e.message, 6000);
+    await refreshDraftState();
+    renderList();
+  }
+}
+
+async function discardLinkedDraft(link) {
+  if (!await Dialog.confirm(I18n.t('Discard the unsent draft for this message?'),
+    { title: I18n.t('Discard draft'), okLabel: I18n.t('Discard'), danger: true })) return;
+  try {
+    await API.deleteMsgs(link.draftFolder, [link.draftUid], link.draftAccountId);
+    toast(I18n.t('Draft discarded'));
+  } catch (e) {
+    toast(I18n.t('Could not discard that draft') + ': ' + e.message, 6000);
+  }
+  await refreshDraftState();
+  renderList();
+  loadFolders();
+}
+
+/** The ✎ on a row that has an unfinished answer waiting. */
+function draftMarkHtml(m) {
+  const link = draftLinkFor(m);
+  if (!link) return '';
+  const label = link.kind === 'forward'
+    ? I18n.t('You have an unsent forward of this message')
+    : I18n.t('You have an unsent reply to this message');
+  return `<span class="m-draftmark" title="${escAttr(label)}">✎</span>`;
+}
+
 function showMessageMenu(m, x, y) {
   openCtxMenu([
     // A conversation row acts as a whole (rowUids), so the label has to read
@@ -1848,10 +1974,23 @@ function showMessageMenu(m, x, y) {
     // Junk and Archive, whichever of the two this account has a folder for —
     // and each of them says which way it goes, since the same entry moves a
     // message out again when you are already looking at that folder.
+    ...draftMenuItems(m),
     ...refileMenuItems(m),
     ...snoozeMenuItems(m, x, y),
     { label: 'Delete', danger: true, onClick: () => quickDelete(m) },
   ], x, y);
+}
+
+/** Nothing at all when there is no unfinished answer to this message — which is
+ *  almost every row, so this must not add a dead entry to every menu. */
+function draftMenuItems(m) {
+  const link = draftLinkFor(m);
+  if (!link) return [];
+  return [
+    { label: link.kind === 'forward' ? 'Continue unsent forward' : 'Continue unsent reply',
+      onClick: () => continueDraft(link) },
+    { label: 'Discard unsent draft', danger: true, onClick: () => discardLinkedDraft(link) },
+  ];
 }
 
 /* ---------- snooze (see server/snooze.js) ----------
@@ -3011,6 +3150,11 @@ async function loadMessages() {
   state.total = data.total;
   state.listLocal = !!data._local;
   state.searchScopeUsed = data.scope || null;
+  // Before the first paint, so a row's ✎ is there from the start rather than
+  // appearing a moment later — it is one small request against a table with one
+  // entry per open draft.
+  await refreshDraftState();
+  if (seq !== loadMessagesSeq) return;
   renderList();
   renderPager(data);
   scrollListToTopOnNavigation();
@@ -4238,7 +4382,7 @@ function buildRow(m) {
          subject was rewritten by a Settings > Subject rule
          (server/subjectRules.js), so hovering a shortened row still shows what
          the sender actually wrote. -->
-    <span class="m-subject" data-no-i18n title="${escAttr(m.subjectOriginal || m.subject || '')}">${answerMarkHtml(m)}${threadMarkHtml(m)}${esc(m.subject)}</span>
+    <span class="m-subject" data-no-i18n title="${escAttr(m.subjectOriginal || m.subject || '')}">${draftMarkHtml(m)}${answerMarkHtml(m)}${threadMarkHtml(m)}${esc(m.subject)}</span>
     ${m.hasAttachment ? '<span class="m-attach" title="Has attachment">📎</span>' : ''}
     <span class="m-date" title="${escAttr(fmtDate(m.date, { long: true }))}">${esc(fmtDate(m.date))}</span>`;
   li.querySelector('.m-star').addEventListener('click', async (e) => {

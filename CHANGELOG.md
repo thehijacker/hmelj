@@ -9,6 +9,58 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### A reply you started and left is now visible from the message it answers
+Reply to something, type half of it, close the window. The draft is saved — and until now
+the only trace of it was a row in the Drafts folder, to be found again by subject.
+
+The message you were answering now carries a **✎** in the list, and its right-click /
+long-press menu offers **Continue unsent reply** and **Discard unsent draft** (or
+*Continue unsent forward*, for a forward). The mark goes as soon as the draft is sent or
+discarded, and the link cleans itself up if the draft is deleted somewhere else entirely.
+
+Continuing a reply this way also fixes something that was quietly wrong before: a draft is
+written to the mail server from its body and recipients alone, with no In-Reply-To and no
+References, so a reply saved yesterday and sent today arrived as the start of a **new
+thread** and left the original unmarked. The link carries that threading, so continuing a
+reply produces a reply. Opening the same draft from the Drafts folder behaves as it always
+did — there is nothing there to recover the linkage from.
+
+Only drafts Hmelj wrote are linked; one composed in another client is an ordinary draft,
+with nothing to say which message it answers.
+
+One thing this uncovered along the way: the **Drafts folder's message count was never
+maintained**. That folder is deliberately excluded from background syncing, so nothing was
+watching it — adding, sending or discarding a draft left the number where it was, in the
+sidebar as well as in the new menu entry. The three places that change it now say so
+themselves.
+
+### "Open drafts" on an account
+Right-click (long-press) an account in the sidebar: alongside *Mark all as read* there is
+now **Open drafts**, with the count, which switches to that account and opens its Drafts
+folder. It appears only when that account has drafts, and not on *All inboxes* — which is
+not one account and has no single Drafts folder to open. The count comes from the folder
+list already cached, so the menu costs nothing to draw.
+
+### A reply opens where you write it
+Hitting Reply could open the composer part-way down the quoted original, at whatever spot
+the *previous* message happened to be left at — which reads exactly like the window
+remembering a scroll position, because that is what it was doing.
+
+Two containers scroll in the composer: the panel, and the editor itself. The window is shown
+and hidden rather than rebuilt, so both kept the offset the last message left behind, and
+replacing the editor's contents does not clear that — a browser only clamps a scroll
+position when the new content is shorter than the old one. Both are now reset when a
+composer opens.
+
+The caret was the other half of the same complaint. A reply and a forward arrive with their
+recipients and their subject already filled in, so the only thing left to do is write — and
+focus went to the Subject field, one Tab short of where the message actually gets typed. It
+now starts on the first line of the writing area, above the signature and above the quote.
+With *quote above the reply* the view follows the caret rather than the top of the message.
+
+A new message is unchanged: it still opens at To, or at Subject when the recipient is
+already known. There, the empty field is the next thing to do.
+
 ### Going through the contacts list is no longer a chore
 Three things aimed at the same afternoon: several hundred freshly imported contacts, and
 the job of throwing away the ones you do not want.

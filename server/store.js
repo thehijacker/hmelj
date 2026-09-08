@@ -384,6 +384,16 @@ export const store = {
     return clean;
   },
 
+  // "There is an unsent draft answering THIS message" — see server/draftLinks.js
+  // for the shape and for why the link is written down rather than read back off
+  // the draft's own headers. Keyed by the ORIGINAL (account + folder + uid), one
+  // entry per message being answered.
+  //
+  // Per Hmelj user, like filters: a draft belongs to whoever is writing it, not
+  // to the mailbox it will go out through.
+  getDraftLinks: () => load('draft-links', {}),
+  saveDraftLinks(table) { save('draft-links', table || {}); return table; },
+
   getFilters: () => load('filters', []),
   saveFilters(list) { save('filters', list); return list; },
 

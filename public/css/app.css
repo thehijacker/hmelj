@@ -2401,6 +2401,11 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
 .dialog { max-width: 440px; width: min(440px, 92vw); height: auto; padding: 22px 24px; max-height: 90vh; overflow: auto; }
 .dialog:has(.dialog-wide) { max-width: 620px; width: min(620px, 94vw); }
 
+/* "There is an unsent reply to this one" — leads the subject, beside the ↩/↪
+   that says a reply was actually SENT. Accent-coloured because unlike those two
+   it is not a record of something finished, it is something still waiting. */
+.m-draftmark { color: var(--accent); margin-right: 4px; font-weight: 600; }
+
 /* Contacts list pager, above and below the rows. */
 .ct-pager { gap: 8px; align-items: center; margin-bottom: 10px; }
 .ct-pager .btn-sm:disabled { opacity: .4; cursor: default; }

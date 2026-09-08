@@ -111,6 +111,7 @@
 <li><a data-scroll="read-quotes" data-section="reading" href="#read-quotes">Collapsed quotes</a></li>
 <li><a data-scroll="read-unsub" data-section="reading" href="#read-unsub">Unsubscribe</a></li>
 <li><a data-scroll="read-attach" data-section="reading" href="#read-attach">Attachments</a></li>
+<li><a data-scroll="read-draft" data-section="reading" href="#read-draft">Unfinished replies</a></li>
 <li><a data-scroll="read-find" data-section="reading" href="#read-find">Find in message</a></li>
 <li><a data-scroll="read-invites" data-section="reading" href="#read-invites">Calendar invitations</a></li>
 <li><a data-scroll="read-receipts" data-section="reading" href="#read-receipts">Read receipts</a></li>
@@ -1384,9 +1385,20 @@ locked off rather than offered as a false choice.
 <p>Right-click a row on a desktop, long-press it on a phone:</p>
 <ul>
 <li><strong>Mark as read / unread</strong></li>
+<li><strong>Continue unsent reply</strong> / <strong>Discard unsent draft</strong> — only on a
+  message you started answering and left, see
+  <a data-scroll="read-draft" data-section="reading" href="#read-draft">Replies you started and left</a></li>
+<li><strong>Snooze…</strong></li>
 <li><strong>Mark as spam</strong> or <strong>Not spam</strong>, and <strong>Move to Archive</strong> or <strong>Move out of Archive</strong> — whichever the account has folders for</li>
 <li><strong>Delete</strong></li>
 </ul>
+<p>
+  Right-click (long-press) an <strong>account</strong> in the sidebar instead and you get
+  <strong>Mark all as read</strong> for that account, plus <strong>Open drafts</strong> with
+  the count beside it — which switches to that account and opens its Drafts folder. The
+  entry appears only when that account's Drafts folder actually holds something, and not on
+  <em>All inboxes</em>, which is not one account and so has no one Drafts folder to go to.
+</p>
 
 <h2 id="list-select">Select mode</h2>
 <p>
@@ -1719,6 +1731,26 @@ what <code>ATTACHMENT_CACHE_MB</code> exists for — see
 <img alt="The attachment preview overlay" data-src="screenshots/attachments.png" decoding="async" loading="lazy"/>
 <figcaption>Attachment preview, with a determinate progress bar</figcaption>
 </figure>
+
+<h2 id="read-draft">Replies you started and left</h2>
+<p>
+  Start a reply, type half of it, close the window: the draft is saved, and the message you
+  were answering now carries a <strong>✎</strong> in the list. Right-click (long-press) that
+  row for <strong>Continue unsent reply</strong> — which reopens the draft in the composer —
+  or <strong>Discard unsent draft</strong>. The point is not having to go to the Drafts
+  folder and identify it by subject.
+</p>
+<ul>
+<li>Forwards too, as <em>Continue unsent forward</em>.</li>
+<li>The mark goes as soon as the draft is sent or discarded, and the entry cleans itself up
+  if the draft is deleted somewhere else — in another client, or by emptying Drafts.</li>
+<li>Continuing a reply this way keeps its <em>threading</em>: it goes out as a reply to the
+  original and marks it answered. A draft opened from the Drafts folder cannot know that —
+  a saved draft carries no In-Reply-To — which is the other reason to reach it from the
+  message it belongs to.</li>
+<li>Only drafts <em>Hmelj</em> wrote are linked. One composed in another client is an
+  ordinary draft, with nothing to say which message it answers.</li>
+</ul>
 
 <h2 id="read-find">Find in message</h2>
 <p>
