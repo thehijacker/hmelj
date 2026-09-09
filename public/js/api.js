@@ -306,7 +306,7 @@ const API = {
   // that can produce it again, by design, so the UI has to show it there and
   // then and say so.
   appPasswords: () => API.get('/api/app-passwords'),
-  createAppPassword: (label, scopes) => API.post('/api/app-passwords', { label, scopes }),
+  createAppPassword: (label, scopes, pubIds = []) => API.post('/api/app-passwords', { label, scopes, pubIds }),
   deleteAppPassword: (id) => API.del('/api/app-passwords/' + encodeURIComponent(id)),
   davPublished: () => API.get('/api/dav/published'),
   saveDavPublished: (draft, id) => (id

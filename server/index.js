@@ -2158,6 +2158,10 @@ app.post('/api/calendar/snooze', wrap(async (req, res) => {
 app.get('/api/app-passwords', (req, res) => res.json({
   passwords: appPasswords.list(),
   scopes: appPasswords.SCOPES,
+  // What a password can be limited TO, so the UI can offer the choice and name
+  // the collections a existing one already covers.
+  publications: davPublish.listFor(currentUser().viewerKey)
+    .map((p) => ({ id: p.id, label: p.label, kind: p.kind })),
 }));
 
 /**
@@ -2168,8 +2172,8 @@ app.get('/api/app-passwords', (req, res) => res.json({
  * show it once and say so.
  */
 app.post('/api/app-passwords', wrap(async (req, res) => {
-  const { label, scopes } = req.body || {};
-  res.json(appPasswords.create({ label, scopes }));
+  const { label, scopes, pubIds } = req.body || {};
+  res.json(appPasswords.create({ label, scopes, pubIds }));
 }));
 
 app.delete('/api/app-passwords/:id', (req, res) => {

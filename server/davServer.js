@@ -84,6 +84,16 @@ function maskBusy(ical) {
 function calendarMembers(uKey, pub) {
   const sources = davPublish.resolveSourcesFor(uKey, pub);
   const out = [];
+  // Per-event colours, which Hmelj keeps beside the document rather than inside
+  // it — Google's CalDAV endpoint drops an unknown property on the way through,
+  // so storing COLOR there does not survive (see calendarStore.js's per-event
+  // colours section). Publishing is the other direction and has no such
+  // problem: HMELJ is the server here, the document is generated per request
+  // and never round-trips through anybody else, so the colour can simply be
+  // written into what is served. A subscribing Hmelj already reads COLOR back
+  // (calendarEvents.js#rowToEvent) and lets the subscriber's own choice win
+  // over it, so the two ends meet without either storing anything new.
+  const eventColors = calendarStore.eventColorsFor(uKey);
   for (const src of sources) {
     const calId = src.calendar.calendar.id;
     // Everything the calendar holds, which for a subscriber is the right answer:
@@ -95,7 +105,13 @@ function calendarMembers(uKey, pub) {
       // publication of one has nothing to serve — it is skipped rather than
       // serving an empty file.
       if (!row.ical) continue;
-      const ical = src.detail === 'busy' ? maskBusy(row.ical) : row.ical;
+      // A 'busy' source is deliberately stripped back to the time alone, and its
+      // colour goes with the rest of it — a colour scheme is a small leak of
+      // what a thing IS, which is the one thing "busy only" exists not to say.
+      const color = src.detail === 'busy' ? '' : (eventColors[`${calId}:${row.uid}`] || '');
+      const ical = src.detail === 'busy'
+        ? maskBusy(row.ical)
+        : (color ? patchEvent(row.ical, { COLOR: `COLOR:${color}` }) : row.ical);
       // An aggregate can hold two calendars with colliding UIDs, so the member
       // name carries which calendar it came from. A single publication does not
       // need that and keeps the plain uid, which is what a client expects to
@@ -305,6 +321,16 @@ async function handle(req, res) {
     return res.status(403).type('text/plain')
       .send(`This app password is not allowed to reach ${target.kind === 'calendar' ? 'calendars' : 'contacts'}.`);
   }
+  // A password may be limited to particular published collections (see
+  // appPasswords.create) — one made to share a single calendar with one person
+  // must not also reach everything else that account publishes. 404 rather than
+  // 403, for the same reason the ownership check above is: a credential that
+  // cannot see a collection should not learn that it exists. Every path that
+  // names one comes through here, so the listings below are the only other
+  // place that needs to know about this.
+  if (target.pubId && !appPasswords.allowsPublication(credential, target.pubId)) {
+    return res.status(404).type('text/plain').send('Not found');
+  }
 
   if (req.method === 'OPTIONS') return options(res);
 
@@ -313,6 +339,16 @@ async function handle(req, res) {
   const user = listUsers().find((u) => userKey(u.username) === uKey);
   if (!user) return res.status(404).type('text/plain').send('Not found');
   return runAsUser(user, () => dispatch(req, res, target, uKey));
+}
+
+/** The published collections THIS credential may see — what the home collection
+ *  enumerates. Without the filter, a password scoped to one calendar still
+ *  listed every other one, which is exactly how a share meant for one calendar
+ *  showed up as two on the other side. */
+function visiblePublications(req, uKey, kind) {
+  const credential = req.dav?.credential;
+  return davPublish.listFor(uKey)
+    .filter((p) => p.kind === kind && appPasswords.allowsPublication(credential, p.id));
 }
 
 function options(res) {
@@ -411,7 +447,7 @@ function propfind(req, res, target, uKey) {
     return send207(res, rows);
   }
 
-  const published = davPublish.listFor(uKey).filter((p) => p.kind === target.kind);
+  const published = visiblePublications(req, uKey, target.kind);
 
   if (target.type === 'home') {
     const homeHref = `${hrefFor(req, 'p', uKey, target.kind === 'calendar' ? 'cal' : 'card')}/`;
@@ -475,7 +511,7 @@ function report(req, res, target, uKey) {
       .send(`<?xml version="1.0" encoding="utf-8"?>\n<error ${NS}><supported-report/></error>`);
   }
 
-  const published = davPublish.listFor(uKey).filter((p) => p.kind === target.kind);
+  const published = visiblePublications(req, uKey, target.kind);
   const pub = published.find((p) => p.id === target.pubId);
   if (!pub) return res.status(404).type('text/plain').send('Not found');
   const members = membersOf(uKey, pub);

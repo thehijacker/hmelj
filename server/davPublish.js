@@ -83,6 +83,19 @@ export function getFor(uKey, id) {
  * file cannot make a mirror of somebody else's server writable — the write
  * would appear to succeed and be silently discarded by the next sync.
  */
+/** A publication's colour: what was asked for, else the source calendar's own,
+ *  else the app accent. */
+function colorFor(uKey, input, existing, kind, mode, sources) {
+  if (/^#[0-9a-f]{6}$/i.test(input.color || '')) return input.color.toLowerCase();
+  if (existing?.color) return existing.color;
+  if (kind === 'calendar' && mode === 'single' && sources[0]?.calendarId) {
+    const found = calendarStore.resolveCalendarFor(uKey, sources[0].calendarId);
+    const c = found?.calendar?.color;
+    if (/^#[0-9a-f]{6}$/i.test(c || '')) return c.toLowerCase();
+  }
+  return '#0b57d0';
+}
+
 export function isWritable(uKey, pub) {
   if (pub.kind !== 'calendar' || pub.mode !== 'single') return false;
   const src = pub.sources?.[0];
@@ -117,7 +130,14 @@ export function upsert(input, existingId = null) {
     kind,
     mode,
     label: String(input.label || '').trim().slice(0, 80) || (kind === 'calendar' ? 'Calendar' : 'Contacts'),
-    color: /^#[0-9a-f]{6}$/i.test(input.color || '') ? input.color.toLowerCase() : (existing?.color || '#0b57d0'),
+    // The colour subscribers see (advertised as CalDAV's calendar-color — see
+    // davServer.js). Given one, use it. Otherwise inherit from the calendar
+    // being shared, which is what makes a shared "Družinski" arrive looking
+    // like Družinski: this used to fall straight through to the app accent, so
+    // every published collection reached the other side the same shade of blue
+    // however carefully its source had been coloured. Only for a single
+    // calendar — a merge of several has no one colour to inherit.
+    color: colorFor(uKey, input, existing, kind, mode, sources),
     sources,
     createdAt: existing?.createdAt || Date.now(),
   };

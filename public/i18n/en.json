@@ -1400,7 +1400,12 @@
     "Messages flagged \\\\Deleted appear struck through.": "Messages flagged \\\\Deleted appear struck through.",
     "Only mark as \\\\Deleted (keep in place)": "Only mark as \\\\Deleted (keep in place)",
     "Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote 'v prilogi' does not ask.": "Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote 'v prilogi' does not ask.",
-    "Could not answer the invitation: ": "Could not answer the invitation: "
+    "Could not answer the invitation: ": "Could not answer the invitation: ",
+    "Which shared collections?": "Which shared collections?",
+    "Everything I share, including anything I share later": "Everything I share, including anything I share later",
+    "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.": "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.",
+    "This password reaches only these shared collections.": "This password reaches only these shared collections.",
+    "(removed)": "(removed)"
   },
   "prefixes": [
     [

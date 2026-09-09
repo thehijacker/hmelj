@@ -1400,7 +1400,12 @@
     "Messages flagged \\\\Deleted appear struck through.": "Sporočila z oznako \\\\Deleted so prikazana prečrtano.",
     "Only mark as \\\\Deleted (keep in place)": "Samo označi kot \\\\Deleted (pusti na mestu)",
     "Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote 'v prilogi' does not ask.": "Pred pošiljanjem preveri, ali besedilo omenja priponko, medtem ko ni pripeta nobena — v angleščini in slovenščini, tudi v oblikah brez šumnikov. Prebere se samo vaše besedilo: citirani izvirnik in podpis se prezreta, zato odgovor nekomu, ki je napisal 'v prilogi', ne sproži opozorila.",
-    "Could not answer the invitation: ": "Na vabilo ni bilo mogoče odgovoriti: "
+    "Could not answer the invitation: ": "Na vabilo ni bilo mogoče odgovoriti: ",
+    "Which shared collections?": "Katere deljene zbirke?",
+    "Everything I share, including anything I share later": "Vse, kar delim, tudi kar bom delil pozneje",
+    "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.": "Odkljukajte, če boste to geslo dali nekomu drugemu samo za določene zbirke. Do ničesar, kar boste delili pozneje, ne bo imelo dostopa.",
+    "This password reaches only these shared collections.": "To geslo doseže samo te deljene zbirke.",
+    "(removed)": "(odstranjeno)"
   },
   "prefixes": [
     [

@@ -3335,8 +3335,17 @@ const Settings = (() => {
    * there and then and say clearly that it will not come back. */
   let apList = null;
 
+  /** What a password can be limited to — the collections this account publishes
+   *  (see davPublish). Empty when nothing is shared yet, in which case the
+   *  dialog does not ask. */
+  let apPublications = [];
+
   async function loadAppPasswords() {
-    try { apList = (await API.appPasswords()).passwords || []; } catch { apList = []; }
+    try {
+      const r = await API.appPasswords();
+      apList = r.passwords || [];
+      apPublications = r.publications || [];
+    } catch { apList = []; apPublications = []; }
   }
 
   function renderAppPasswords() {
@@ -3355,6 +3364,8 @@ const Settings = (() => {
         <div class="card"><div class="row" style="gap:8px;align-items:baseline">
           <strong>${esc(p.label)}</strong>
           <span class="set-hint" style="margin:0">${esc((p.scopes || []).map((sc) => I18n.t(sc === 'caldav' ? 'Calendars' : 'Contacts')).join(', '))}</span>
+          ${(p.pubIds || []).length ? `<span class="set-hint" style="margin:0" title="${escAttr(I18n.t('This password reaches only these shared collections.'))}">· ${
+            esc(p.pubIds.map((id) => apPublications.find((x) => x.id === id)?.label || I18n.t('(removed)')).join(', '))}</span>` : ''}
           <span class="spacer"></span>
           <span class="set-hint" style="margin:0">${p.lastUsedAt
             ? `${esc(I18n.t('last used'))}: ${esc(fmtDate(p.lastUsedAt, { long: true }))}`
@@ -3372,21 +3383,42 @@ const Settings = (() => {
         I18n.t('A name you will recognise later, so you can revoke the right one.'))}
       <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ap-cal" checked> <span>${esc(I18n.t('Calendars'))}</span></label>
       <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ap-card" checked> <span>${esc(I18n.t('Contacts'))}</span></label>
-      <p class="set-hint" style="grid-column:auto">${esc(I18n.t('Give it only what that device needs — a credential for calendars cannot read your address book.'))}</p>`,
+      <p class="set-hint" style="grid-column:auto">${esc(I18n.t('Give it only what that device needs — a credential for calendars cannot read your address book.'))}</p>
+      ${apPublications.length ? `
+        <div class="set-section">${esc(I18n.t('Which shared collections?'))}</div>
+        <label class="mini-toggle" style="gap:6px"><input type="checkbox" id="ap-all" checked> <span>${esc(I18n.t('Everything I share, including anything I share later'))}</span></label>
+        <div id="ap-pubs" hidden style="margin-top:6px">
+          ${apPublications.map((p) => `<label class="mini-toggle" style="gap:6px">
+            <input type="checkbox" class="ap-pub" value="${escAttr(p.id)}">
+            <span>${esc(p.label)}</span>
+            <span class="set-hint" style="margin:0">${esc(p.kind === 'calendar' ? I18n.t('Calendar') : I18n.t('Contacts'))}</span>
+          </label>`).join('')}
+        </div>
+        <p class="set-hint" style="grid-column:auto">${esc(I18n.t('Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.'))}</p>` : ''}`,
       {
         okLabel: I18n.t('Create'),
+        onOpen: (root) => {
+          const all = root.querySelector('#ap-all');
+          const list_ = root.querySelector('#ap-pubs');
+          all?.addEventListener('change', () => { list_.hidden = all.checked; });
+        },
         getValue: () => ({
           label: document.getElementById('ap-label').value.trim(),
           scopes: [
             ...(document.getElementById('ap-cal').checked ? ['caldav'] : []),
             ...(document.getElementById('ap-card').checked ? ['carddav'] : []),
           ],
+          // Empty means "all of them", which is what every password meant
+          // before this choice existed — see appPasswords.create.
+          pubIds: document.getElementById('ap-all')?.checked === false
+            ? [...document.querySelectorAll('.ap-pub')].filter((b) => b.checked).map((b) => b.value)
+            : [],
         }),
       });
     if (!vals || vals === 'cancel') return;
     if (!vals.scopes.length) { toast(I18n.t('Choose at least one thing for it to reach')); return; }
     try {
-      const { secret } = await API.createAppPassword(vals.label, vals.scopes);
+      const { secret } = await API.createAppPassword(vals.label, vals.scopes, vals.pubIds);
       await loadAppPasswords();
       renderAppPasswords();
       // Shown once, and said so. The secret goes in `bodyHtml` — Dialog.alert's

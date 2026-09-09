@@ -88,16 +88,24 @@ export const list = () => listFor(uk());
  * form. The caller shows it once; there is deliberately no way to ask for it
  * again.
  */
-export function create({ label, scopes } = {}) {
+export function create({ label, scopes, pubIds } = {}) {
   const uKey = uk();
   const wanted = (Array.isArray(scopes) ? scopes : SCOPES).filter((s) => SCOPES.includes(s));
   if (!wanted.length) throw Object.assign(new Error('An app password needs at least one scope'), { status: 400 });
+  // Which published collections this password may reach. EMPTY MEANS ALL — both
+  // because that is what every password created before this existed meant, and
+  // because "a device of mine, subscribed to everything I publish" is still the
+  // common case. A non-empty list is the other one: a password handed to
+  // somebody else, which should reach exactly what it was made for and nothing
+  // published later.
+  const pubs = Array.isArray(pubIds) ? [...new Set(pubIds.map(String).filter(Boolean))] : [];
   const secret = mintSecret();
   const salt = crypto.randomBytes(16).toString('hex');
   const record = {
     id: crypto.randomUUID(),
     label: String(label || '').trim().slice(0, 60) || 'Device',
     scopes: wanted,
+    pubIds: pubs,
     createdAt: Date.now(),
     lastUsedAt: 0,
     salt,
@@ -149,7 +157,14 @@ export function verify(username, secret) {
     if (crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(r.hash))) matched = r;
   }
   if (!matched) return null;
-  return { user, uKey, credential: { id: matched.id, label: matched.label, scopes: matched.scopes } };
+  return {
+    user,
+    uKey,
+    credential: {
+      id: matched.id, label: matched.label, scopes: matched.scopes,
+      pubIds: Array.isArray(matched.pubIds) ? matched.pubIds : [],
+    },
+  };
 }
 
 /** Records that a credential was used. Written at most once a minute per
@@ -170,6 +185,17 @@ export function touch(uKey, credentialId) {
 
 /** Does this credential cover what is being asked for? */
 export const allows = (credential, scope) => !!credential?.scopes?.includes(scope);
+
+/**
+ * May this credential see that published collection?
+ *
+ * An empty `pubIds` means all of them — see create(). This is what makes a
+ * password shareable with one person: without it, every DAV password reached
+ * everything the account had ever published, so handing someone a credential
+ * for one shared calendar also handed them every other one.
+ */
+export const allowsPublication = (credential, pubId) =>
+  !credential?.pubIds?.length || credential.pubIds.includes(String(pubId));
 
 /** Whether this user has any credential at all — so Settings can say "no
  *  device is set up yet" rather than showing an empty box with no explanation. */

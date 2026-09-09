@@ -9,6 +9,12 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### An app password can be limited to particular shared collections
+
+### A shared calendar keeps its colour instead of arriving in the default blue
+
+### Per-event colours now travel to whoever subscribes to a shared calendar
+
 ### Attendees in the event editor autocomplete from contacts, like To/Cc/Bcc do
 
 ### Fixed: accepting a contact suggestion inside a dialog submitted the dialog
