@@ -489,6 +489,13 @@ export function listCalendarsFor(uKey) {
         sourceLabel: src.label,
         sourceKind: src.kind,
         sourceEnabled: src.enabled !== false,
+        // The MAIL account this calendar signs in through, where there is one —
+        // an Exchange, Microsoft or Google source is attached to an account, a
+        // CalDAV or local one is not. This is what lets "remind me about this
+        // message" put the reminder in the calendar belonging to the account the
+        // message arrived in, instead of whichever calendar happens to sort
+        // first (see addSnoozeReminderEvent in server/index.js).
+        accountId: src.accountId || null,
         displayName: cal.displayName,
         color: cal.color,
         // Whether that colour is the user's own choice rather than the server's

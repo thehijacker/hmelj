@@ -1384,7 +1384,13 @@
     "Could not save that": "Tega ni bilo mogoče shraniti",
     "Senders whose name is never questioned": "Pošiljatelji, katerih ime se nikoli ne preverja",
     "A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address's right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.": "Sistem za prijavo zahtevkov pošilja v imenu osebe, ki je zahtevek obdelala, s svojega naslova — kar je videti povsem enako kot lažno predstavljanje, pa ni. Dodate ga iz opozorila na sporočilu ali iz menija ob desnem kliku na naslov. Preskoči se samo preverjanje imena; neuspešno preverjanje SPF/DKIM/DMARC še vedno opozori.",
-    "None yet.": "Zaenkrat nobenega."
+    "None yet.": "Zaenkrat nobenega.",
+    "No calendar reminder was added": "Opomnik v koledarju ni bil dodan",
+    "Which calendar?": "Kateri koledar?",
+    "No calendar is attached to the account this message is in. Where should the reminder go?": "Računu, v katerem je to sporočilo, ni priložen noben koledar. Kam naj gre opomnik?",
+    "Add reminder": "Dodaj opomnik",
+    "reminder in": "opomnik v",
+    "That message cannot be previewed until it comes back": "Tega sporočila ni mogoče predogledati, dokler se ne vrne"
   },
   "prefixes": [
     [

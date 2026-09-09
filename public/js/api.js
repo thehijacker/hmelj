@@ -234,8 +234,9 @@ const API = {
   // the unified view there IS no ambient account, and every row can belong to a
   // different one, so falling back to API.account sends the request with no
   // account at all and the server answers "No mail account selected".
-  snooze: (folder, uids, wakeAt, addCalendar = false, accountId) =>
-    API.post(API._acct(`/api/messages/${encodeURIComponent(folder)}/snooze`, accountId), { uids, wakeAt, addCalendar }),
+  snooze: (folder, uids, wakeAt, addCalendar = false, accountId, calendarId = null, envelope = null) =>
+    API.post(API._acct(`/api/messages/${encodeURIComponent(folder)}/snooze`, accountId),
+      { uids, wakeAt, addCalendar, calendarId, envelope }),
   snoozed: () => API.get('/api/snoozed'),
   wakeSnoozed: (id) => API.post(`/api/snoozed/${encodeURIComponent(id)}/wake`, {}),
   resnooze: (id, wakeAt) => API._req('PATCH', `/api/snoozed/${encodeURIComponent(id)}`, { wakeAt }),

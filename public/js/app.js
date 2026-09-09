@@ -2042,16 +2042,58 @@ function snoozeMenuItems(m, x, y) {
   return [{ label: 'Snooze…', onClick: () => snoozeRow(m, x, y) }];
 }
 
+/**
+ * The calendars a reminder could actually be written to.
+ *
+ * Fetched here rather than read off the count the calendar view publishes
+ * (writableCalendarCount): that count only exists once the Calendar has been
+ * opened at least once in this session, so somebody who lives in their inbox
+ * was never offered a reminder at all. One small request when you snooze is a
+ * better trade than a feature that appears only after visiting another screen.
+ */
+async function writableCalendars() {
+  try {
+    // `{ calendars, sources, kinds, window, timezone }` — NOT a bare array. Read
+    // it as one and `.filter` throws, the catch below swallows it, and the whole
+    // feature disappears without a trace: no reminder question, no error, and a
+    // snooze that quietly never had a calendar half. Which is exactly what it
+    // did. calendar.js reads the same field (calRes.calendars).
+    const res = await API.calendars();
+    const all = Array.isArray(res) ? res : (res?.calendars || []);
+    writableCalendarCache = all.filter((c) => c.writable && !c.readOnly && c.enabled && c.sourceEnabled);
+    return writableCalendarCache;
+  } catch { return writableCalendarCache || []; }
+}
+
+/** Which calendar, when the message's own account has none. Grouped labels
+ *  rather than a bare list — "Koledar" is the name of four of them. */
+async function pickCalendar(list) {
+  const options = list.map((c) =>
+    `<option value="${escAttr(c.id)}">${esc(c.sourceLabel)} — ${esc(c.displayName)}</option>`).join('');
+  return Dialog.form(I18n.t('Which calendar?'),
+    `<p class="dialog-label">${esc(I18n.t('No calendar is attached to the account this message is in. Where should the reminder go?'))}</p>
+     <select id="snooze-cal" style="width:100%">${options}</select>`,
+    { okLabel: I18n.t('Add reminder'), getValue: (root) => root.querySelector('#snooze-cal').value });
+}
+
 async function snoozeRow(m, x, y) {
   // The same picker the composer uses for Send later — one list of presets and
   // one custom date/time dialog, so the two can never drift apart.
   const at = await Compose.pickSendTime(x, y, { mode: 'snooze' });
   if (!at) return;
   let addCalendar = false;
+  let calendarId = null;
+  const uids = rowUids(m);
+  // The ROW's own folder and account, not the view's. In "All inboxes" there is
+  // no ambient account and each row can belong to a different one — the same
+  // resolution every other row action goes through (see quickRefile).
+  const { folder, accountId } = msgCtx(m);
+  const rowAccount = accountId || (state.currentAccount !== 'all' ? state.currentAccount : null);
   // Only asked when there is somewhere to put it: a question with one possible
   // answer is not a question. Cancelling the dialog abandons the whole snooze,
   // which is why neither button is "no" — both of them snooze.
-  if (hasWritableCalendar()) {
+  const calendars = await writableCalendars();
+  if (calendars.length) {
     const answer = await Dialog.choose(I18n.t('Put a reminder in your calendar for that time as well?'), {
       title: I18n.t('Snooze'),
       buttons: [
@@ -2061,15 +2103,46 @@ async function snoozeRow(m, x, y) {
     });
     if (!answer) return; // cancelled
     addCalendar = answer === 'calendar';
+    if (addCalendar) {
+      // A follow-up on a work message belongs in the work calendar. A calendar
+      // source records which mail account it signs in through, so the message's
+      // own account picks it — no question asked when the answer is obvious.
+      calendarId = calendars.find((c) => c.accountId && c.accountId === rowAccount)?.id || null;
+      // Nothing attached to that account — a plain IMAP mailbox with no calendar
+      // of its own, which is most of them. Ask rather than guess: taking
+      // whichever calendar sorted first is how a work follow-up ended up in a
+      // personal calendar.
+      if (!calendarId) {
+        calendarId = await pickCalendar(calendars);
+        if (!calendarId) return; // cancelled the picker — same as cancelling above
+      }
+    }
   }
-  const uids = rowUids(m);
-  // The ROW's own folder and account, not the view's. In "All inboxes" there is
-  // no ambient account and each row can belong to a different one — the same
-  // resolution every other row action goes through (see quickRefile).
-  const { folder, accountId } = msgCtx(m);
   try {
-    await API.snooze(folder, uids, at, addCalendar, accountId);
-    toast(I18n.t('Snoozed until {when}').replace('{when}', fmtDate(at, { long: true })));
+    // The row's own envelope, sent along as a fallback. The server prefers its
+    // cache, but the cache does not always have the message — most reliably
+    // right after a wake, when the move gave it a new uid nothing has synced
+    // yet. That is how a snooze ended up recorded with no subject and no
+    // sender, showing as "(no subject)" and "—" in the list and reaching the
+    // calendar as a reminder that said only "Snoozed message."
+    const envelope = { subject: m.subject || '', fromName: m.from?.name || '', fromAddr: m.from?.address || '' };
+    const r = await API.snooze(folder, uids, at, addCalendar, accountId, calendarId, envelope);
+    const where = calendarId ? calendars.find((c) => c.id === calendarId) : null;
+    toast(I18n.t('Snoozed until {when}').replace('{when}', fmtDate(at, { long: true }))
+      + (where ? ` · ${I18n.t('reminder in')} ${where.sourceLabel} — ${where.displayName}` : ''));
+    // The message moved, but the reminder did not get written. Said out loud
+    // and separately, because the two halves genuinely had different outcomes —
+    // and because the alternative, which is what happened before, is finding
+    // out on the morning the reminder was supposed to arrive.
+    if (r?.calendarError) {
+      toast(`${I18n.t('No calendar reminder was added')} — ${r.calendarError}`, 9000);
+    }
+    // BEFORE loadFolders, which is what draws the Snoozed row — and it draws it
+    // from state.snoozed, which nothing else here updates. Without this the row
+    // was built from a list that still said "nothing is snoozed", so it did not
+    // appear at all until the page was reloaded and boot fetched the list.
+    // (unsnoozeRow has always done this; only the other direction was missing.)
+    await refreshSnoozed();
     await loadMessages();
     loadFolders();
   } catch (e) {
@@ -2120,7 +2193,14 @@ function paintSnoozedBadge() {
   if (n) {
     if (span) span.textContent = n;
     else li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
-  } else span?.remove();
+    return;
+  }
+  // Nothing left snoozed: the row goes too, on the same rule appendSnoozedRow
+  // builds it by. Removing only the count would leave a "Snoozed" row that
+  // opens an empty list — unless that empty list is what is being looked at,
+  // which is the one case the row has to stay for.
+  span?.remove();
+  if (state.currentFolder !== SNOOZED_FOLDER) li.remove();
 }
 
 /**
@@ -2161,10 +2241,38 @@ function snoozedRow(item) {
   const menu = (x, y) => showSnoozedMenu(item, x, y);
   li.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e.clientX, e.clientY); });
   bindLongPress(li, menu);
-  // A plain click is the obvious "I want it now" gesture on a list whose rows
-  // cannot be opened — the message is not in a folder this view can read.
-  li.addEventListener('click', () => wakeSnoozedNow(item));
+  // A plain click OPENS it, like a click on any other message row in this app.
+  //
+  // It used to bring the message back instead, on the reasoning that "the
+  // message is not in a folder this view can read". That premise was simply
+  // wrong — the record carries the account, the snooze folder and the uid, which
+  // is everything needed to fetch it — and the result was that looking at what
+  // you had snoozed un-snoozed it: one click, no confirmation, and the reminder
+  // gone. Bringing it back early is still on the row's own menu, where a
+  // deliberate action belongs.
+  li.addEventListener('click', () => openSnoozedMessage(item));
   return li;
+}
+
+/** The snoozed message itself, read where it is sleeping. */
+function openSnoozedMessage(item) {
+  if (item.uid == null) {
+    // No uid was recorded — the server had no UIDPLUS when it was filed, so the
+    // wake finds it by Message-ID instead (see server/snooze.js). Nothing to
+    // address a fetch with until then.
+    toast(I18n.t('That message cannot be previewed until it comes back'), 5000);
+    return;
+  }
+  // seen: true suppresses the auto-mark-as-read timer (scheduleMarkRead). Taking
+  // a look at something you have deliberately put aside should not quietly
+  // change its state — it will come back unread, as you left it.
+  // `folder`, not `snoozeFolder`: the list endpoint publishes a summary of the
+  // record, not the record (server/snooze.js#summarize). Reading the wrong name
+  // left it undefined, openMessage fell back to state.currentFolder — the
+  // pseudo-folder __SNOOZED__ — and the fetch only worked at all because an
+  // Exchange ItemId is globally unique. On IMAP, where a uid means nothing
+  // outside its own folder, it would have opened the wrong message.
+  openMessage({ uid: item.uid, folder: item.folder, account: { id: item.accountId }, seen: true });
 }
 
 function showSnoozedMenu(item, x, y) {
@@ -3320,6 +3428,14 @@ async function reconcileMessages() {
   // Same reasoning: the calendar is not backed by state.messages, and a
   // reconcile here would fetch a folder the server has never heard of.
   if (inCalendar()) return Calendar.refresh();
+  // Nor is Snoozed. Without this the background poll fetched the unified inbox
+  // — the view is "all accounts", so that is what it asks for — and patched the
+  // result straight over the snoozed list: sit on that screen for a minute and
+  // it quietly turned into your inbox.
+  if (state.currentFolder === SNOOZED_FOLDER) {
+    await refreshSnoozed();
+    return paintSnoozed();
+  }
   if (pendingMutations) { reconcileWants |= 1; return; }
   // Silent refreshes sit a live sweep out. Everything explicit — the refresh button,
   // re-running the search, navigating anywhere — still goes through loadMessages().
@@ -3357,6 +3473,20 @@ async function reconcileMessages() {
 let reconcileFoldersSeq = 0;
 async function reconcileFolders() {
   if (pendingMutations) { reconcileWants |= 2; return; }
+  // The Snoozed row is not one of the account's folders, so the loop at the
+  // bottom cannot see it — `folders.find()` returns nothing for a pseudo-path
+  // and it is skipped. A message waking on the server (which happens on the
+  // server's own timer, with nothing here to notice) therefore left the count
+  // saying 2 until the page was reloaded.
+  //
+  // Only asked for when there is something to expire, or when the list is on
+  // screen: with nothing snoozed there is nothing that can change, and this
+  // runs on every background poll.
+  if ((state.snoozed || []).length || state.currentFolder === SNOOZED_FOLDER) {
+    const before = (state.snoozed || []).length;
+    await refreshSnoozed();
+    if (state.currentFolder === SNOOZED_FOLDER && (state.snoozed || []).length !== before) paintSnoozed();
+  }
   if (state.currentAccount === 'all') { refreshUnread(); return; }
   const seq = ++reconcileFoldersSeq;
   let folders;
@@ -5596,11 +5726,20 @@ function authSpoofCheck(from) {
 
 /* ---------- turning a message into an event ---------- */
 
-/** Whether anything could receive one. Refreshed by the calendar view whenever
- *  it loads, so the menu entry appears as soon as a calendar is added rather
- *  than at the next reload. */
+/**
+ * Whether anything could receive one.
+ *
+ * Two sources, because one of them is not always there. The calendar view keeps
+ * this current while it is open (it knows the moment a calendar is added or
+ * disabled), but it only ever runs if the Calendar has been OPENED — so for
+ * anyone who lives in their inbox the count stayed at zero forever and
+ * "Add to calendar" was simply missing from the ⋯ menu, with nothing to
+ * suggest why. The cache below is primed at boot and by the snooze flow, so the
+ * entry is there whether or not the Calendar has been visited.
+ */
 let writableCalendarCount = 0;
-const hasWritableCalendar = () => writableCalendarCount > 0;
+let writableCalendarCache = null;
+const hasWritableCalendar = () => writableCalendarCount > 0 || (writableCalendarCache?.length || 0) > 0;
 window.__hmeljSetWritableCalendars = (n) => { writableCalendarCount = n; };
 
 /**
@@ -7116,6 +7255,10 @@ async function boot() {
   // authSpoofCheck. Non-fatal like the rest below: without it the check simply
   // warns as it did before.
   state.trustedSenders = (await API.trustedSenders().catch(() => null))?.senders || [];
+  // Not awaited: nothing on screen waits for it. It decides whether the ⋯ menu
+  // offers "Add to calendar" and whether snoozing offers a reminder, both of
+  // which are user actions that come later than this.
+  writableCalendars();
   state.savedSearches = await API.savedSearches().catch(() => []);
   state.contactGroups = await API.contactGroups().catch(() => []);
   Compose.setTemplates(await API.templates().catch(() => []));

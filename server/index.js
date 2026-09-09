@@ -4119,7 +4119,7 @@ async function ensureSnoozeFolder(acc, uKey) {
  */
 app.post('/api/messages/:folder/snooze', wrap(async (req, res) => {
   const folder = decodeURIComponent(req.params.folder);
-  const { uids = [], wakeAt, addCalendar = false } = req.body || {};
+  const { uids = [], wakeAt, addCalendar = false, calendarId = null, envelope = null } = req.body || {};
   if (!Array.isArray(uids) || !uids.length) return res.status(400).json({ error: 'No messages given' });
   // Validated with snooze.js's own check, and BEFORE anything moves. Two
   // separate mistakes were possible here and this closes both: `Number(null)`
@@ -4147,15 +4147,55 @@ app.post('/api/messages/:folder/snooze', wrap(async (req, res) => {
 
   const moved = await moveAndMirror(folder, uids, target);
   const out = [];
+  // Reported once even when several messages were snoozed at once: the reason
+  // is the same for all of them, and three identical toasts is noise.
+  let calendarError = null;
   for (const uid of uids) {
-    const env = before.get(String(uid)) || {};
+    // The cache first, then whatever the browser was looking at when it asked.
+    // The cache is the better source (a real envelope, per uid) but it is not
+    // always there: a message that has just been woken carries a brand-new uid
+    // that no sync has seen yet, and one outside the cached window was never
+    // stored at all. Falling back to the row the user right-clicked is exactly
+    // as accurate for the one message they meant, and is the difference between
+    // a snooze that remembers what it is about and one recorded as "(no
+    // subject)" from "—".
+    const cached = before.get(String(uid));
+    const env = cached || {
+      subject: envelope?.subject || '',
+      from: { name: envelope?.fromName || '', address: envelope?.fromAddr || '' },
+    };
     // No uidMap means the server has no UIDPLUS: the record still gets written,
     // with a null uid, and the wake finds the message by Message-ID instead.
     const landed = moved.uidMap?.[uid];
     let calendar = { calendarId: null, calendarUid: null };
     if (addCalendar) {
-      try { calendar = await addSnoozeReminderEvent(viewerKey, env, when); }
-      catch (e) { log.warn('Could not add the calendar reminder for a snoozed message:', e.message); }
+      try {
+        calendar = await addSnoozeReminderEvent(viewerKey, env, when, {
+          accountId: acc.id, calendarId, accountLabel: acc.label, sleepingIn: target, returnsTo: folder,
+        });
+      }
+      catch (e) {
+        // The snooze itself has already happened and must stand — moving the
+        // mail is the part that was asked for, and undoing it because a
+        // calendar refused an event would be the worse failure.
+        //
+        // But it must not be SILENT, which it was: a log.warn goes to the
+        // server's terminal, and the person who ticked "remind me" was told
+        // nothing at all and found out on the day the reminder did not arrive.
+        // It goes to their own log (Settings › Log) and back in the response,
+        // which the browser shows as a toast.
+        log.warn('Could not add the calendar reminder for a snoozed message:', e.message);
+        calendarError = e.message || 'The calendar reminder could not be created';
+        try {
+          userLog.record(viewerKey, {
+            level: 'warn',
+            category: 'calendar',
+            message: `Snoozed the message, but the calendar reminder could not be created: ${calendarError}`,
+            detail: env.subject || '',
+            accountId: acc.id,
+          });
+        } catch { /* logging a failure must never become a second failure */ }
+      }
     }
     out.push(snooze.remember(viewerKey, {
       accountId: acc.id,
@@ -4174,7 +4214,7 @@ app.post('/api/messages/:folder/snooze', wrap(async (req, res) => {
     }));
   }
   events.broadcastForAccount(uKey, acc.id);
-  res.json({ ok: true, folder: target, snoozed: out });
+  res.json({ ok: true, folder: target, snoozed: out, ...(calendarError ? { calendarError } : {}) });
 }));
 
 /**
@@ -4187,17 +4227,59 @@ app.post('/api/messages/:folder/snooze', wrap(async (req, res) => {
  * on a mail message, and a person with no calendar configured is better told
  * than quietly given one.
  */
-async function addSnoozeReminderEvent(viewerKey, env, when) {
-  const cal = calendarStore.listCalendarsFor(viewerKey)
-    .find((c) => c.writable && !c.readOnly && c.enabled && c.sourceEnabled);
-  if (!cal) throw Object.assign(new Error('No writable calendar is configured'), { status: 400 });
-  const summary = env.subject ? `Follow up: ${env.subject}` : 'Follow up on a message';
+function writableCalendarsFor(viewerKey) {
+  return calendarStore.listCalendarsFor(viewerKey)
+    .filter((c) => c.writable && !c.readOnly && c.enabled && c.sourceEnabled);
+}
+
+async function addSnoozeReminderEvent(viewerKey, env, when, {
+  accountId = null, calendarId = null, accountLabel = '', sleepingIn = '', returnsTo = '',
+} = {}) {
+  const writable = writableCalendarsFor(viewerKey);
+  // In order: the calendar the browser asked for (it offered the user a choice,
+  // so that choice wins), then one belonging to the same MAIL ACCOUNT as the
+  // message, then nothing.
+  //
+  // That middle step is the point. It used to take the first writable calendar
+  // in the list, which is an arbitrary answer — a follow-up on a work message
+  // landed in whichever calendar happened to sort first, quite possibly a
+  // personal one. A calendar source records the account it signs in through
+  // (calendarStore#listCalendarsFor), so the two can simply be matched.
+  const cal = (calendarId && writable.find((c) => c.id === calendarId))
+    || (accountId && writable.find((c) => c.accountId === accountId))
+    || null;
+  if (!cal) {
+    throw Object.assign(new Error(writable.length
+      ? 'No calendar is attached to that mail account — pick one to put the reminder in'
+      : 'No writable calendar is configured'), { status: 400 });
+  }
+  // The subject IS the title. A calendar entry that says only "Follow up on a
+  // message" is a reminder you cannot act on without going to look for what it
+  // meant — which is most of the value gone. Trimmed, because a mail subject can
+  // run to a paragraph and a calendar grid shows one line.
+  const subject = String(env.subject || '').trim();
+  const summary = subject
+    ? `Follow up: ${subject.length > 120 ? `${subject.slice(0, 117)}…` : subject}`
+    : 'Follow up on a message';
   const who = env.from?.name || env.from?.address || '';
   const result = await calendarWrite.createEventFor(viewerKey, cal.id, {
     summary,
     start: when,
     end: when + 30 * 60000,
-    description: who ? `Snoozed message from ${who}.` : 'Snoozed message.',
+    // Everything needed to recognise it a week later: who it was from, what it
+    // was called, and where the message actually is.
+    //
+    // Both folders, present AND future tense, because this is read at two very
+    // different moments. Opening the event today, the message is NOT in the
+    // inbox — it is asleep in the snooze folder, which is exactly what the
+    // first version of this line got wrong by promising it was already back.
+    description: [
+      subject ? `Subject: ${subject}` : null,
+      who ? `From: ${who}` : null,
+      sleepingIn && returnsTo
+        ? `Snoozed in Hmelj: waiting in "${sleepingIn}"${accountLabel ? ` (${accountLabel})` : ''} until then, when it moves back to "${returnsTo}".`
+        : 'Snoozed in Hmelj.',
+    ].filter(Boolean).join('\n'),
     reminders: [0],
   }, writeDeps());
   await afterCalendarWrite(viewerKey, cal.id);
@@ -4216,7 +4298,7 @@ app.post('/api/snoozed/:id/wake', wrap(async (req, res) => {
   const owner = listUsers().find((u) => u.username === rec.ownerUsername);
   if (!owner) return res.status(410).json({ error: 'The owner of that mailbox no longer exists' });
   const moved = await runAsAccount({ id: owner.id, username: owner.username }, rec.accountId,
-    () => snoozeWakeMove(viewerKey, rec), { purpose: 'snooze' });
+    () => snoozeWakeMove(viewerKey, rec, { markUnread: false }), { purpose: 'snooze' });
   snooze.forget(viewerKey, rec.id);
   await dropSnoozeCalendarEvent(viewerKey, rec);
   res.json({ ok: true, ...moved });
@@ -4236,7 +4318,7 @@ app.patch('/api/snoozed/:id', wrap(async (req, res) => {
  * somebody filed it by hand or deleted it, which is a decision rather than a
  * failure, and putting a copy back in the Inbox would undo it.
  */
-async function snoozeWakeMove(uKey, rec) {
+async function snoozeWakeMove(uKey, rec, { markUnread = true } = {}) {
   const ownerKey = currentUser().userKey;
   let uid = rec.uid;
   // Confirm the uid is still what the record thinks. A snooze can sit for
@@ -4256,13 +4338,31 @@ async function snoozeWakeMove(uKey, rec) {
 
   const moved = await moveAndMirror(rec.snoozeFolder, [uid], rec.fromFolder);
   const landed = moved.uidMap?.[uid];
-  // Back as UNREAD: the whole point of a snooze is that it asks for attention
-  // again at the chosen time, and a message that reappears already-read is one
-  // nothing will draw the eye to.
-  if (landed !== undefined) {
+  // Back as UNREAD — but only when the clock brought it back. That is the whole
+  // point of a snooze: it asks for attention at the chosen time, and a message
+  // that reappears already-read is one nothing will draw the eye to.
+  //
+  // Pressing "Bring it back now" is the opposite case. You are looking at the
+  // message, you have decided to deal with it, and marking it unread on the way
+  // in is the app arguing with you — reported exactly that way. There the read
+  // state is left however it was.
+  if (markUnread && landed !== undefined) {
     try { await imap.setFlags(rec.fromFolder, [landed], { remove: ['\\Seen'] }); }
     catch (e) { log.debug(`Could not mark a woken message unread: ${e.message}`); }
     if (config.cacheEnabled) cache.applyFlags(ownerKey, rec.accountId, rec.fromFolder, [landed], { remove: ['\\Seen'] });
+  }
+  // Re-read the folder it landed in, the same way a send re-reads Sent
+  // (smtpClient.js). Without it the cache is left in two minds: the unread
+  // COUNT has moved — the message came back unread, which is the point — while
+  // the row it counts may not be in the cache at all yet, because the move gave
+  // it a new uid the last sync never saw. The badge then says 1 and the unread
+  // filter shows nothing, which is exactly what it looked like.
+  //
+  // Best-effort: the message HAS come back, and a stale cache is a smaller
+  // failure than an error on a wake nobody was watching.
+  if (config.cacheEnabled) {
+    try { await sync.syncFolderNow(ownerKey, accounts.getAccount(rec.accountId), rec.fromFolder); }
+    catch (e) { log.debug(`Could not re-sync ${rec.fromFolder} after waking: ${e.message}`); }
   }
   events.broadcastForAccount(ownerKey, rec.accountId);
   return { uid: landed ?? null, folder: rec.fromFolder };

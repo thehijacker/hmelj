@@ -1384,7 +1384,13 @@
     "Could not save that": "Could not save that",
     "Senders whose name is never questioned": "Senders whose name is never questioned",
     "A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address's right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.": "A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address's right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.",
-    "None yet.": "None yet."
+    "None yet.": "None yet.",
+    "No calendar reminder was added": "No calendar reminder was added",
+    "Which calendar?": "Which calendar?",
+    "No calendar is attached to the account this message is in. Where should the reminder go?": "No calendar is attached to the account this message is in. Where should the reminder go?",
+    "Add reminder": "Add reminder",
+    "reminder in": "reminder in",
+    "That message cannot be previewed until it comes back": "That message cannot be previewed until it comes back"
   },
   "prefixes": [
     [

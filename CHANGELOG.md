@@ -7,6 +7,73 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
+## Unreleased
+
+### Snoozing: the reminder says what it is about, and the list stays the list
+**The calendar reminder is named after the message.** It read "Follow up on a message" with a
+body of "Snoozed message." — a reminder you cannot act on without going to look for what it
+meant. The event is now titled with the subject, and its notes carry the subject, the sender,
+and where the message actually is: *waiting in "Snoozed" (Služba) until then, when it moves
+back to "INBOX"*. Both folders and both tenses, because the event gets read at two very
+different moments — open it today and the message is not in the inbox at all, it is asleep.
+
+**A snooze no longer forgets what it is about.** The subject and sender were read from the
+cache, which does not always have the message — most reliably right after a wake, when the
+move gives it a brand-new uid nothing has synced yet. The record then held nothing, showing
+as "(no subject)" from "—" in the Snoozed list and reaching the calendar as a bare "Snoozed
+message." The browser now sends the envelope it is looking at as a fallback.
+
+**"Bring it back now" leaves the message read.** The timed wake still marks it unread — that
+is the point of a snooze, to ask again later — but bringing one back by hand, while looking
+at it, having decided to deal with it, is the opposite case, and marking it unread there is
+the app arguing with you.
+
+**The Snoozed list stopped turning into the inbox.** Background reconciliation knows the
+Scheduled view, the Outbox and the Calendar are not mailboxes, but not that Snoozed is one
+too — so a poll fetched the unified inbox and patched it straight over the list. Sit on that
+screen for a minute and it quietly became your inbox.
+
+### Snoozing: opening one no longer cancels it
+**Clicking a snoozed message brought it back instead of opening it.** One click, no
+confirmation, and the snooze was gone — which is a hard thing to guess at, since a click on a
+message row means "read this" everywhere else in the app. It was deliberate, on the reasoning
+that the message "is not in a folder this view can read"; that premise was simply wrong, as
+the record carries the account, the folder and the uid. A click opens it now, read where it
+is sleeping, and *Bring it back now* stays on the row's own menu where a deliberate action
+belongs. Looking at it does not mark it read either — it comes back as you left it.
+
+**A woken message could leave the inbox saying "1 unread" with nothing to show for it.** The
+move gives the message a new uid, so the cache's unread COUNT moved while the row it counts
+was not in the cache yet. The folder it lands in is re-read after a wake now, the same way
+the Sent folder is re-read after a send.
+
+### Snoozing: the row that did not appear, and the reminder that went to the wrong calendar
+**The Snoozed row only showed up after a reload.** It is drawn from `state.snoozed`, and
+snoozing never refreshed that list — so the sidebar was rebuilt from a copy that still said
+nothing was snoozed. Un-snoozing had always refreshed it; only the other direction was
+missing.
+
+**A calendar reminder now goes to the calendar belonging to the account the message is in.**
+It used to take the first writable calendar in the list, which is an arbitrary answer — a
+follow-up on a work message could land in a personal calendar purely by list order. A
+calendar source already records which mail account it signs in through, so the two are simply
+matched. Where the account has no calendar of its own — which is the normal case for a plain
+IMAP mailbox — it asks which calendar to use instead of guessing, and the confirmation says
+where the reminder went.
+
+**The reminder is also offered more often than it was.** Whether to offer it at all was read
+from a count that only exists once the Calendar view has been opened in that session, so
+somebody who lives in their inbox was never asked. The list is fetched at startup and when
+you snooze — which also restores **Add to calendar** to the ⋯ menu, missing for the same
+reason and with nothing to suggest why.
+
+**A woken message now leaves the Snoozed count.** The wake happens on the server, on its own
+timer, and nothing in the browser was watching for it: the background reconcile walks the
+account's real folders, and Snoozed is not one of them, so the badge kept saying 2 until the
+page was reloaded. It is refreshed alongside the folder counts now — only while something is
+actually snoozed, since with an empty list there is nothing that can expire — and the row
+itself goes when the last one wakes, instead of staying behind to open an empty list.
+
 ## 1.1.1 — 2026-09-09
 
 ### Telling the name check it is wrong about a sender
