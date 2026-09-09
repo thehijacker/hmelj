@@ -306,7 +306,44 @@ const Settings = (() => {
       ${field('Message font', fontSel('s-font', draft.messageFont))}
       ${field('Message font size', num('s-fontsize', draft.messageFontSize, 11, 24))}
       ${field('Also use them for formatted mail', chk('s-fontforce', draft.messageFontOverride), 'Without this, the two settings above are only a fallback — and formatted mail almost never falls back to it, because it states its own fonts on the elements themselves. Turning this on makes your font win everywhere, and scales every size in the message by the same amount, so headings stay bigger than body text rather than everything becoming one size. The cost is that a newsletter designed around its own typeface stops looking the way its sender built it.')}
-    </div>`;
+    </div>
+    <div class="card" id="s-trusted-senders" style="margin-top:14px"></div>`;
+    renderTrustedSenders();
+  }
+
+  /* ---------- senders the name check leaves alone ----------
+   *
+   * Added from the warning itself ("This sender is fine") or from an address's
+   * right-click menu — this is where they can be looked at and taken back,
+   * which is the part that keeps the feature from being a one-way door.
+   *
+   * Written straight to the server on each change rather than into the settings
+   * draft: the list is its own file, the two places that ADD to it do the same,
+   * and a Save button that had to be pressed afterwards would be a trap for
+   * anyone who came here to undo one entry.
+   */
+  async function renderTrustedSenders() {
+    const host = document.getElementById('s-trusted-senders');
+    if (!host) return;
+    if (trustedSenders === null) {
+      trustedSenders = (await API.trustedSenders().catch(() => null))?.senders || [];
+      if (!document.getElementById('s-trusted-senders')) return; // tab changed while loading
+    }
+    host.innerHTML = `<div class="set-section" style="margin-top:0">${esc(I18n.t('Senders whose name is never questioned'))}</div>
+      <div class="set-hint" style="margin:0 0 8px">${esc(I18n.t('A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address\'s right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.'))}</div>
+      ${trustedSenders.length
+        ? trustedSenders.map((a) => `<div class="row" style="gap:8px;align-items:center">
+            <span class="grow">${esc(a)}</span>
+            <button class="link-btn ts-del" data-addr="${escAttr(a)}" title="${escAttr(I18n.t('Warn about this sender’s name again'))}">✕</button>
+          </div>`).join('')
+        : `<div class="set-hint" style="margin:0">${esc(I18n.t('None yet.'))}</div>`}`;
+    host.querySelectorAll('.ts-del').forEach((b) => b.addEventListener('click', async () => {
+      try {
+        trustedSenders = (await API.untrustSender(b.dataset.addr)).senders || [];
+        state.trustedSenders = trustedSenders;
+        renderTrustedSenders();
+      } catch (e) { toast(I18n.t('Could not save that') + ': ' + e.message, 6000); }
+    }));
   }
 
   /* ---------- Offline ----------
@@ -3497,6 +3534,9 @@ const Settings = (() => {
    * (the tab re-renders on every add/delete — refetching each time would be a
    * full cache scan per keystroke-ish interaction). null until first loaded. */
   let contactSuggestions = null;
+  /** Fetched once per Settings open, like the contact suggestions above. null
+   *  until first loaded. */
+  let trustedSenders = null;
 
   /* Contacts tab state that has to survive a re-render (every edit, add, delete
    * and import re-renders the whole tab): the search box's text, which contacts
@@ -5818,6 +5858,9 @@ const Settings = (() => {
     // people to suggest. Within one open it's cached (the Contacts tab
     // re-renders on every add/delete, and each rescan is a full cache scan).
     contactSuggestions = null;
+    // Same reasoning, and it can be changed from outside Settings entirely (the
+    // warning banner's own button), so a cached copy would go stale unnoticed.
+    trustedSenders = null;
     // Contacts tab view state starts clean on every open — a search left over
     // from last time would look like contacts having gone missing.
     ctSearch = '';

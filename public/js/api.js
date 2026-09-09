@@ -446,6 +446,12 @@ const API = {
    *  `counts` — {accountId: {folder, total}} for each account whose Drafts
    *  folder is not empty. One request, so the two can never disagree. */
   draftState: () => API.get('/api/draft-state'),
+  /** Addresses the "sender's name does not match" check must leave alone — a
+   *  ticketing system sends as `Whoever Touched It <service-desk@firma.si>`,
+   *  which is the same shape as an impersonation and is not one. */
+  trustedSenders: () => API.get('/api/trusted-senders'),
+  trustSender: (address) => API.post('/api/trusted-senders', { address }),
+  untrustSender: (address) => API.del('/api/trusted-senders/' + encodeURIComponent(address)),
   message: (folder, uid, allowImages, accountId) =>
     API.get(API._acct('/api/message/' + encodeURIComponent(folder) + '/' + encodeURIComponent(uid) + (allowImages ? '?allowImages=1' : ''), accountId)),
   /** Every message of one conversation, oldest first (envelopes only — bodies

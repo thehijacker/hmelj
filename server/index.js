@@ -2377,6 +2377,30 @@ app.get('/api/contact-groups', (req, res) => {
 });
 app.put('/api/contact-groups', (req, res) => res.json(store.saveContactGroups(req.body)));
 
+/* ---------- senders the display-name check leaves alone ----------
+ *
+ * See store.getTrustedSenders for what this is and why it keys on the address
+ * alone. Three tiny routes rather than a PUT of the whole list: every caller
+ * adds or removes exactly one address (from the warning banner, from the
+ * address chip's menu, or from the ✕ in Settings), and a whole-list write from
+ * two open tabs would have one silently undo the other.
+ */
+app.get('/api/trusted-senders', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ senders: store.getTrustedSenders() });
+});
+
+app.post('/api/trusted-senders', (req, res) => {
+  const address = String(req.body?.address || '').trim().toLowerCase();
+  if (!address.includes('@')) return res.status(400).json({ error: 'That is not an e-mail address' });
+  res.json({ senders: store.saveTrustedSenders([...store.getTrustedSenders(), address]) });
+});
+
+app.delete('/api/trusted-senders/:address', (req, res) => {
+  const address = decodeURIComponent(req.params.address).trim().toLowerCase();
+  res.json({ senders: store.saveTrustedSenders(store.getTrustedSenders().filter((a) => a !== address)) });
+});
+
 // ---------- filters ----------
 app.get('/api/filters', (req, res) => res.json(store.getFilters()));
 app.put('/api/filters', (req, res) => res.json(store.saveFilters(req.body || [])));

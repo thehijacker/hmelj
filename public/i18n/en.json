@@ -1375,7 +1375,16 @@
     "Open drafts": "Open drafts",
     "Not searched by filename:": "Not searched by filename:",
     "These accounts report only that a message has attachments, never their filenames.": "These accounts report only that a message has attachments, never their filenames.",
-    "Long file — showing the first part only.": "Long file — showing the first part only."
+    "Long file — showing the first part only.": "Long file — showing the first part only.",
+    "This sender is fine": "This sender is fine",
+    "Never warn about this sender’s name": "Never warn about this sender’s name",
+    "Warn about this sender’s name again": "Warn about this sender’s name again",
+    "No longer warning about the name on mail from": "No longer warning about the name on mail from",
+    "Warning about this sender turned back on": "Warning about this sender turned back on",
+    "Could not save that": "Could not save that",
+    "Senders whose name is never questioned": "Senders whose name is never questioned",
+    "A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address's right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.": "A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address's right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.",
+    "None yet.": "None yet."
   },
   "prefixes": [
     [

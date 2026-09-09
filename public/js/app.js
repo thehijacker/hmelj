@@ -1914,6 +1914,34 @@ async function refreshDraftState() {
   } catch { /* offline, or the server is older than this feature — no marks, no harm */ }
 }
 
+/**
+ * "That name is not a lie" — stops the display-name warning for one address.
+ *
+ * Only that warning. A DMARC failure is a different banner and is left alone:
+ * this says the sender is allowed to use whatever name it likes, not that the
+ * message is beyond question.
+ *
+ * The banners already on screen go immediately, all of them for this address
+ * rather than only the one that was clicked — a Jira folder holds dozens, and
+ * leaving the rest wearing a warning that has just been overruled would look
+ * like nothing happened.
+ */
+async function trustSenderAddress(address, name = '') {
+  const addr = String(address || '').trim().toLowerCase();
+  if (!addr) return;
+  try {
+    const { senders } = await API.trustSender(addr);
+    state.trustedSenders = senders || [];
+  } catch (e) {
+    toast(I18n.t('Could not save that') + ': ' + e.message, 6000);
+    return;
+  }
+  $$('.mv-banner-spoof').forEach((b) => {
+    if ((b.dataset.addr || '').toLowerCase() === addr) b.remove();
+  });
+  toast(`${I18n.t('No longer warning about the name on mail from')} ${name || addr}`, 5000);
+}
+
 /** Re-reads the links and repaints the list only if the SET of marked messages
  *  changed. Called by the composer as it closes — saving, sending or discarding
  *  a draft all change whether a row wears a ✎, and the list is usually sitting
@@ -5526,7 +5554,8 @@ function authBanner(msg) {
     // is what answers this banner, and addAddressToContacts removes it on the
     // spot rather than leaving a warning up that is no longer true.
     out += `<div class="mv-banner mv-banner-danger mv-banner-spoof" data-addr="${escAttr(from.address || '')}">⚠ <b>${esc(I18n.t('The sender\'s name does not match their address.'))}</b>
-      ${esc(I18n.t('You know this name as {addr} — this message came from somewhere else.').replace('{addr}', impersonated))}</div>`;
+      ${esc(I18n.t('You know this name as {addr} — this message came from somewhere else.').replace('{addr}', impersonated))}
+      <button class="link-btn mv-trust-sender">${esc(I18n.t('This sender is fine'))}</button></div>`;
   }
   return out;
 }
@@ -5544,6 +5573,12 @@ function authSpoofCheck(from) {
   // normal case here — sees their OWN sent mail flagged otherwise, and a
   // warning that fires on your own reply is worse than no warning at all.
   if (isOwnAddress(addr)) return null;
+  // Addresses the user has said to leave alone. A ticketing system — Jira, a
+  // service desk, a CRM — sends as `Whoever Touched The Ticket
+  // <service-desk@firma.si>`, which is character for character the shape this
+  // check exists to catch and is not an impersonation at all. Once told, it is
+  // told for that address, whatever name turns up on the next one.
+  if ((state.trustedSenders || []).includes(addr)) return null;
   // Every address the address book knows this name at, not just the first one.
   // A contact ROW is one name + one address (server/contacts.js), so a person
   // with two addresses is two rows: stopping at the first mismatch reports a
@@ -5611,7 +5646,35 @@ function showAddressMenu(el, x, y) {
     // "Support Desk <support@example.com>" the way it would for a contact.
     { label: 'New message', onClick: () => Compose.open({ to: name ? `${name} <${address}>` : address }) },
     addToContactsItem(address, name),
+    ...trustSenderItem(address),
   ], x, y);
+}
+
+/** Offered only where it would change something: on an address that IS being
+ *  flagged, or one already trusted (so the decision can be taken back from the
+ *  same place it was made). Nothing on the vast majority of addresses, which
+ *  the check never had an opinion about. */
+function trustSenderItem(address) {
+  const addr = String(address || '').trim().toLowerCase();
+  if (!addr) return [];
+  if ((state.trustedSenders || []).includes(addr)) {
+    return [{ label: 'Warn about this sender’s name again', onClick: () => untrustSenderAddress(addr) }];
+  }
+  const flagged = $$('.mv-banner-spoof').some((b) => (b.dataset.addr || '').toLowerCase() === addr);
+  if (!flagged) return [];
+  return [{ label: 'Never warn about this sender’s name', onClick: () => trustSenderAddress(addr) }];
+}
+
+async function untrustSenderAddress(addr) {
+  try {
+    const { senders } = await API.untrustSender(addr);
+    state.trustedSenders = senders || [];
+    toast(I18n.t('Warning about this sender turned back on'));
+    // The banner it suppressed is only rebuilt when the message is, so say what
+    // will happen rather than pretending it already has.
+  } catch (e) {
+    toast(I18n.t('Could not save that') + ': ' + e.message, 6000);
+  }
 }
 
 /**
@@ -5941,6 +6004,10 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
 
   // Per message and not remembered: unfolding one banner says what this sender
   // offers, not that the setting was wrong.
+  // On the warning itself, which is the one place you are certainly looking when
+  // you disagree with it. Same action as the address chip's menu entry.
+  $('.mv-trust-sender', card)?.addEventListener('click', () =>
+    trustSenderAddress(msg.from?.[0]?.address, msg.from?.[0]?.address));
   $('.mv-unsub-expand', card)?.addEventListener('click', (e) => {
     const b = e.currentTarget.closest('.mv-unsub-banner');
     const min = b.classList.toggle('mv-unsub-min');
@@ -7045,6 +7112,10 @@ async function boot() {
   // Non-fatal, both: a failure here costs the sidebar its saved-search rows or
   // the composer its group tokens, neither of which is a reason to stop the app
   // from loading mail.
+  // Read alongside the contacts, because the spoof check consults both — see
+  // authSpoofCheck. Non-fatal like the rest below: without it the check simply
+  // warns as it did before.
+  state.trustedSenders = (await API.trustedSenders().catch(() => null))?.senders || [];
   state.savedSearches = await API.savedSearches().catch(() => []);
   state.contactGroups = await API.contactGroups().catch(() => []);
   Compose.setTemplates(await API.templates().catch(() => []));

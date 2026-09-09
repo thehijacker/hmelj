@@ -1375,7 +1375,16 @@
     "Open drafts": "Odpri osnutke",
     "Not searched by filename:": "Iskanje po imenu datoteke ni zajelo:",
     "These accounts report only that a message has attachments, never their filenames.": "Ti računi sporočajo samo, da ima sporočilo priponke, nikoli njihovih imen.",
-    "Long file — showing the first part only.": "Dolga datoteka — prikazan je samo prvi del."
+    "Long file — showing the first part only.": "Dolga datoteka — prikazan je samo prvi del.",
+    "This sender is fine": "Ta pošiljatelj je v redu",
+    "Never warn about this sender’s name": "Nikoli ne opozarjaj na ime tega pošiljatelja",
+    "Warn about this sender’s name again": "Spet opozarjaj na ime tega pošiljatelja",
+    "No longer warning about the name on mail from": "Ne opozarjam več na ime pri pošti od",
+    "Warning about this sender turned back on": "Opozorilo za tega pošiljatelja je spet vklopljeno",
+    "Could not save that": "Tega ni bilo mogoče shraniti",
+    "Senders whose name is never questioned": "Pošiljatelji, katerih ime se nikoli ne preverja",
+    "A ticketing system sends as the person who touched the ticket, over its own address — which looks exactly like an impersonation and is not one. Added from the warning on a message, or from an address's right-click menu. Only the name check is skipped; a failed SPF/DKIM/DMARC check still warns.": "Sistem za prijavo zahtevkov pošilja v imenu osebe, ki je zahtevek obdelala, s svojega naslova — kar je videti povsem enako kot lažno predstavljanje, pa ni. Dodate ga iz opozorila na sporočilu ali iz menija ob desnem kliku na naslov. Preskoči se samo preverjanje imena; neuspešno preverjanje SPF/DKIM/DMARC še vedno opozori.",
+    "None yet.": "Zaenkrat nobenega."
   },
   "prefixes": [
     [

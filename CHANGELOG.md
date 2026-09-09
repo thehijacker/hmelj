@@ -7,7 +7,30 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
-## Unreleased
+## 1.1.1 — 2026-09-09
+
+### Telling the name check it is wrong about a sender
+A ticketing system sends as **`Name Surname <service-desk@firma.si>`** — whoever touched the
+ticket in the display name, over the system's own address. That is character for character
+the shape the spoofed-name warning exists to catch, so a Jira folder ends up with a red
+"the sender's name does not match their address" on every single notification, and the
+warning stops meaning anything.
+
+The warning now carries a **This sender is fine** button, and an address's right-click /
+long-press menu offers the same thing. Either one silences the name check for that address
+and clears the banners already on screen — all of them for that sender, not just the message
+you clicked, since a folder full of them would otherwise still be wearing a warning that has
+just been overruled.
+
+Keyed on the **address alone**, deliberately: the point of a ticketing system is that the
+name changes with every message while the address does not, so one action covers every
+colleague who will ever touch a ticket. And **only the name check** is skipped — a failed
+SPF/DKIM/DMARC check still warns, because this says "that name is not a lie", not "this mail
+is beyond question". An impersonation of the same person from a *different* address is still
+caught.
+
+The list lives in **Settings → Reading**, at the bottom, where it can be read and any entry
+taken back.
 
 ### Plain text files preview too
 A `.txt` was one of the last ordinary attachments that still had to be downloaded to be

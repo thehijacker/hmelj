@@ -469,6 +469,39 @@ export const store = {
   getRefileOrigins: () => load('refile-origins', {}),
   saveRefileOrigins(map) { save('refile-origins', map); return map; },
 
+  /* Addresses the display-name check must leave alone.
+   *
+   * The check (public/js/app.js#authSpoofCheck) warns when a message wears the
+   * name of somebody in the address book over an address that is not theirs —
+   * which is the real shape of a phishing attempt, and also the exact shape of a
+   * ticketing system. Jira, service desks and CRMs all send as
+   * `Name Surname <service-desk@firma.si>`, putting the person who touched the
+   * ticket in the display name; if that person is a contact, every single
+   * notification is flagged as an impersonation.
+   *
+   * Keyed on the ADDRESS alone, deliberately: the whole point of one of these
+   * systems is that the name changes with every message while the address does
+   * not. Trusting the pair would mean adding a new entry per colleague.
+   *
+   * Only the display-name check is suppressed. A DMARC failure is a different
+   * banner and stays: this says "that name is not a lie", not "this mail is
+   * beyond question".
+   *
+   * Per Hmelj user, like filters and contacts — one person's judgement about a
+   * sender is not another's, even when they share a mailbox.
+   */
+  getTrustedSenders: () => load('trusted-senders', []),
+  saveTrustedSenders(list) {
+    // Lowercased, deduped, and only things shaped like an address — this list is
+    // matched against a From address, and an entry that cannot ever match is
+    // just a line the user has to look at in Settings forever.
+    const clean = [...new Set((Array.isArray(list) ? list : [])
+      .map((a) => String(a || '').trim().toLowerCase())
+      .filter((a) => a.includes('@')))].sort();
+    save('trusted-senders', clean);
+    return clean;
+  },
+
   // Newsletters this person has unsubscribed from, keyed by the SENDER's
   // address — so every message from that newsletter says so, not just the one
   // the button was pressed on, which is the thing that was actually confusing:

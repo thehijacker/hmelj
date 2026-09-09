@@ -1589,6 +1589,30 @@ locked off rather than offered as a false choice.
   </p>
 </div>
 
+<h3>When the name check is wrong</h3>
+<p>
+  A ticketing system — Jira, a service desk, a CRM — sends as
+  <code>Name Surname &lt;service-desk@firma.si&gt;</code>: whoever touched the ticket in the
+  display name, over the system's own address. If that person is in your contacts, that is
+  character for character what the second banner is looking for, and every notification from
+  the system arrives wearing a warning.
+</p>
+<p>
+  The warning has a <strong>This sender is fine</strong> button, and the same thing is on an
+  address's right-click (long-press) menu. Either silences the name check for that address
+  and clears the banners already on screen.
+</p>
+<ul>
+<li>It keys on the <strong>address alone</strong>, so one action covers every colleague whose
+  name will ever appear on a ticket — the name changing per message is the whole point of
+  such a system.</li>
+<li>It skips <strong>only the name check</strong>. A failed SPF, DKIM or DMARC result still
+  warns: this says the name is not a lie, not that the message is beyond question. And
+  somebody impersonating the same person from a <em>different</em> address is still caught.</li>
+<li>The list is in <strong>Settings → Reading</strong>, at the bottom, where any entry can be
+  taken back.</li>
+</ul>
+
 <p>
   Only the <strong>topmost</strong> verification header is read — the one your own server
   wrote. Anything below it arrived with the message and was written by whoever's honesty is
