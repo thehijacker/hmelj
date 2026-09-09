@@ -9,6 +9,18 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Attendees in the event editor autocomplete from contacts, like To/Cc/Bcc do
+
+### Fixed: accepting a contact suggestion inside a dialog submitted the dialog
+
+### Fixed: Escape closes a dialog again when focus has moved outside it
+
+### Fixed: a field's hint in a dialog form ran into the next field's label
+
+### The ? beside a setting is right-aligned, so the badges line up in a column
+
+### Translated six settings and error strings that were still showing in English
+
 ### Settings → Accounts now shows whether live monitoring is actually connected
 
 ### Added content wrapping in To, Cc and Bcc fields

@@ -64,6 +64,7 @@ const Dialog = (() => {
         });
       }
       const finish = (value) => {
+        document.removeEventListener('keydown', onDocEscape);
         backdrop.remove();
         const i = open.indexOf(entry);
         if (i !== -1) open.splice(i, 1);
@@ -71,6 +72,31 @@ const Dialog = (() => {
       };
       const entry = { cancel: () => finish(null) };
       open.push(entry);
+
+      /**
+       * Escape, when the keystroke never reaches the modal.
+       *
+       * The listener further down is on the modal, so it only ever sees a key
+       * pressed while focus is INSIDE it. Click something that takes focus away
+       * — a colour swatch, a picker button that is re-rendered, the dialog's own
+       * padding — and focus lands on <body>, where that listener is deaf. The
+       * app's global Escape handler is no help either: it deliberately stands
+       * down whenever a .dialog-backdrop exists, on the grounds that a dialog
+       * owns its own Escape. Between the two, Escape did nothing at all.
+       *
+       * Scoped to keystrokes aimed OUTSIDE the modal so the existing listener
+       * keeps handling everything it already did — including its
+       * stopPropagation, which is what stops compose reopening its own prompt.
+       * Topmost dialog only: with two stacked, Escape closes the front one.
+       */
+      const onDocEscape = (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (modal.contains(e.target)) return;
+        if (open[open.length - 1] !== entry) return;
+        e.preventDefault();
+        finish(null);
+      };
+      document.addEventListener('keydown', onDocEscape);
 
       // 'ok' resolves the dialog's own value (getValue / true), 'cancel'
       // resolves null; any other value resolves as itself, which is what lets

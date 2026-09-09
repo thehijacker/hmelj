@@ -1394,7 +1394,13 @@
     "live": "live",
     "live: reconnecting": "live: reconnecting",
     "A live connection to the server is open; new mail arrives without waiting for the next check.": "A live connection to the server is open; new mail arrives without waiting for the next check.",
-    "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.": "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it."
+    "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.": "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.",
+    "Reads the SPF/DKIM/DMARC result your mail server recorded when the message arrived. A quiet mark beside the sender when the checks pass, and a warning when a message claims to come from a domain it is not allowed to send for, or wears the name of someone in your contacts over a different address. Messages where nothing was checked — which is normal on smaller mail servers — are left unmarked rather than treated as suspect.": "Reads the SPF/DKIM/DMARC result your mail server recorded when the message arrived. A quiet mark beside the sender when the checks pass, and a warning when a message claims to come from a domain it is not allowed to send for, or wears the name of someone in your contacts over a different address. Messages where nothing was checked — which is normal on smaller mail servers — are left unmarked rather than treated as suspect.",
+    "When you press Reply on a message that had other people on it, offer to reply to all of them instead. A message addressed only to you never asks.": "When you press Reply on a message that had other people on it, offer to reply to all of them instead. A message addressed only to you never asks.",
+    "Messages flagged \\\\Deleted appear struck through.": "Messages flagged \\\\Deleted appear struck through.",
+    "Only mark as \\\\Deleted (keep in place)": "Only mark as \\\\Deleted (keep in place)",
+    "Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote 'v prilogi' does not ask.": "Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote 'v prilogi' does not ask.",
+    "Could not answer the invitation: ": "Could not answer the invitation: "
   },
   "prefixes": [
     [

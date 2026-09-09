@@ -1317,6 +1317,12 @@ const Compose = (() => {
       // alone so going back is never hijacked into a completion.
       if (e.key === 'Tab' && e.shiftKey) return;
       e.preventDefault();
+      // stopPropagation for the same reason the Escape branch below has it:
+      // this keypress is SPENT. It matters somewhere compose never goes — the
+      // calendar's event editor, where the field sits inside a Dialog whose own
+      // handler reads a bubbling Enter as "Save". Accepting a contact submitted
+      // the whole dialog instead.
+      e.stopPropagation();
       applyContactSuggestion(contactSuggestIndex);
     } else if (e.key === 'Delete') {
       // Your own addresses aren't contacts and there is nothing to remove, so
@@ -1973,6 +1979,62 @@ const Compose = (() => {
    * half-typed address. No suggestions at all when that segment is empty —
    * an untouched field, or one that just had a separator typed — which is
    * what keeps focusing an empty field from popping up every contact. */
+  /* Fields wired by attachRecipients({ groups: false }) — the calendar's
+     attendee box. A group token is expanded server-side on the mail paths only
+     (expandPayloadGroups, in /api/send and /api/drafts); an event save never
+     passes through that, so a "👥 Team" left in an attendee list would be sent
+     to the calendar server verbatim as an address that is not one. */
+  const noGroupFields = new WeakSet();
+
+  /**
+   * Wires any text field as an address field: contact and group autocomplete,
+   * the arrow/Enter/Tab handling that goes with the dropdown, and Backspace
+   * taking a whole recipient at a boundary.
+   *
+   * Exported (Compose.attachRecipients) because the composer is not the only
+   * place a list of addresses gets typed — the calendar's event editor has an
+   * Attendees field, and asking people to type addresses in full there while
+   * the composer completes them two clicks away is the kind of inconsistency
+   * that reads as an oversight, because it was one.
+   *
+   * `groups:false` for anywhere that is not composing mail — see noGroupFields.
+   * `grow:true` for the composer's own textareas, which size to their content.
+   */
+  function attachRecipients(inputEl, { groups = true, grow = false } = {}) {
+    if (!inputEl) return;
+    if (!groups) noGroupFields.add(inputEl);
+    inputEl.addEventListener('focus', () => updateContactSuggestions(inputEl));
+    inputEl.addEventListener('input', () => {
+      if (grow) growRecipient(inputEl);
+      updateContactSuggestions(inputEl);
+    });
+    inputEl.addEventListener('blur', () => closeContactSuggest());
+    // Addresses copied out of another client arrive one per line very often,
+    // and each line is a recipient rather than a line break.
+    inputEl.addEventListener('paste', (e) => {
+      const text = e.clipboardData?.getData('text');
+      if (!text || !/[\r\n]/.test(text)) return;
+      e.preventDefault();
+      const flat = text.split(/[\r\n]+/).map((t) => t.trim()).filter(Boolean).join(', ');
+      // execCommand keeps the browser's own undo stack intact, which setting
+      // .value by hand would throw away.
+      document.execCommand('insertText', false, flat);
+      if (grow) growRecipient(inputEl);
+    });
+    // Arrow keys / Enter / Tab / Escape while the dropdown is open — see
+    // onContactSuggestKeydown, which no-ops entirely when it isn't.
+    inputEl.addEventListener('keydown', (e) => onContactSuggestKeydown(e, inputEl));
+    // Backspace takes a whole recipient at a boundary, dropdown or no dropdown
+    // — hence a listener of its own rather than another arm inside the one
+    // above, which exists only for while the box is open.
+    inputEl.addEventListener('keydown', (e) => onRecipientBackspace(e, inputEl));
+    // LAST, so both handlers above see Enter first (the dropdown accepts a
+    // completion with it). A textarea would otherwise take Enter literally, and
+    // a newline inside an address list is not something any parser downstream
+    // expects; in an <input> it simply did nothing, which is what this restores.
+    inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+  }
+
   function updateContactSuggestions(inputEl) {
     const value = inputEl.value;
     // recipientStart rather than a lastIndexOf pair, so this and the Backspace
@@ -2001,7 +2063,7 @@ const Compose = (() => {
     // send time. What goes into the field is the token, not the addresses: the
     // field stays readable, and the expansion happens once, on the server, so
     // the scheduled queue and every send backend only ever see real addresses.
-    const groups = (state.contactGroups || [])
+    const groups = noGroupFields.has(inputEl) ? [] : (state.contactGroups || [])
       .filter((g) => String(g.name || '').toLowerCase().includes(typed))
       .slice(0, 10);
     const groupRow = (g) => {
@@ -2561,34 +2623,7 @@ const Compose = (() => {
     // box would never close when the user taps away instead).
     RECIPIENT_FIELDS.forEach((id) => {
       const inputEl = document.getElementById(id);
-      inputEl.addEventListener('focus', () => updateContactSuggestions(inputEl));
-      inputEl.addEventListener('input', () => { growRecipient(inputEl); updateContactSuggestions(inputEl); });
-      // Addresses copied out of another client arrive one per line very often,
-      // and each line is a recipient rather than a line break.
-      inputEl.addEventListener('paste', (e) => {
-        const text = e.clipboardData?.getData('text');
-        if (!text || !/[\r\n]/.test(text)) return;
-        e.preventDefault();
-        const flat = text.split(/[\r\n]+/).map((t) => t.trim()).filter(Boolean).join(', ');
-        // execCommand keeps the browser's own undo stack intact, which setting
-        // .value by hand would throw away.
-        document.execCommand('insertText', false, flat);
-        growRecipient(inputEl);
-      });
-      inputEl.addEventListener('blur', () => closeContactSuggest());
-      // Arrow keys / Enter / Tab / Escape while the dropdown is open — see
-      // onContactSuggestKeydown, which no-ops entirely when it isn't.
-      inputEl.addEventListener('keydown', (e) => onContactSuggestKeydown(e, inputEl));
-      // Backspace takes a whole recipient at a boundary, dropdown or no
-      // dropdown — hence a listener of its own rather than another arm inside
-      // the one above, which exists only for while the box is open.
-      inputEl.addEventListener('keydown', (e) => onRecipientBackspace(e, inputEl));
-      // LAST, so the two handlers above see Enter first (the suggestion box
-      // accepts a completion with it). A textarea would otherwise take it
-      // literally, and a newline inside an address list is not something any
-      // parser downstream expects — in an <input>, which these replaced, Enter
-      // simply did nothing.
-      inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+      attachRecipients(inputEl, { grow: true });
     });
     // The keyboard opening/closing (or any other viewport change) can leave
     // an already-open suggestion box positioned against a viewport that no
@@ -2789,6 +2824,7 @@ const Compose = (() => {
   }
 
   return { init, open, reopen, reply, forward, editDraft, setIdentities, setTemplates, requestClose, isOpen, pickSendTime,
+    attachRecipients,
     fonts: () => [...FONTS],
     // Settings' signature and template editors run on the same engine — see
     // richToolbarHtml/wireRichEditor above for why that is one call and not a

@@ -1394,7 +1394,13 @@
     "live": "v živo",
     "live: reconnecting": "v živo: ponovno povezovanje",
     "A live connection to the server is open; new mail arrives without waiting for the next check.": "Odprta je živa povezava s strežnikom; nova pošta prispe brez čakanja na naslednje preverjanje.",
-    "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.": "Za ta račun je nastavljeno spremljanje v živo, a trenutno ni povezano — poskuša znova v ozadju, redno preverjanje pa ga še vedno pokriva."
+    "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.": "Za ta račun je nastavljeno spremljanje v živo, a trenutno ni povezano — poskuša znova v ozadju, redno preverjanje pa ga še vedno pokriva.",
+    "Reads the SPF/DKIM/DMARC result your mail server recorded when the message arrived. A quiet mark beside the sender when the checks pass, and a warning when a message claims to come from a domain it is not allowed to send for, or wears the name of someone in your contacts over a different address. Messages where nothing was checked — which is normal on smaller mail servers — are left unmarked rather than treated as suspect.": "Prebere rezultat SPF/DKIM/DMARC, ki ga je zabeležil vaš poštni strežnik ob prejemu sporočila. Tiha oznaka ob pošiljatelju, kadar preverjanja uspejo, in opozorilo, kadar sporočilo trdi, da prihaja z domene, s katere ne sme pošiljati, ali nosi ime nekoga iz vaših stikov nad drugačnim naslovom. Sporočila, pri katerih ni bilo preverjeno nič — kar je na manjših poštnih strežnikih običajno — ostanejo neoznačena in ne veljajo za sumljiva.",
+    "When you press Reply on a message that had other people on it, offer to reply to all of them instead. A message addressed only to you never asks.": "Ko pritisnete Odgovori na sporočilo, na katerem so bili še drugi, ponudi odgovor vsem. Sporočilo, naslovljeno samo na vas, nikoli ne vpraša.",
+    "Messages flagged \\\\Deleted appear struck through.": "Sporočila z oznako \\\\Deleted so prikazana prečrtano.",
+    "Only mark as \\\\Deleted (keep in place)": "Samo označi kot \\\\Deleted (pusti na mestu)",
+    "Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote 'v prilogi' does not ask.": "Pred pošiljanjem preveri, ali besedilo omenja priponko, medtem ko ni pripeta nobena — v angleščini in slovenščini, tudi v oblikah brez šumnikov. Prebere se samo vaše besedilo: citirani izvirnik in podpis se prezreta, zato odgovor nekomu, ki je napisal 'v prilogi', ne sproži opozorila.",
+    "Could not answer the invitation: ": "Na vabilo ni bilo mogoče odgovoriti: "
   },
   "prefixes": [
     [

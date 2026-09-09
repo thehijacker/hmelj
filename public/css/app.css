@@ -1584,7 +1584,15 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    instead, and they need it just as much. inline-flex so a label that is NOT a
    grid or flex item keeps flowing inline; where it is one, the browser
    blockifies this to flex anyway. */
-label:has(> .set-help) { display: inline-flex; align-items: center; }
+label:has(> .set-help) { display: inline-flex; align-items: center; width: 100%; gap: 6px; }
+/* Pushed to the RIGHT-HAND edge of the label column rather than trailing the
+   words. Labels vary in length, so trailing them put the badge at a different
+   horizontal position on every row — somewhere out in the middle, easy to miss
+   and impossible to scan down. Against the right edge they line up in a column
+   of their own, immediately left of the controls they explain. (width:100% is
+   what gives the auto margin something to push against: an inline-flex label
+   otherwise shrinks to its text and there is no free space to distribute.) */
+label:has(> .set-help) .set-help { margin-left: auto; }
 /* The badge draws at about 18px, which is well under what a fingertip needs.
    Rather than making it visually heavier, an invisible pseudo-element extends
    the HIT AREA past 30px on every side. It is part of the button, not a child
@@ -1980,7 +1988,10 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
    positionContactSuggest, computed from the input's own real (correctly
    keyboard-adjusted) getBoundingClientRect(). */
 .contact-suggest {
-  position: fixed; z-index: 250; background: var(--surface); border: 1px solid var(--border);
+  /* Above .dialog-backdrop (300), not just above the composer (50): the same
+     dropdown now serves the calendar's Attendees field, which is inside a
+     dialog — at 250 it opened behind it. */
+  position: fixed; z-index: 320; background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; box-shadow: var(--shadow); padding: 4px;
   max-height: 220px; overflow-y: auto;
 }
@@ -2599,6 +2610,19 @@ label:has(> .set-help) { display: inline-flex; align-items: center; }
    with longer translated labels; two-button dialogs are unaffected. */
 .dialog-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 14px; margin-top: 20px; align-items: center; }
 .dialog .set-hint { font-size: calc(12px * var(--ui-scale)); color: var(--text-dim); margin-top: 6px; }
+/* A labelled row in a dialog form (calendar.js#field). These had NO rules at
+   all: the <label> and its two <span>s were inline, and the rows only looked
+   stacked because a dialog input is width:100% and so wrapped to its own line.
+   Anything that is not an input stayed inline — which is why a field's hint ran
+   straight into the NEXT field's label ("…prejmejo vabilo po e-pošti. Opombe").
+   Block, so each part gets its own line, and the label matches .dialog-label so
+   a form built from these looks like every other dialog. */
+.dialog .set-field { display: block; margin-bottom: 12px; }
+.dialog .set-field .set-label {
+  display: block; font-size: calc(13px * var(--ui-scale));
+  color: var(--text-dim); margin-bottom: 6px;
+}
+.dialog .set-field .set-hint { display: block; }
 
 /* ---------- view headers dialog ---------- */
 .headers-table-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }

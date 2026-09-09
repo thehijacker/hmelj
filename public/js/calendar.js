@@ -771,6 +771,13 @@ const Calendar = (() => {
       onOpen: (root) => {
         bindColorPicker();
         bindRepeatPicker();
+        // The same contact autocomplete the composer's To/Cc/Bcc use — typing
+        // every attendee's address in full while the composer completes them
+        // two clicks away was an oversight, not a decision. Without groups:
+        // a group token is expanded server-side on the mail paths only, so one
+        // left here would reach the calendar server as an address that is not
+        // one (see attachRecipients in compose.js).
+        Compose.attachRecipients?.(root.querySelector('#ce-attendees'), { groups: false });
         const box = root.querySelector('#ce-allday');
         const startEl = root.querySelector('#ce-start');
         const endEl = root.querySelector('#ce-end');
