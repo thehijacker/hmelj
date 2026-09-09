@@ -1390,7 +1390,11 @@
     "No calendar is attached to the account this message is in. Where should the reminder go?": "Računu, v katerem je to sporočilo, ni priložen noben koledar. Kam naj gre opomnik?",
     "Add reminder": "Dodaj opomnik",
     "reminder in": "opomnik v",
-    "That message cannot be previewed until it comes back": "Tega sporočila ni mogoče predogledati, dokler se ne vrne"
+    "That message cannot be previewed until it comes back": "Tega sporočila ni mogoče predogledati, dokler se ne vrne",
+    "live": "v živo",
+    "live: reconnecting": "v živo: ponovno povezovanje",
+    "A live connection to the server is open; new mail arrives without waiting for the next check.": "Odprta je živa povezava s strežnikom; nova pošta prispe brez čakanja na naslednje preverjanje.",
+    "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.": "Za ta račun je nastavljeno spremljanje v živo, a trenutno ni povezano — poskuša znova v ozadju, redno preverjanje pa ga še vedno pokriva."
   },
   "prefixes": [
     [

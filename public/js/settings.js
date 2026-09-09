@@ -570,7 +570,16 @@ const Settings = (() => {
     if (s.syncing) return `<span class="conn ok">●</span><span class="set-hint" style="margin:0">${I18n.t('Syncing…')}</span>`;
     if (s.lastError) return `<span class="conn" title="${escAttr(s.lastError)}">●</span><span class="set-hint" style="margin:0;color:var(--danger)">${esc(s.lastError)}</span>`;
     if (!s.lastSyncedAt) return `<span class="set-hint" style="margin:0">${I18n.t('Not synced yet')}</span>`;
-    return `<span class="conn ok">●</span><span class="set-hint" style="margin:0">${I18n.t('Connected')} · ${I18n.t('synced')} ${fmtRelativeTime(s.lastSyncedAt)}</span>`;
+    // An account set to Live says whether it actually IS. Without this the row
+    // read "Connected · synced 3m ago" whether the watcher was up or had been
+    // retrying with backoff for an hour — that timestamp comes from the
+    // fallback poll either way, so it cannot answer the question.
+    const live = s.monitorMode === 'idle'
+      ? (s.live
+        ? ` · <span title="${escAttr(I18n.t('A live connection to the server is open; new mail arrives without waiting for the next check.'))}">${esc(I18n.t('live'))}</span>`
+        : ` · <span style="color:var(--danger)" title="${escAttr(I18n.t('Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.'))}">${esc(I18n.t('live: reconnecting'))}</span>`)
+      : '';
+    return `<span class="conn ok">●</span><span class="set-hint" style="margin:0">${I18n.t('Connected')} · ${I18n.t('synced')} ${fmtRelativeTime(s.lastSyncedAt)}${live}</span>`;
   }
 
   async function refreshAccountStatuses() {

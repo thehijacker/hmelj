@@ -1334,11 +1334,22 @@ app.get('/api/sync/status', (req, res) => {
   for (const [key, ids] of idsByKey) {
     for (const s of cache.getSyncSummary(key, ids)) byId[s.account_id] = s;
   }
+  // Whether the account is SET to live, and whether it actually IS right now.
+  // Two different facts, and the gap between them is the whole question when
+  // somebody asks "is live monitoring working?": the setting says what was
+  // asked for, the watcher list says whether a connection is currently up. A
+  // watcher that has dropped retries with backoff and says so in the log, but
+  // nothing on screen could tell you it was down — the account went on showing
+  // "Connected · synced 3m ago" off the fallback poll, which is true and not
+  // the thing being asked.
+  const liveNow = new Set(idle.watchedAccountIds());
   res.json(list.map((a) => ({
     accountId: a.id,
     lastSyncedAt: byId[a.id]?.last_synced_at || null,
     lastError: byId[a.id]?.last_error || null,
     syncing: sync.isSyncing(a.id),
+    monitorMode: a.monitorMode === 'idle' ? 'idle' : 'poll',
+    live: liveNow.has(a.id),
   })));
 });
 

@@ -1390,7 +1390,11 @@
     "No calendar is attached to the account this message is in. Where should the reminder go?": "No calendar is attached to the account this message is in. Where should the reminder go?",
     "Add reminder": "Add reminder",
     "reminder in": "reminder in",
-    "That message cannot be previewed until it comes back": "That message cannot be previewed until it comes back"
+    "That message cannot be previewed until it comes back": "That message cannot be previewed until it comes back",
+    "live": "live",
+    "live: reconnecting": "live: reconnecting",
+    "A live connection to the server is open; new mail arrives without waiting for the next check.": "A live connection to the server is open; new mail arrives without waiting for the next check.",
+    "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it.": "Live monitoring is set for this account but is not connected right now — it retries in the background, and the regular check still covers it."
   },
   "prefixes": [
     [

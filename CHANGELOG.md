@@ -9,6 +9,8 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Settings → Accounts now shows whether live monitoring is actually connected
+
 ### Added content wrapping in To, Cc and Bcc fields
 
 ### Snoozing: the reminder says what it is about, and the list stays the list
