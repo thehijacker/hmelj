@@ -333,7 +333,7 @@
       </div>
       <div class="compose-row">
         <label>To</label>
-        <input id="c-to" placeholder="recipient@example.com, …">
+        <textarea id="c-to" rows="1" placeholder="recipient@example.com, …"></textarea>
         <!-- Out of the tab sequence (tabindex="-1", also on the toolbar below):
              Tab from To goes straight to Subject, and from Subject into the
              message body, instead of stopping on chrome nobody tabs to on
@@ -341,8 +341,8 @@
              normal tab stops once shown. -->
         <button class="link-btn" id="btn-cc-toggle" tabindex="-1" aria-expanded="false">Cc/Bcc</button>
       </div>
-      <div class="compose-row cc-row" hidden><label>Cc</label><input id="c-cc"></div>
-      <div class="compose-row cc-row" hidden><label>Bcc</label><input id="c-bcc"></div>
+      <div class="compose-row cc-row" hidden><label>Cc</label><textarea id="c-cc" rows="1"></textarea></div>
+      <div class="compose-row cc-row" hidden><label>Bcc</label><textarea id="c-bcc" rows="1"></textarea></div>
       <div class="compose-row"><label>Subject</label><input id="c-subject"></div>
 
       <!-- Every control here is tabindex="-1" on purpose: Tab from Subject

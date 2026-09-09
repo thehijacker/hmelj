@@ -1202,8 +1202,22 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 /* min-width:0 — a plain <input>/<select> has its own non-zero intrinsic
    minimum width regardless of flex:1, which was contributing to the row
    (and the whole compose window) overflowing on narrow screens. */
-.compose-row input, .compose-row select { flex: 1; min-width: 0; border: none; background: transparent; }
-.compose-row input:focus { outline: none; }
+.compose-row input, .compose-row select, .compose-row textarea { flex: 1; min-width: 0; border: none; background: transparent; }
+.compose-row input:focus, .compose-row textarea:focus { outline: none; }
+/* To/Cc/Bcc are textareas, not inputs, for one reason: an input cannot wrap. A
+   reply-all to a message with a dozen people on it put them all on one line
+   that had to be scrolled sideways to read. Height is set from the content by
+   app.js (growRecipients) — rows="1" is the floor, and past a few lines it
+   scrolls rather than pushing the message out of the window. */
+.compose-row textarea {
+  resize: none; overflow-y: auto; max-height: 5.4em;
+  font: inherit; color: inherit; line-height: 1.35; padding: 0;
+}
+/* A grown field is several lines tall; its label belongs beside the FIRST of
+   them, not floating in the middle. Scoped with :has so the single-line rows
+   (From, Subject) keep the centring they were built with. */
+.compose-row:has(textarea) { align-items: flex-start; }
+.compose-row:has(textarea) label { padding-top: 1px; }
 .editor-toolbar { display: flex; align-items: center; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 /* The ACTIONS. Scrolls sideways rather than wrapping (see the mobile query
    below) — the language chip and the Plain toggle stay outside it because they

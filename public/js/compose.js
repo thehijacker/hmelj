@@ -210,10 +210,35 @@ const Compose = (() => {
 
   function isPlain() { return document.getElementById('c-plain').checked; }
 
+  const RECIPIENT_FIELDS = ['c-to', 'c-cc', 'c-bcc'];
+
+  /**
+   * Sizes a recipient field to its contents.
+   *
+   * These are textareas rather than inputs so that a dozen addresses wrap
+   * instead of running off the right-hand edge (see .compose-row textarea in
+   * app.css). Nothing else about them changes: a textarea has the same `value`,
+   * `selectionStart` and `setSelectionRange` the autocomplete and the
+   * backspace-a-whole-recipient handling are built on.
+   *
+   * height:auto first, or scrollHeight only ever reports the height it already
+   * has and the field can grow but never shrink again.
+   */
+  function growRecipient(el) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }
+  function growRecipients() { RECIPIENT_FIELDS.forEach((id) => growRecipient(document.getElementById(id))); }
+
   /** Cc and Bcc together — they are one disclosure, opened by one button. */
   function setCcVisible(on) {
     document.querySelectorAll('.cc-row').forEach((r) => (r.hidden = !on));
     document.getElementById('btn-cc-toggle')?.setAttribute('aria-expanded', String(!!on));
+    // A hidden element has no scrollHeight worth reading, so a field filled in
+    // while the row was collapsed comes out one line tall until it is measured
+    // again here — which is exactly the reply-all case that prompted all this.
+    if (on) growRecipients();
   }
 
   function setBodyHtml(html) {
@@ -568,6 +593,9 @@ const Compose = (() => {
     // every unrelated message afterwards; it looked like a remembered
     // preference, but nothing was remembering anything.
     setCcVisible(!!cc);
+    // The values above were just assigned; a field that came in with ten
+    // addresses has to be measured before it is looked at, not on first keypress.
+    growRecipients();
     document.getElementById('c-subject').value = subject;
     setPriority('normal');
     document.getElementById('c-receipt').checked = !!state.settings.requestReadReceipt;
@@ -843,6 +871,7 @@ const Compose = (() => {
     // open() above already showed them for a Cc; a queued message with only a
     // Bcc is the case it cannot see, since open() takes no bcc.
     if (p.cc || p.bcc) setCcVisible(true);
+    growRecipients();
     setPriority(p.priority || 'normal');
     document.getElementById('c-receipt').checked = !!p.readReceipt;
     attachments = (p.attachments || []).map((a) => ({ ...a }));
@@ -2530,10 +2559,22 @@ const Compose = (() => {
     // showContactSuggest's own mousedown/preventDefault, which stops the
     // blur from firing in the first place — this still has to run, or the
     // box would never close when the user taps away instead).
-    ['c-to', 'c-cc', 'c-bcc'].forEach((id) => {
+    RECIPIENT_FIELDS.forEach((id) => {
       const inputEl = document.getElementById(id);
       inputEl.addEventListener('focus', () => updateContactSuggestions(inputEl));
-      inputEl.addEventListener('input', () => updateContactSuggestions(inputEl));
+      inputEl.addEventListener('input', () => { growRecipient(inputEl); updateContactSuggestions(inputEl); });
+      // Addresses copied out of another client arrive one per line very often,
+      // and each line is a recipient rather than a line break.
+      inputEl.addEventListener('paste', (e) => {
+        const text = e.clipboardData?.getData('text');
+        if (!text || !/[\r\n]/.test(text)) return;
+        e.preventDefault();
+        const flat = text.split(/[\r\n]+/).map((t) => t.trim()).filter(Boolean).join(', ');
+        // execCommand keeps the browser's own undo stack intact, which setting
+        // .value by hand would throw away.
+        document.execCommand('insertText', false, flat);
+        growRecipient(inputEl);
+      });
       inputEl.addEventListener('blur', () => closeContactSuggest());
       // Arrow keys / Enter / Tab / Escape while the dropdown is open — see
       // onContactSuggestKeydown, which no-ops entirely when it isn't.
@@ -2542,6 +2583,12 @@ const Compose = (() => {
       // dropdown — hence a listener of its own rather than another arm inside
       // the one above, which exists only for while the box is open.
       inputEl.addEventListener('keydown', (e) => onRecipientBackspace(e, inputEl));
+      // LAST, so the two handlers above see Enter first (the suggestion box
+      // accepts a completion with it). A textarea would otherwise take it
+      // literally, and a newline inside an address list is not something any
+      // parser downstream expects — in an <input>, which these replaced, Enter
+      // simply did nothing.
+      inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
     });
     // The keyboard opening/closing (or any other viewport change) can leave
     // an already-open suggestion box positioned against a viewport that no

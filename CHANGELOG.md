@@ -9,6 +9,8 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Added content wrapping in To, Cc and Bcc fields
+
 ### Snoozing: the reminder says what it is about, and the list stays the list
 **The calendar reminder is named after the message.** It read "Follow up on a message" with a
 body of "Snoozed message." — a reminder you cannot act on without going to look for what it
