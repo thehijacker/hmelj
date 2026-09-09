@@ -2101,7 +2101,7 @@ one timestamp risks the message coming back subtly different from the one you ap
 </div>
 
 <h2 id="compose-guards">Before it goes out</h2>
-<p>Two checks, both optional, both in <strong>Settings → Compose</strong>.</p>
+<p>Three checks, all optional, all in <strong>Settings → Compose</strong>.</p>
 <ul>
 <li>
   <strong>Warn about a missing attachment.</strong> If what you wrote mentions an
@@ -2109,6 +2109,11 @@ one timestamp risks the message coming back subtly different from the one you ap
   <strong>English and Slovenian</strong>, including forms typed without šumniki
   (<em>prilozeno</em> counts), and matches the stems rather than exact words, so
   <em>priloga</em>, <em>prilogi</em> and <em>prilagam</em> all trigger it.
+</li>
+<li>
+  <strong>Warn about a missing subject.</strong> An empty subject line is asked about
+  before the message goes anywhere. <em>Cancel</em> puts the cursor in the subject field,
+  <em>Send anyway</em> sends it as it is.
 </li>
 <li>
   <strong>Offer Reply to all.</strong> Press Reply on a message that had other people on
@@ -3283,6 +3288,7 @@ holiday list will not be yours.
 <tbody>
 <tr><td>Undo send window (seconds)</td><td>How long Send holds a message back so you can pull it out again. <code>0</code> sends immediately, 120 is the maximum. The wait is on the server, so it still applies if you close Hmelj.</td></tr>
 <tr><td>Warn about a missing attachment</td><td>Checks your own text — English and Slovenian, šumniki optional — for a mention of an attachment when nothing is attached</td></tr>
+<tr><td>Warn about a missing subject</td><td>Asks before sending a message whose subject line is empty</td></tr>
 <tr><td>Offer Reply to all</td><td>When you press Reply on a message that had other people on it</td></tr>
 <tr><td>Default format</td><td>HTML (rich text) or plain text</td></tr>
 <tr><td>Default font</td><td>For what you write — not the quoted original. Rich text only; the toolbar still overrides it per message.</td></tr>

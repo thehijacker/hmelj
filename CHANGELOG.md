@@ -9,6 +9,10 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Sending a message with no subject asks first
+
+### Fixed: a draft's or a forwarded message's attachments failed to load with HTTP 400
+
 ### An app password can be limited to particular shared collections
 
 ### A shared calendar keeps its colour instead of arriving in the default blue

@@ -1183,6 +1183,10 @@
     "No attachment": "No attachment",
     "Send anyway": "Send anyway",
     "Warn about a missing attachment": "Warn about a missing attachment",
+    "This message has no subject. Send it anyway?": "This message has no subject. Send it anyway?",
+    "No subject": "No subject",
+    "Warn about a missing subject": "Warn about a missing subject",
+    "Before sending, asks when the subject line is empty. Cancel puts the cursor in the subject field; Send anyway sends it as it is.": "Before sending, asks when the subject line is empty. Cancel puts the cursor in the subject field; Send anyway sends it as it is.",
     "{n} other people are on this message.": "{n} other people are on this message.",
     "Reply to sender only": "Reply to sender only",
     "Offer Reply to all": "Offer Reply to all",
@@ -1405,7 +1409,8 @@
     "Everything I share, including anything I share later": "Everything I share, including anything I share later",
     "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.": "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.",
     "This password reaches only these shared collections.": "This password reaches only these shared collections.",
-    "(removed)": "(removed)"
+    "(removed)": "(removed)",
+    "Could not attach": "Could not attach"
   },
   "prefixes": [
     [

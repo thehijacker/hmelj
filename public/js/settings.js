@@ -503,6 +503,7 @@ const Settings = (() => {
       ${field('Undo send window (seconds)', num('s-undosend', draft.undoSendSeconds, 0, 120), 'How long Send holds a message back so you can take it out of the outbox again — a toast offers Undo for that long. 0 sends immediately. The wait is on the server, not in this tab, so the window still applies if you close Hmelj right after pressing Send; the message simply goes out when the time is up.')}
       ${field('Request read receipts by default', chk('s-receipt', draft.requestReadReceipt))}
       ${field('Warn about a missing attachment', chk('s-attachwarn', draft.attachmentReminder !== false), 'Before sending, checks whether what you wrote mentions an attachment while nothing is attached — in English and Slovenian, including forms written without šumniki. Only your own text is read: the quoted original and your signature are ignored, so replying to someone who wrote \'v prilogi\' does not ask.')}
+      ${field('Warn about a missing subject', chk('s-subjectwarn', draft.subjectReminder !== false), 'Before sending, asks when the subject line is empty. Cancel puts the cursor in the subject field; Send anyway sends it as it is.')}
       ${field('Offer Reply to all', chk('s-replyall', draft.replyAllNudge !== false), 'When you press Reply on a message that had other people on it, offer to reply to all of them instead. A message addressed only to you never asks.')}
       ${field('Check spelling as I type', chk('s-spellcheck', draft.spellcheck !== false), 'Slovenian and English, detected automatically. Spelling only — no grammar. Off uses your browser\'s own spellchecker instead.')}
     </div>`;
@@ -5162,7 +5163,7 @@ const Settings = (() => {
         });
         break;
       case 'compose':
-        Object.assign(draft, { undoSendSeconds: +g('s-undosend').value, attachmentReminder: g('s-attachwarn').checked, replyAllNudge: g('s-replyall').checked, composeFormat: g('s-format').value, composeFont: g('s-compose-font').value, replyQuotePosition: g('s-quote').value, autosaveDraftSeconds: +g('s-autosave').value, requestReadReceipt: g('s-receipt').checked, spellcheck: g('s-spellcheck').checked });
+        Object.assign(draft, { undoSendSeconds: +g('s-undosend').value, attachmentReminder: g('s-attachwarn').checked, subjectReminder: g('s-subjectwarn').checked, replyAllNudge: g('s-replyall').checked, composeFormat: g('s-format').value, composeFont: g('s-compose-font').value, replyQuotePosition: g('s-quote').value, autosaveDraftSeconds: +g('s-autosave').value, requestReadReceipt: g('s-receipt').checked, spellcheck: g('s-spellcheck').checked });
         break;
       case 'identities': collectIdentities(); break;
       case 'filters': collectFilters(); break;

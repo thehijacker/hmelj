@@ -154,6 +154,7 @@ export const DEFAULT_SETTINGS = {
   unsubscribeBannerCompact: true,
   markReadOnDelete: true,
   attachmentReminder: true,  // ask before sending a message that mentions an attachment but has none (public/js/composeGuards.js). Reads only what YOU wrote — the quoted original and the signature are excluded — and works in English and Slovenian, scanning both when the composer has not settled on a language yet, which is exactly the short-message case this exists for.
+  subjectReminder: true,   // ask before sending a message with an empty subject. Separate from attachmentReminder because they are different mistakes: one is caught by reading what you wrote, this one by reading what you did not.
   replyAllNudge: true,       // when you press Reply on a message that had other people on it, offer Reply to all instead. Asked only when replying to ONE person would actually drop somebody; a message addressed only to you never asks.
   requestReadReceipt: false,
   messagesPerPage: 50,

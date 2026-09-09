@@ -843,10 +843,25 @@ const Compose = (() => {
     // out as a real duplicate MIME part. Same inlineUsed check the message
     // view itself already uses to decide what counts as a real attachment
     // (see app.js's `msg.attachments.filter((a) => !a.inlineUsed)`).
+    // Same two faults restoreDraftParts had, and this one was worse for having
+    // no error check: without ?account= the server answers 400 with a JSON body,
+    // and `r.blob()` turns that sentence into a file — so forwarding from All
+    // inboxes attached the error message under the original filename. The
+    // account comes from the message being forwarded, not from whatever is on
+    // screen.
+    const fwdAccount = msg.__account || null;
     for (const a of msg.attachments || []) {
       if (a.inlineUsed) continue;
-      fetch(`/api/message/${encodeURIComponent(folder)}/${encodeURIComponent(msg.uid)}/attachment/${a.index}`)
-        .then((r) => r.blob()).then((b) => addBlob(b, a.filename, a.contentType));
+      fetch(API.attachmentUrl(folder, msg.uid, a.index, fwdAccount), { credentials: 'same-origin' })
+        .then(async (r) => {
+          if (!r.ok) {
+            const said = await r.json().then((j) => j?.error).catch(() => null);
+            throw new Error(said || `HTTP ${r.status}`);
+          }
+          return r.blob();
+        })
+        .then((b) => addBlob(b, a.filename, a.contentType))
+        .catch((e) => toast(`${I18n.t('Could not attach')} ${a.filename || ''}: ${e.message}`, 6000));
     }
   }
 
@@ -964,13 +979,28 @@ const Compose = (() => {
     const parts = (msg.attachments || []).filter((a) => a && a.index != null);
     if (!parts.length) return;
     const folder = msg.__folder || state.currentFolder;
+    // The DRAFT's own account, not the ambient one. This URL used to be built by
+    // hand with no ?account= at all, which the server answers — correctly — with
+    // 400 "No mail account selected". Any draft opened from All inboxes (where
+    // there is no ambient account) or from any view other than its own account's
+    // therefore came back with every attachment missing and "part 0: HTTP 400".
+    // API.attachmentUrl is the one place that knows how to address a part; the
+    // same mistake has been made here twice before, which is why it exists.
+    const accountId = msg.__account || null;
     const uid = msg.uid;
     const referenced = bodyCids();
     const wasDraft = draftUid;
     try {
       await Promise.all(parts.map(async (a) => {
-        const r = await fetch(`/api/message/${encodeURIComponent(folder)}/${encodeURIComponent(uid)}/attachment/${a.index}`);
-        if (!r.ok) throw new Error(`part ${a.index}: HTTP ${r.status}`);
+        const r = await fetch(API.attachmentUrl(folder, uid, a.index, accountId), { credentials: 'same-origin' });
+        // Every /api route answers a failure as {error}. Saying "HTTP 400" when
+        // the server wrote a sentence explaining itself is the difference
+        // between a report that names the bug and one that needs the server log
+        // to decode — the same reasoning as attachmentViewer.js#fetchWithProgress.
+        if (!r.ok) {
+          const said = await r.json().then((j) => j?.error).catch(() => null);
+          throw new Error(`${a.filename || `part ${a.index}`}: ${said || `HTTP ${r.status}`}`);
+        }
         const blob = await r.blob();
         const inline = !!(a.cid && referenced.has(a.cid));
         attachments.push({
@@ -2504,6 +2534,35 @@ const Compose = (() => {
     }
   }
 
+  /**
+   * "This one has no subject." Asked after the attachment question, so a
+   * message missing both does not open the second dialog before the user has
+   * seen what the first one was about.
+   *
+   * Cancel focuses the subject field instead of only closing the dialog: the
+   * answer to "did you forget it?" is nearly always yes, and the next thing
+   * wanted is to type it. Whitespace is not a subject — "   " is what a stray
+   * space bar leaves behind, not something anyone meant to send.
+   *
+   * Like the attachment guard, any failure inside means "go ahead": a broken
+   * check must never be able to stop mail from being sent.
+   */
+  async function subjectCheck(p) {
+    try {
+      if (state.settings.subjectReminder === false) return true;
+      if (String(p.subject || '').trim()) return true;
+      const ok = !!await Dialog.confirm(
+        I18n.t('This message has no subject. Send it anyway?'),
+        { title: I18n.t('No subject'), okLabel: I18n.t('Send anyway') },
+      );
+      if (!ok) document.getElementById('c-subject')?.focus();
+      return ok;
+    } catch (e) {
+      console.warn('Subject check failed:', e);
+      return true;
+    }
+  }
+
   function pickSendTime(x, y, { current = null, mode = 'send' } = {}) {
     const snoozing = mode === 'snooze';
     return new Promise((resolve) => {
@@ -2650,6 +2709,7 @@ const Compose = (() => {
       const p = payload();
       if (!p.to) return toast('Add at least one recipient');
       if (!await attachmentCheck(p)) return;
+      if (!await subjectCheck(p)) return;
       const btn = document.getElementById('btn-send');
       // Only guards against a double-click firing two sends in the brief
       // window before the server acks — /api/send now responds as soon as

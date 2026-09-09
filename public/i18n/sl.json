@@ -1183,6 +1183,10 @@
     "No attachment": "Ni priloge",
     "Send anyway": "Vseeno pošlji",
     "Warn about a missing attachment": "Opozori na manjkajočo prilogo",
+    "This message has no subject. Send it anyway?": "To sporočilo nima zadeve. Ga vseeno pošljem?",
+    "No subject": "Ni zadeve",
+    "Warn about a missing subject": "Opozori na manjkajočo zadevo",
+    "Before sending, asks when the subject line is empty. Cancel puts the cursor in the subject field; Send anyway sends it as it is.": "Pred pošiljanjem vpraša, kadar je vrstica z zadevo prazna. Prekliči postavi kazalec v polje za zadevo, Vseeno pošlji pa sporočilo pošlje takšno, kot je.",
     "{n} other people are on this message.": "V tem sporočilu je še {n} drugih prejemnikov.",
     "Reply to sender only": "Odgovori samo pošiljatelju",
     "Offer Reply to all": "Ponudi Odgovori vsem",
@@ -1405,7 +1409,8 @@
     "Everything I share, including anything I share later": "Vse, kar delim, tudi kar bom delil pozneje",
     "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.": "Odkljukajte, če boste to geslo dali nekomu drugemu samo za določene zbirke. Do ničesar, kar boste delili pozneje, ne bo imelo dostopa.",
     "This password reaches only these shared collections.": "To geslo doseže samo te deljene zbirke.",
-    "(removed)": "(odstranjeno)"
+    "(removed)": "(odstranjeno)",
+    "Could not attach": "Ni bilo mogoče pripeti"
   },
   "prefixes": [
     [
