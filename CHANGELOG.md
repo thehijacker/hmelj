@@ -9,6 +9,8 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Fixed: marking a message read failed with "No mail account selected" when the list came from this device's cache
+
 ### Sending a message with no subject asks first
 
 ### Fixed: a draft's or a forwarded message's attachments failed to load with HTTP 400

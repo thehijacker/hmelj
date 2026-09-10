@@ -4467,7 +4467,12 @@ function updateSelectToolbar() {
  * column — the two must agree or the header ends up a badge-width out of line
  * with the rows underneath it. */
 function rowAccount(m) {
-  return m.account || (state.currentAccount !== 'all' ? acct() : null);
+  if (!m.account) return state.currentAccount !== 'all' ? acct() : null;
+  // A row built from this device's own cache (offline.js#buildList) knows only
+  // the account's id — there is no server response carrying its label and
+  // colour. The chip needs both, and state.accounts has them.
+  if (m.account.label != null) return m.account;
+  return state.accounts.find((a) => a.id === m.account.id) || m.account;
 }
 
 /**

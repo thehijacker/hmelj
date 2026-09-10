@@ -721,10 +721,17 @@ const Offline = (() => {
     for (const e of hits) {
       const row = window.Outbox?.decorateRow?.(e.msg, e.account, e.folder) ?? e.msg;
       if (!row) continue;
-      // A local row must always name its own mailbox: it may be shown in a view
-      // that spans several, and unlike the server's answer there is no request
-      // URL standing behind it to fall back on.
-      live.push({ ...row, folder: row.folder || e.folder });
+      // A local row must always name its own mailbox — BOTH halves of it. It
+      // may be shown in a view that spans several, and unlike the server's
+      // answer there is no request URL standing behind it to fall back on.
+      // `folder` was set here from the start; `account` was not, and in the
+      // unified view (where API.account is null by definition) that left every
+      // action on such a row sending no ?account= at all — the server answers
+      // that with "No mail account selected", so marking one read failed with a
+      // 400 whenever the list had come from here rather than from the server.
+      // Only the id is known at this level; buildRow's chip fills in the label
+      // and colour from state.accounts.
+      live.push({ ...row, folder: row.folder || e.folder, account: row.account || (e.account ? { id: e.account } : undefined) });
     }
     const start = (page - 1) * pageSize;
     return {
