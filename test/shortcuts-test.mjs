@@ -2,7 +2,7 @@
 //
 // This suite exists because of a bug that shipped: shortcuts.js treated
 // app.js#renderedRows() as a list of DOM elements when it actually returns
-// MESSAGE OBJECTS. `r.dataset.uid` on a plain object throws, handle()'s catch
+// MESSAGE OBJECTS. `r.dataset.key` on a plain object throws, handle()'s catch
 // swallowed the throw, and every shortcut that acts on a message silently did
 // nothing — while `?` (which touches no rows) worked perfectly, so the key map
 // looked fine and the bug read as "the key does nothing".
@@ -21,18 +21,24 @@ const ok = (c, m, e = '') => { if (c) { pass++; console.log('  ✓ ' + m); } els
 
 /** A minimal DOM good enough for the shortcut layer, and honest about the two
  *  places it genuinely touches elements: the cursor class and scrollIntoView. */
+// app.js identifies a row by (account, folder, uid), not by uid — see makeRowKey
+// there. Mirrored rather than imported, for the same reason every other stub
+// here is: the point is to hold shortcuts.js to app.js's real contract, and a
+// key that disagreed with it would show up in the fixtures below.
+const key = (m) => `${m?.account?.id || ''}\u0000${m?.folder || 'INBOX'}\u0000${m?.uid}`;
+
 function makeCtx({ messages, openUid = null, activeTag = 'BODY', open = {} } = {}) {
   const calls = { reply: null, forward: null, toggleRead: [], del: [], refile: [], star: 0, snooze: [], compose: 0, help: 0, back: 0, opened: [] };
   const lis = messages.map((m) => ({
-    dataset: { uid: String(m.uid) },
+    dataset: { key: key(m) },
     classList: { _c: new Set(), toggle(n, on) { on ? this._c.add(n) : this._c.delete(n); }, has(n) { return this._c.has(n); } },
-    scrollIntoView() { calls.scrolled = this.dataset.uid; },
+    scrollIntoView() { calls.scrolled = this.dataset.key; },
     querySelector: (sel) => (sel === '.m-star' ? { click: () => { calls.star++; } } : null),
     getBoundingClientRect: () => ({ left: 10, bottom: 20 }),
   }));
   const listeners = {};
   const state = {
-    settings: {}, messages, openUid, cursorUid: null, currentFolder: 'INBOX',
+    settings: {}, messages, openKey: openUid == null ? null : key({ uid: openUid }), cursorKey: null, currentFolder: 'INBOX',
     openMessage: open.uid ? open : null,
   };
   const ctx = {
@@ -48,6 +54,7 @@ function makeCtx({ messages, openUid = null, activeTag = 'BODY', open = {} } = {
     state,
     // THE CONTRACT THAT MATTERED: message objects, not elements (app.js).
     renderedRows: () => messages,
+    rowKey: key,
     rowUnread: (m) => !m.seen,
     quickToggleRead: (m) => calls.toggleRead.push(m.uid),
     quickDelete: (m) => calls.del.push(m.uid),
@@ -111,17 +118,17 @@ console.log('\nmoving the cursor');
 {
   const { calls, fire, state, lis } = makeCtx({ messages: MSGS });
   fire({ key: 'j' });
-  ok(String(state.cursorUid) === '1', 'the first press lands on the first row, not the second');
+  ok(state.cursorKey === key({ uid: 1 }), 'the first press lands on the first row, not the second');
   fire({ key: 'j' });
-  ok(String(state.cursorUid) === '2', 'then advances');
+  ok(state.cursorKey === key({ uid: 2 }), 'then advances');
   fire({ key: 'k' });
-  ok(String(state.cursorUid) === '1', 'and goes back');
+  ok(state.cursorKey === key({ uid: 1 }), 'and goes back');
   fire({ key: 'k' });
-  ok(String(state.cursorUid) === '1', 'stopping at the top rather than wrapping');
+  ok(state.cursorKey === key({ uid: 1 }), 'stopping at the top rather than wrapping');
   for (let i = 0; i < 9; i++) fire({ key: 'j' });
-  ok(String(state.cursorUid) === '3', 'and at the bottom');
+  ok(state.cursorKey === key({ uid: 3 }), 'and at the bottom');
   ok(lis[2].classList.has('cursor') && !lis[0].classList.has('cursor'), 'the cursor class follows it');
-  ok(calls.scrolled === '3', 'and the row is scrolled into view');
+  ok(calls.scrolled === key({ uid: 3 }), 'and the row is scrolled into view');
 }
 
 console.log('\nacting advances, so a run of mail can be cleared without looking');
@@ -130,7 +137,7 @@ console.log('\nacting advances, so a run of mail can be cleared without looking'
   fire({ key: 'j' });               // cursor on 1
   fire({ key: 'delete' });
   ok(calls.del.includes(1), 'Del deletes the cursor row');
-  ok(String(state.cursorUid) === '2', 'and the cursor moves on');
+  ok(state.cursorKey === key({ uid: 2 }), 'and the cursor moves on');
   fire({ key: 'e' });
   ok(calls.refile.some(([u, b]) => u === 2 && b === 'archive'), 'e archives');
 }

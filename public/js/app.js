@@ -33,8 +33,9 @@ const state = {
   // messages themselves are in the account's snooze folder on the server.
   snoozed: [],
   // The row the keyboard is ON, which is not the same as the row that is OPEN
-  // (openUid). Only public/js/shortcuts.js sets it; rowClassName draws it.
-  cursorUid: null,
+  // (openKey). A row key, not a uid — see makeRowKey. Only
+  // public/js/shortcuts.js sets it; rowClassName draws it.
+  cursorKey: null,
   folders: [],
   currentFolder: 'INBOX',
   page: 1,
@@ -42,7 +43,10 @@ const state = {
   messages: [],
   selected: new Set(),
   selectMode: false,
-  openUid: null,
+  // The row showing in the reading pane, as a row key (makeRowKey). For the
+  // Scheduled/Outbox/Snoozed pseudo-lists it is that item's own id, which is
+  // already unique on its own.
+  openKey: null,
   query: '',
   // 'folder' (the default) reads the cache: this folder's newest cached
   // messages, matched on subject/from/to only. 'account' is the escalation the
@@ -93,18 +97,18 @@ const state = {
   // The last fetched queue, kept so renderList() can repaint the Scheduled view
   // without a round trip (see paintScheduled).
   scheduled: [],
-  // Pending auto-mark-as-read, keyed by uid. A Map rather than the single timer
+  // Pending auto-mark-as-read, keyed by row key. A Map rather than the single timer
   // this used to be: a conversation opens several messages in one pane, each
   // expanded at its own moment, and each waits out its own delay (see
   // scheduleMarkRead). Leaving the pane clears all of them.
   markReadTimers: new Map(),
   // The row a Shift+click range extends FROM — the last row clicked without
   // Shift, whether that click opened it, Ctrl-picked it, or ticked it in select
-  // mode. A uid, so it must be cleared on folder/account navigation: uids are
-  // only unique WITHIN a folder, and a leftover 5 from one folder would
-  // otherwise happily match a different message 5 in the next. Not found in the
-  // current list = no anchor, which selectRangeTo handles.
-  selectAnchorUid: null,
+  // mode. A row key (makeRowKey), which names the account and folder as well as
+  // the uid, so a leftover anchor from another mailbox cannot match a row here.
+  // Still cleared on folder/account navigation. Not found in the current list =
+  // no anchor, which selectRangeTo handles.
+  selectAnchorKey: null,
   // Authoritative total unread across every account, from GET /api/unread
   // (and kept live by the SSE payload + optimistic nudges). null until the
   // first fetch lands, which is when unreadTotal() falls back to the local
@@ -1594,7 +1598,7 @@ async function quickToggleRead(m) {
   // many of its messages actually change, not by one.
   const seen = m.threadUids ? rowUnread(m) : !prev;
   const changing = m.threadUids ? (seen ? m.threadUnseen : m.threadCount - m.threadUnseen) : 1;
-  const op = batchOp(rowUids(m), (folder, u, acct) => API.flags(folder, u, seen ? ['\\Seen'] : [], seen ? [] : ['\\Seen'], acct));
+  const op = batchOp(rowKeys(m), (folder, u, acct) => API.flags(folder, u, seen ? ['\\Seen'] : [], seen ? [] : ['\\Seen'], acct));
   m.seen = seen;
   if (m.threadUids) m.threadUnseen = seen ? 0 : m.threadCount;
   adjustUnreadCounts(m, (seen ? -1 : 1) * changing);
@@ -1641,7 +1645,7 @@ async function quickDelete(m, { confirm = true } = {}) {
   // Inside an open conversation this is one message of several: take its card
   // out and leave the rest of the stack alone. Otherwise the pane was showing
   // exactly what was just deleted.
-  if (!dropOpenCard(m) && state.openUid === m.uid) closeMessage();
+  if (!dropOpenCard(m) && state.openKey === rowKey(m)) closeMessage();
   renderList();
   let res;
   try {
@@ -1823,7 +1827,7 @@ async function quickRefile(m, box) {
   // by the sync the server forces on it.
   const unread = m.threadUids ? (m.threadUnseen || 0) : (m.seen ? 0 : 1);
   if (unread) adjustUnreadCounts(m, -unread);
-  if (!dropOpenCard(m) && state.openUid === m.uid) closeMessage();
+  if (!dropOpenCard(m) && state.openKey === rowKey(m)) closeMessage();
   renderList();
   let res;
   try {
@@ -2224,7 +2228,7 @@ function paintSnoozed() {
 function snoozedRow(item) {
   const li = document.createElement('li');
   li.className = 'msg-row';
-  li.dataset.uid = item.id;
+  li.dataset.key = item.id;
   // Overdue means the runner is working on it (or is about to). Only a repeated
   // failure is worth colouring differently, which lastError is what shows.
   const late = item.wakeAt < Date.now() - 60e3;
@@ -2527,8 +2531,8 @@ async function openFolder(path, page = 1) {
   state.currentFolder = path;
   state.page = page;
   if (state.selectMode) setSelectMode(false); else state.selected.clear();
-  state.selectAnchorUid = null; // see the field's comment: uids repeat across folders
-  state.openUid = null;
+  state.selectAnchorKey = null;
+  state.openKey = null;
   $$('#folder-list li').forEach((li) => li.classList.toggle('active', li.dataset.path === path));
   closeMessage();
   closeSidebarIfMobile();
@@ -2803,7 +2807,7 @@ function renderOutbox() {
     const d = describeOutboxOp(op);
     const li = document.createElement('li');
     li.className = 'msg-row outbox-row' + (op.state === 'failed' ? ' outbox-failed' : '');
-    li.dataset.uid = String(op.id);
+    li.dataset.key = String(op.id);
     li.innerHTML = `
       <span class="m-from">${d.icon} ${esc(d.title)}</span>
       <span class="m-subject" data-no-i18n>${esc(d.detail || '')}</span>
@@ -2900,8 +2904,8 @@ async function refreshScheduled() {
   // A previewed message that the runner has since sent (or another tab
   // cancelled) is no longer there to look at — close the pane rather than
   // leaving a message on screen that no longer exists anywhere.
-  if (state.currentFolder === SCHEDULED_FOLDER && state.openUid &&
-      !list.some((r) => r.id === state.openUid)) closeMessage();
+  if (state.currentFolder === SCHEDULED_FOLDER && state.openKey &&
+      !list.some((r) => r.id === state.openKey)) closeMessage();
   if (state.currentFolder === SCHEDULED_FOLDER) renderScheduled(list);
 }
 
@@ -2975,8 +2979,8 @@ function scheduledAccount(item) {
 
 function scheduledRow(item) {
   const li = document.createElement('li');
-  li.className = 'msg-row' + (state.openUid === item.id ? ' selected' : '');
-  li.dataset.uid = item.id;
+  li.className = 'msg-row' + (state.openKey === item.id ? ' selected' : '');
+  li.dataset.key = item.id;
   // "Due in the past" means the runner is working on it (or is about to) — not
   // that anything is wrong, unless it has been failing, which lastError shows.
   const late = item.sendAt < Date.now() - 60e3;
@@ -3016,7 +3020,7 @@ function scheduledRow(item) {
  */
 async function openScheduledPreview(item) {
   navPush(); // hardware back closes the preview instead of exiting
-  state.openUid = item.id;
+  state.openKey = item.id;
   paintScheduled();
   const view = $('#message-view');
   $('#empty-state').hidden = true;
@@ -3035,7 +3039,7 @@ async function openScheduledPreview(item) {
   }
   // The runner may have sent it, or another tab cancelled it, between the click
   // and the response landing — don't paint over whatever is open now.
-  if (state.openUid !== item.id) return;
+  if (state.openKey !== item.id) return;
   view.classList.remove('mv-placeholder');
   renderScheduledPreview(view, data, item);
 }
@@ -3135,7 +3139,7 @@ async function rescheduleScheduled(item, x, y) {
   await refreshScheduled();
   // The preview's banner quotes the old time — repaint it from the refreshed
   // record rather than leaving it contradicting the row right next to it.
-  if (state.openUid === item.id) {
+  if (state.openKey === item.id) {
     const updated = state.scheduled.find((s) => s.id === item.id);
     if (updated) openScheduledPreview(updated); else closeMessage();
   }
@@ -3152,7 +3156,7 @@ async function cancelScheduled(item, unresolved) {
   let payload;
   try { ({ payload } = await API.cancelScheduled(item.id)); }
   catch (e) { return toast('Could not cancel: ' + e.message, 5000); }
-  if (state.openUid === item.id) closeMessage(); // it isn't there to preview any more
+  if (state.openKey === item.id) closeMessage(); // it isn't there to preview any more
   refreshScheduled();
   Compose.reopen(payload);
   toast(I18n.t('Taken out of the queue — send or reschedule it from here'), 5000);
@@ -4378,6 +4382,94 @@ function rowUids(m) {
   return m.threadUids?.length ? m.threadUids : [m.uid];
 }
 
+/* ---------- row identity ----------
+ *
+ * A uid identifies a message inside ONE folder of ONE account, and nowhere
+ * else. That was fine while a list was always one folder, and stopped being
+ * fine the moment "All inboxes" put several accounts in one list and the
+ * starred filter put several folders in one list: two accounts can both have a
+ * message with uid 12345 in their INBOX, and IMAP hands out low numbers, so
+ * this is ordinary rather than exotic.
+ *
+ * Everything that used to identify a row by its bare uid — the selection set,
+ * the open row, the keyboard cursor, the <li> in the DOM, and the map
+ * batchOpInner resolves an action's target folder through — now uses this
+ * triple instead. NUL is the separator because it cannot occur in a folder
+ * name, an account id or a uid.
+ *
+ * The key is derived from the row's own fields, never from object identity, so
+ * it survives a list reload replacing every row object with an equal one —
+ * which is what keeps a selection alive across a background refresh.
+ */
+const KEY_SEP = '\u0000';
+
+/** The key for an explicit (account, folder, uid) triple. The account and
+ *  folder halves are allowed to be empty: a single-account folder view has no
+ *  row-level account, and there the uid alone is already unique. */
+function makeRowKey(accountId, folder, uid) {
+  return `${accountId || ''}${KEY_SEP}${folder || ''}${KEY_SEP}${uid}`;
+}
+
+/** The mailbox a row belongs to when it does not name one itself. A
+ *  single-account folder listing's rows carry neither account nor folder,
+ *  because the request URL did — these are the same defaults batchOpInner has
+ *  always applied to exactly that case. Filling them in here (rather than
+ *  leaving the halves empty) is what makes a key STABLE across views: the same
+ *  message keys identically whether it is being listed under its own account or
+ *  mixed into All inboxes, so an open row stays marked open across a switch. */
+function rowFallback() {
+  return {
+    account: state.currentAccount !== 'all' ? state.currentAccount : '',
+    folder: state.currentAccount === 'all' ? 'INBOX' : state.currentFolder,
+  };
+}
+
+/** One list row's key. */
+function rowKey(m) {
+  const fb = rowFallback();
+  return makeRowKey(m?.account?.id || fb.account, m?.folder || fb.folder, m?.uid);
+}
+
+/** Every key a row's actions may touch — one per message of a conversation,
+ *  all in the row's own folder (see rowUids on why the thread's uids are the
+ *  ones listed in THIS folder). */
+function rowKeys(m) {
+  const fb = rowFallback();
+  const account = m?.account?.id || fb.account;
+  const folder = m?.folder || fb.folder;
+  return rowUids(m).map((u) => makeRowKey(account, folder, u));
+}
+
+/** Is the reading pane showing exactly this message? Asked from compose.js,
+ *  which knows the message it is about to delete as an (account, folder, uid)
+ *  triple and has no row object to hand. */
+function isOpenMessage(accountId, folder, uid) {
+  return state.openKey != null && state.openKey === makeRowKey(accountId, folder, uid);
+}
+
+/** The uid back out of a key, for the one place that has to talk to the
+ *  server. Numeric-looking uids come back as numbers, by exactly the rule the
+ *  server applies on the way out (cache.js#uidOut) — so a uid that goes into a
+ *  key comes out of it byte-identical, whether it is an IMAP number or an
+ *  opaque EWS/Graph string. */
+function keyUid(key) {
+  const s = String(key).slice(String(key).lastIndexOf(KEY_SEP) + 1);
+  return /^\d+$/.test(s) ? Number(s) : s;
+}
+
+/** A key's (account, folder) half, for grouping an action by mailbox. */
+function keyMailbox(key) {
+  const parts = String(key).split(KEY_SEP);
+  return { account: parts[0] || null, folder: parts[1] || '' };
+}
+
+/** The rows currently in state.messages, by key. Rebuilt per call rather than
+ *  cached: state.messages is replaced wholesale by every load and reconcile,
+ *  and a stale index here would resolve an action onto a row that is gone. */
+function messagesByKey() {
+  return new Map(state.messages.map((m) => [rowKey(m), m]));
+}
+
 /** Is this row a real conversation (more than one message), rather than a
  *  single message the grouped query happened to return? */
 function isThreadRow(m) {
@@ -4518,7 +4610,7 @@ function answerMarkHtml(m) {
 function buildRow(m) {
   const li = document.createElement('li');
   li.className = rowClassName(m);
-  li.dataset.uid = m.uid;
+  li.dataset.key = rowKey(m);
   const a = acct();
   const isOutgoing = state.currentFolder === '__SENT__' ||
     (a && (state.currentFolder === a.sentFolder || state.currentFolder === a.draftsFolder));
@@ -4536,7 +4628,7 @@ function buildRow(m) {
   const chip = chipAccount
     ? `<span class="acct-chip" style="--chip:${escAttr(chipAccount.color)}" title="${escAttr(chipAccount.label)} — ${escAttr(I18n.t('click to mark read/unread'))}">${esc(acctInitials(chipAccount.label))}</span>` : '';
   li.innerHTML = `
-    <label class="cb" title="Select"><input type="checkbox" ${state.selected.has(m.uid) ? 'checked' : ''}></label>
+    <label class="cb" title="Select"><input type="checkbox" ${state.selected.has(rowKey(m)) ? 'checked' : ''}></label>
     <button class="m-star ${rowStarred(m) ? 'on' : ''}" title="Star">${rowStarred(m) ? '★' : '☆'}</button>
     ${chip}<span class="m-from">${esc(fromLabel)}</span>
     <!-- data-no-i18n: this span holds the user's MAIL, not the app's own words
@@ -4596,8 +4688,8 @@ function buildRow(m) {
       // behind on another page) — nothing to draw a range from, so fall back to
       // exactly what Ctrl+click would have done with this row.
       if (!selectRangeTo(m)) {
-        for (const u of rowUids(m)) state.selected.add(u);
-        state.selectAnchorUid = m.uid;
+        for (const k of rowKeys(m)) state.selected.add(k);
+        state.selectAnchorKey = rowKey(m);
       }
       // setSelectMode re-renders (and never clears the set on the way IN), so
       // the newly-picked rows come back already ticked; once it is already on,
@@ -4610,7 +4702,7 @@ function buildRow(m) {
     // it opens the message, Ctrl-picks it, or ticks it in select mode. That is
     // what makes "click one, Shift+click another" work without a separate
     // gesture to place the anchor.
-    state.selectAnchorUid = m.uid;
+    state.selectAnchorKey = rowKey(m);
     // Ctrl+click (Cmd on a Mac) picks rows out of the list without going to the
     // toolbar's ☑ first — the desktop convention, and what the drag-to-select
     // gesture's space is now free for (see .msg-list's user-select in app.css).
@@ -4620,19 +4712,19 @@ function buildRow(m) {
       // Before setSelectMode, which is what re-renders the list — so the row
       // this started from comes back already ticked. It does not clear the set
       // when turning select mode ON, only off.
-      for (const u of rowUids(m)) state.selected.add(u);
+      for (const k of rowKeys(m)) state.selected.add(k);
       setSelectMode(true);
       return;
     }
     if (state.selectMode) {
       // Every message of the conversation goes in or out together — state.selected
-      // is a flat uid set and every batch action reads it as one (batchOp), so
-      // nothing downstream needs to know threads exist.
-      const uids = rowUids(m);
-      if (state.selected.has(m.uid)) for (const u of uids) state.selected.delete(u);
-      else for (const u of uids) state.selected.add(u);
+      // is a flat set of row keys and every batch action reads it as one
+      // (batchOp), so nothing downstream needs to know threads exist.
+      const keys = rowKeys(m);
+      if (state.selected.has(rowKey(m))) for (const k of keys) state.selected.delete(k);
+      else for (const k of keys) state.selected.add(k);
       li.className = rowClassName(m);
-      const cb = li.querySelector('.cb input'); if (cb) cb.checked = state.selected.has(m.uid);
+      const cb = li.querySelector('.cb input'); if (cb) cb.checked = state.selected.has(rowKey(m));
       updateSelectToolbar();
       return;
     }
@@ -4654,14 +4746,14 @@ function buildRow(m) {
  * two ever drifted (a sort change, a row the list chose not to draw).
  */
 function renderedRows() {
-  const byUid = new Map(state.messages.map((m) => [String(m.uid), m]));
+  const byKey = messagesByKey();
   return [...$('#msg-list').querySelectorAll('.msg-row')]
-    .map((li) => byUid.get(li.dataset.uid))
+    .map((li) => byKey.get(li.dataset.key))
     .filter(Boolean);
 }
 
 /**
- * Shift+click: add every row between the anchor (see state.selectAnchorUid) and
+ * Shift+click: add every row between the anchor (see state.selectAnchorKey) and
  * `m` to the selection, both ends included.
  *
  * Additive, and the anchor deliberately does NOT move: a second Shift+click
@@ -4671,23 +4763,23 @@ function renderedRows() {
  * one mis-aimed click away from silently unpicking messages you had already
  * chosen to delete.
  *
- * Whole conversations go in together (rowUids), exactly as a plain select-mode
- * click does — state.selected is a flat uid set and nothing downstream knows
- * threads exist.
+ * Whole conversations go in together (rowKeys), exactly as a plain select-mode
+ * click does — state.selected is a flat set of row keys and nothing downstream
+ * knows threads exist.
  *
  * @returns {boolean} false if there is no usable anchor in the current list,
  *   which is the caller's cue to treat the click as an ordinary Ctrl+click.
  */
 function selectRangeTo(m) {
-  if (state.selectAnchorUid == null) return false;
+  if (state.selectAnchorKey == null) return false;
   const rows = renderedRows();
-  const to = rows.findIndex((r) => String(r.uid) === String(m.uid));
-  const from = rows.findIndex((r) => String(r.uid) === String(state.selectAnchorUid));
+  const to = rows.findIndex((r) => rowKey(r) === rowKey(m));
+  const from = rows.findIndex((r) => rowKey(r) === state.selectAnchorKey);
   // An anchor left over from another folder or an earlier page simply isn't
   // here any more — no range to draw, rather than a wrong one.
   if (to < 0 || from < 0) return false;
   const [a, b] = from <= to ? [from, to] : [to, from];
-  for (let i = a; i <= b; i++) for (const u of rowUids(rows[i])) state.selected.add(u);
+  for (let i = a; i <= b; i++) for (const k of rowKeys(rows[i])) state.selected.add(k);
   return true;
 }
 
@@ -4707,9 +4799,10 @@ function rowClassName(m) {
   // The keyboard cursor rides on top of every other row state — it says where
   // the next j/k/Del will land, which matters most precisely when the row is
   // also selected or open.
-  const cursor = state.cursorUid != null && String(state.cursorUid) === String(m.uid) ? ' cursor' : '';
-  return 'msg-row' + (rowUnread(m) ? ' unread' : '') + (m.uid === state.openUid ? ' selected' : '') + (m.deleted ? ' deleted' : '') +
-    (state.selectMode && state.selected.has(m.uid) ? ' picked' : '') + cursor;
+  const key = rowKey(m);
+  const cursor = state.cursorKey != null && state.cursorKey === key ? ' cursor' : '';
+  return 'msg-row' + (rowUnread(m) ? ' unread' : '') + (key === state.openKey ? ' selected' : '') + (m.deleted ? ' deleted' : '') +
+    (state.selectMode && state.selected.has(key) ? ' picked' : '') + cursor;
 }
 
 /**
@@ -4884,9 +4977,9 @@ function messagesSignature(list) {
 
 /** In-place keyed diff against the currently-rendered list — used only for
  * silent background refreshes (see pollSyncStatus). Unlike renderList(),
- * this never wipes #msg-list: existing rows for uids still present get
- * patched (read/flag/deleted state, position), rows for uids no longer
- * present are removed, and only genuinely new uids get a freshly built row.
+ * this never wipes #msg-list: existing rows for keys still present get
+ * patched (read/flag/deleted state, position), rows for keys no longer
+ * present are removed, and only genuinely new rows get freshly built.
  * Nothing here should be visible as a flash for an unaffected row. */
 function patchList() {
   const ul = $('#msg-list');
@@ -4894,16 +4987,16 @@ function patchList() {
   updateSortHeader();
   const sorted = sortMessages(state.messages);
   if (!sorted.length) { renderList(); return; }
-  const existing = new Map($$('#msg-list > li[data-uid]').map((li) => [li.dataset.uid, li]));
+  const existing = new Map($$('#msg-list > li[data-key]').map((li) => [li.dataset.key, li]));
   const kept = new Set();
   let prev = null;
   for (const m of sorted) {
-    const key = String(m.uid);
+    const key = rowKey(m);
     kept.add(key);
     let li = existing.get(key);
     if (li) {
       li.className = rowClassName(m);
-      const cb = li.querySelector('.cb input'); if (cb) cb.checked = state.selected.has(m.uid);
+      const cb = li.querySelector('.cb input'); if (cb) cb.checked = state.selected.has(key);
       const star = li.querySelector('.m-star');
       if (star) { star.classList.toggle('on', rowStarred(m)); star.textContent = rowStarred(m) ? '★' : '☆'; }
       // A conversation that just gained a message keeps its row, so the count
@@ -4936,7 +5029,7 @@ function patchList() {
     prev = li;
   }
   for (const [key, li] of existing) if (!kept.has(key)) li.remove();
-  // The search footer isn't keyed by uid, so the diff above leaves it alone —
+  // The search footer isn't keyed by a row key, so the diff above leaves it alone —
   // but it has to stay LAST once rows have been reordered around it.
   const scopeRow = $('.search-scope-row', ul);
   if (scopeRow) ul.appendChild(scopeRow);
@@ -5072,7 +5165,7 @@ function navCollapseOneLevel() {
   //     an overlay anyone can back out of.
   if (isMobileViewport() && !$('#sidebar').classList.contains('collapsed')) { setSidebarOpen(false); return true; }
   //  7. …then in-page navigation proper.
-  if (state.openUid) { closeMessage(); return true; }
+  if (state.openKey) { closeMessage(); return true; }
   if (state.currentAccount !== 'all' && activeAccounts().length > 1) { switchAccount('all'); return true; }
   return false;
 }
@@ -5159,8 +5252,8 @@ function closeMessage() {
   // The find bar belongs to the frame it was searching — and that frame is
   // about to be gone.
   MessageFind.close();
-  const hadOpen = state.openUid !== null;
-  state.openUid = null;
+  const hadOpen = state.openKey !== null;
+  state.openKey = null;
   $('#message-view').hidden = true;
   $('#empty-state').hidden = false;
   if (isMobileViewport()) {
@@ -5169,7 +5262,7 @@ function closeMessage() {
     requestAnimationFrame(() => { list.scrollTop = mobileListScroll; });
   }
   // Drop the "selected" highlight from whichever row was open — otherwise
-  // it stays marked (buildRow keys it off state.openUid) even after the
+  // it stays marked (buildRow keys it off state.openKey) even after the
   // mobile back button returns to the list, well past the point it means
   // anything. Callers that immediately reload the list anyway (loadMessages/
   // reconcileMessages) will just render again on top of this harmlessly.
@@ -5190,7 +5283,7 @@ async function openMessage(m) {
   }
   navPush(); // hardware back closes this message instead of exiting — see the block above closeMessage()
   clearMarkReadTimers(); // whatever was open is being replaced — it no longer counts as "read for long enough"
-  state.openUid = m.uid;
+  state.openKey = rowKey(m);
   renderList();
   const view = $('#message-view');
   $('#empty-state').hidden = true;
@@ -5287,7 +5380,7 @@ async function showSingleMessage(view, m, { allowImages = false } = {}) {
     view.innerHTML = `<p style="color:var(--danger)">Error: ${esc(e.message)}</p>`;
     return;
   }
-  if (state.openUid !== m.uid) return; // something else was opened while this was in flight
+  if (state.openKey !== rowKey(m)) return; // something else was opened while this was in flight
   view.classList.remove('mv-placeholder');
   msg.__folder = msgFolder;
   msg.__account = msgAccount;
@@ -5321,7 +5414,7 @@ function clearMarkReadTimers() {
 }
 
 function scheduleMarkRead(m) {
-  const key = String(m.uid);
+  const key = rowKey(m);
   clearTimeout(state.markReadTimers.get(key));
   const s = state.settings;
   if (m.seen || s.autoMarkRead === 'never' || s.autoMarkRead === 'manual') return;
@@ -5433,7 +5526,7 @@ function unsubSaid(r, when) {
 function correctThreadCount(row, count) {
   if (!row || !count || row.threadCount === count) return;
   row.threadCount = count;
-  const chip = $(`#msg-list > li[data-uid="${CSS.escape(String(row.uid))}"] .m-thread`);
+  const chip = $(`#msg-list > li[data-key="${CSS.escape(rowKey(row))}"] .m-thread`);
   if (chip) chip.textContent = count;
 }
 
@@ -5447,7 +5540,7 @@ function correctThreadCount(row, count) {
  * so there is nothing to take back.
  */
 function dropMessageRow(entry) {
-  const idx = state.messages.findIndex((m) => m === entry || m.uid === entry?.uid);
+  const idx = entry ? state.messages.findIndex((m) => m === entry || rowKey(m) === rowKey(entry)) : -1;
   if (idx !== -1) {
     const m = state.messages[idx];
     const unread = m.threadUids ? (m.threadUnseen || 0) : (m.seen ? 0 : 1);
@@ -5455,7 +5548,7 @@ function dropMessageRow(entry) {
     state.messages.splice(idx, 1);
     renderList();
   }
-  if (!dropOpenCard(entry) && state.openUid === entry?.uid) closeMessage();
+  if (!dropOpenCard(entry) && entry && state.openKey === rowKey(entry)) closeMessage();
 }
 
 /* ---------- meeting invitations ---------- */
@@ -6342,7 +6435,7 @@ async function reloadCard(card, { allowImages = false } = {}) {
 function dropOpenCard(entry) {
   const cards = $$('#message-view .mv-card');
   if (cards.length < 2) return false;
-  const card = cards.find((c) => c.__listEntry?.uid === entry.uid);
+  const card = cards.find((c) => c.__listEntry && rowKey(c.__listEntry) === rowKey(entry));
   if (!card) return false;
   card.remove();
   return true;
@@ -6351,7 +6444,10 @@ function dropOpenCard(entry) {
 /** One message of a conversation becoming read — keeps the list row's own
  *  unread count (which covers the whole thread) in step with it. */
 function noteMemberRead(entry, seen) {
-  const row = state.messages.find((r) => r.threadUids?.includes(entry.uid));
+  // Matched on the account too: a bare threadUids.includes() would find a
+  // same-uid thread belonging to a different account in the unified view and
+  // move ITS unread count instead.
+  const row = state.messages.find((r) => r.account?.id === entry.account?.id && r.threadUids?.includes(entry.uid));
   if (!row) return;
   const n = row.threadUnseen || 0;
   row.threadUnseen = Math.max(0, Math.min(row.threadCount, seen ? n - 1 : n + 1));
@@ -6386,7 +6482,7 @@ async function openThread(m) {
     // is off or the row is stale. Either way the message itself still opens.
     return showSingleMessage(view, m);
   }
-  if (state.openUid !== m.uid) return; // something else was opened while we fetched
+  if (state.openKey !== rowKey(m)) return; // something else was opened while we fetched
   if (members.length < 2) return showSingleMessage(view, m);
   correctThreadCount(m, members.length);
 
@@ -6404,7 +6500,7 @@ async function openThread(m) {
   try {
     newestMsg = await withMsgCtx(newest, (f, acct) => API.message(f, newest.uid, false, acct));
   } catch (e) { /* handled below — the conversation is still perfectly readable */ }
-  if (state.openUid !== m.uid) return;
+  if (state.openKey !== rowKey(m)) return;
 
   view.classList.remove('mv-placeholder');
   view.innerHTML = '';
@@ -6721,35 +6817,43 @@ function applyReadingPane() {
 }
 
 /* ---------- toolbar actions ---------- */
-/** Batch op over selected uids; in the unified view, fan out per source account. */
+/** Batch op over selected row keys; in the unified view, fan out per source account. */
 /** Every mail-state mutation made from the list or the toolbar goes through
  * here, which makes it the one place that has to register itself with
  * trackMutation — see the reconcile-scheduling comment. (Single-message paths
  * that use withMsgCtx instead wrap themselves at their own call sites; that
  * helper is also used for a plain read.) */
-function batchOp(uids, fn) {
-  return trackMutation(batchOpInner(uids, fn));
+function batchOp(keys, fn) {
+  return trackMutation(batchOpInner(keys, fn));
 }
 
-async function batchOpInner(uids, fn) {
-  // Group by (account, folder) in EVERY view, not just the unified one. A
-  // single-account list used to be safe to treat as one folder, but the starred
-  // filter spans a folder's whole subtree (see state.starredOnly), so its rows can
-  // sit in different folders while state.currentFolder names only the root — acting
-  // on them wholesale there would target the wrong mailbox. Where no row carries a
-  // folder of its own this still produces exactly the single call it always did.
+/**
+ * `keys` are row keys (see makeRowKey), not uids.
+ *
+ * Group by (account, folder) in EVERY view, not just the unified one. A
+ * single-account list used to be safe to treat as one folder, but the starred
+ * filter spans a folder's whole subtree (see state.starredOnly), so its rows can
+ * sit in different folders while state.currentFolder names only the root — acting
+ * on them wholesale there would target the wrong mailbox. Where no row carries a
+ * folder of its own this still produces exactly the single call it always did.
+ *
+ * The mailbox comes out of the KEY, not out of a lookup in state.messages. That
+ * lookup used to be `new Map(state.messages.map((m) => [m.uid, m]))`, which is
+ * only sound while a uid identifies a row — in "All inboxes" two accounts can
+ * both have a message with uid 12345, and the Map kept whichever came last, so
+ * marking one read silently marked the other account's message instead. It also
+ * means a row that has since paged away still resolves correctly, where before
+ * it fell back to whatever folder the view happened to be showing.
+ */
+async function batchOpInner(keys, fn) {
   const defaultFolder = state.currentAccount === 'all' ? 'INBOX' : state.currentFolder;
-  const byUid = new Map(state.messages.map((m) => [m.uid, m]));
   const byCtx = new Map();
-  for (const uid of uids) {
-    // A uid with no row left in the list (paged away, already removed) still has to
-    // be acted on — the current view is the only context there is for it.
-    const m = byUid.get(uid);
-    const folder = m?.folder || defaultFolder;
-    const account = m?.account?.id || null;
-    const key = (account || '') + '|' + folder;
-    if (!byCtx.has(key)) byCtx.set(key, { account, folder, uids: [] });
-    byCtx.get(key).uids.push(uid);
+  for (const key of keys) {
+    const { account, folder } = keyMailbox(key);
+    const box = folder || defaultFolder;
+    const ctx = (account || '') + KEY_SEP + box;
+    if (!byCtx.has(ctx)) byCtx.set(ctx, { account, folder: box, uids: [] });
+    byCtx.get(ctx).uids.push(keyUid(key));
   }
   for (const g of byCtx.values()) {
     await fn(g.folder, g.uids, g.account);
@@ -6767,7 +6871,7 @@ async function batchOpInner(uids, fn) {
  * `affects` says will actually move (marking 10 already-read messages read
  * must not move the badge by -10). Returns false if the op failed.
  */
-async function runBatch(uids, fn, delta) {
+async function runBatch(keys, fn, delta) {
   // How much this action moves the unread badges, per affected ROW. `delta`
   // says which way: -1 is "unread messages stop being unread" (read, deleted),
   // +1 is "read messages become unread". A conversation row stands for several
@@ -6777,9 +6881,10 @@ async function runBatch(uids, fn, delta) {
     const unread = m.threadUids ? (m.threadUnseen || 0) : (m.seen ? 0 : 1);
     return delta < 0 ? unread : (m.threadUids ? m.threadCount : 1) - unread;
   };
-  const moved = state.messages.filter((m) => uids.includes(m.uid));
+  const wanted = new Set(keys);
+  const moved = state.messages.filter((m) => wanted.has(rowKey(m)));
   try {
-    await batchOp(uids, fn);
+    await batchOp(keys, fn);
   } catch (e) {
     toast('Action failed: ' + e.message, 4000);
     return false;
@@ -6798,34 +6903,34 @@ function bindToolbar() {
   // has no dedicated "select all" control otherwise.
   $('#select-count').addEventListener('click', () => {
     // Compared against the total number of MESSAGES on the page, not rows — a
-    // conversation contributes all of its own (rowUids), so "everything is
+    // conversation contributes all of its own (rowKeys), so "everything is
     // selected" has to be counted the same way it was built.
-    const everything = state.messages.flatMap(rowUids);
+    const everything = state.messages.flatMap(rowKeys);
     state.selected = state.selected.size === everything.length ? new Set() : new Set(everything);
     updateSelectToolbar(); renderList();
   });
   $('#sel-delete').addEventListener('click', async () => {
-    const uids = [...state.selected]; if (!uids.length) return toast('Nothing selected');
-    const msg = uids.length === 1 ? I18n.t('Delete this message?') : I18n.t('Delete {n} messages?').replace('{n}', uids.length);
+    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    const msg = keys.length === 1 ? I18n.t('Delete this message?') : I18n.t('Delete {n} messages?').replace('{n}', keys.length);
     if (!await Dialog.confirm(msg, { title: I18n.t('Delete'), okLabel: I18n.t('Delete'), danger: true })) return;
-    if (!await runBatch(uids, (folder, u, acct) => API.deleteMsgs(folder, u, acct), -1)) return;
+    if (!await runBatch(keys, (folder, u, acct) => API.deleteMsgs(folder, u, acct), -1)) return;
     setSelectMode(false); closeMessage(); loadMessages(); scheduleReconcile(2);
   });
   $('#sel-read').addEventListener('click', async () => {
-    const uids = [...state.selected]; if (!uids.length) return toast('Nothing selected');
-    if (!await runBatch(uids, (folder, u, acct) => API.flags(folder, u, ['\\Seen'], [], acct), -1)) return;
+    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    if (!await runBatch(keys, (folder, u, acct) => API.flags(folder, u, ['\\Seen'], [], acct), -1)) return;
     setSelectMode(false); loadMessages(); scheduleReconcile(2);
   });
   $('#sel-unread').addEventListener('click', async () => {
-    const uids = [...state.selected]; if (!uids.length) return toast('Nothing selected');
-    if (!await runBatch(uids, (folder, u, acct) => API.flags(folder, u, [], ['\\Seen'], acct), +1)) return;
+    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    if (!await runBatch(keys, (folder, u, acct) => API.flags(folder, u, [], ['\\Seen'], acct), +1)) return;
     setSelectMode(false); loadMessages(); scheduleReconcile(2);
   });
   $('#sel-move-target').addEventListener('change', async (e) => {
     const target = e.target.value; e.target.value = '';
     if (!target) return;
-    const uids = [...state.selected]; if (!uids.length) return toast('Nothing selected');
-    await batchOp(uids, (folder, u, acct) => API.move(folder, u, target, acct));
+    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    await batchOp(keys, (folder, u, acct) => API.move(folder, u, target, acct));
     setSelectMode(false); closeMessage(); loadMessages(); loadFolders();
     toast('Moved to ' + target);
   });

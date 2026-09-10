@@ -150,7 +150,16 @@ console.log('\nediting a draft gets its files back');
   // pasted inline — then the draft reopened showing broken images, because the
   // body still said <img src="cid:…"> with nothing left for the cid to name.
   ok(src.includes('restoreDraftParts(msg);'), 'editDraft asks for them');
-  ok(src.includes('/attachment/${a.index}`)'), 'fetched part by part from the server, like forward() already did');
+  ok(src.includes('API.attachmentUrl(folder, uid, a.index, accountId)'),
+    'fetched part by part from the server, like forward() already does');
+  // The URL used to be built by hand here, without ?account= — and the server
+  // answers that with 400 "No mail account selected", so any draft with an
+  // attachment opened from All inboxes failed to reopen. API.attachmentUrl is
+  // the one place that knows how to address a part, account included.
+  ok(!/attachment\/\$\{a\.index\}`/.test(src),
+    'through API.attachmentUrl, never a hand-built path that would carry no ?account=');
+  ok(src.includes('API.attachmentUrl(folder, msg.uid, a.index, fwdAccount)'),
+    'and forward() addresses its parts the same way');
 
   // The inline/attachment decision, copied — asserted against the module below.
   const isInline = (part, referenced) => !!(part.cid && referenced.has(part.cid));
@@ -188,10 +197,11 @@ console.log('\na draft opens in the composer and nowhere else');
     'renderMessage no longer opens the composer as a side effect of drawing a card');
   ok(app.includes('const rowAccount = state.accounts.find((x) => x.id === msgAccount);'),
     "decided from the ROW's account — state.currentAccount is 'all' in the unified view");
-  ok(src.includes("if (typeof closeMessage === 'function' && state.openUid === draftUid) closeMessage();"),
+  ok(/isOpenMessage\(acct\?\.id, acct\?\.draftsFolder \|\| 'Drafts', draftUid\)/.test(src),
     'and discarding a draft releases the pane if it happens to be showing that same draft');
-  ok(src.includes('state.openUid === draftUid'),
-    'guarded on the uid — discarding must not close some OTHER message opened alongside it');
+  ok(app.includes('function isOpenMessage(accountId, folder, uid)')
+    && app.includes('state.openKey === makeRowKey(accountId, folder, uid)'),
+    'guarded on the whole (account, folder, uid) — a uid alone names a different message in every other mailbox');
 }
 
 console.log('\nthe saved draft has to carry the Content-ID');

@@ -56,9 +56,11 @@ const Shortcuts = (() => {
   }
 
   /* ---------- the cursor ----------
-   * A row that is FOCUSED without being open. state.openUid is the only such
+   * A row that is FOCUSED without being open. state.openKey is the only such
    * notion the app had, and it means something else (this message is showing in
-   * the reading pane), so j/k needs its own.
+   * the reading pane), so j/k needs its own. Both hold a ROW KEY (app.js#
+   * makeRowKey) — account, folder and uid — since a bare uid names a different
+   * message in every mailbox the unified list mixes together.
    */
 
   /**
@@ -67,18 +69,18 @@ const Shortcuts = (() => {
    * app.js#renderedRows returns the message objects the list is drawn from, not
    * the <li> elements — it maps the DOM back through state.messages precisely so
    * callers do not have to touch the DOM. Treating them as elements is what this
-   * file got wrong first time round: `r.dataset.uid` on a plain object throws,
+   * file got wrong first time round: `r.dataset.key` on a plain object throws,
    * the throw was swallowed by handle()'s catch, and every shortcut that acts on
    * a message silently did nothing while `?` (which touches no rows) worked
    * perfectly — which made it look like the key map was fine.
    */
   const rows = () => (typeof renderedRows === 'function' ? renderedRows() : []);
 
-  /** The <li> for a uid, for the two things that genuinely need the element:
-   *  scrolling it into view, and positioning a menu over it. */
-  function elFor(uid) {
+  /** The <li> for a row key, for the two things that genuinely need the
+   *  element: scrolling it into view, and positioning a menu over it. */
+  function elFor(key) {
     for (const li of document.querySelectorAll('#msg-list .msg-row')) {
-      if (li.dataset.uid === String(uid)) return li;
+      if (li.dataset.key === String(key)) return li;
     }
     return null;
   }
@@ -89,32 +91,32 @@ const Shortcuts = (() => {
   function current() {
     const all = rows();
     if (!all.length) return null;
-    const want = String(state.cursorUid ?? state.openUid ?? '');
-    return all.find((m) => String(m.uid) === want) || all[0];
+    const want = String(state.cursorKey ?? state.openKey ?? '');
+    return all.find((m) => rowKey(m) === want) || all[0];
   }
 
   function moveCursor(delta) {
     const all = rows();
     if (!all.length) return;
-    const want = String(state.cursorUid ?? state.openUid ?? '');
-    const at = all.findIndex((m) => String(m.uid) === want);
+    const want = String(state.cursorKey ?? state.openKey ?? '');
+    const at = all.findIndex((m) => rowKey(m) === want);
     // From nowhere, the first press lands on the first row rather than jumping
     // to the second — pressing "down" in a list with no cursor means "start".
     const next = at < 0 ? 0 : Math.min(all.length - 1, Math.max(0, at + delta));
     const m = all[next];
     if (!m) return;
-    state.cursorUid = m.uid;
+    state.cursorKey = rowKey(m);
     paintCursor();
     // `nearest` rather than `center`: scrolling a row that is already visible
     // into the middle of the pane makes every keypress lurch the list.
-    elFor(m.uid)?.scrollIntoView({ block: 'nearest' });
+    elFor(rowKey(m))?.scrollIntoView({ block: 'nearest' });
   }
 
   /** Draws the cursor without a re-render — the list is rebuilt often, and a
    *  full renderList() per keypress would be both slow and visibly flickery. */
   function paintCursor() {
     for (const li of document.querySelectorAll('#msg-list .msg-row')) {
-      li.classList.toggle('cursor', li.dataset.uid === String(state.cursorUid));
+      li.classList.toggle('cursor', li.dataset.key === String(state.cursorKey));
     }
   }
 
@@ -125,9 +127,9 @@ const Shortcuts = (() => {
     if (!m) return;
     if (advance) {
       const all = rows();
-      const at = all.findIndex((x) => String(x.uid) === String(m.uid));
+      const at = all.findIndex((x) => rowKey(x) === rowKey(m));
       const next = all[at + 1] || all[at - 1];
-      if (next) { state.cursorUid = next.uid; paintCursor(); }
+      if (next) { state.cursorKey = rowKey(next); paintCursor(); }
     }
     fn(m);
   }
@@ -175,7 +177,7 @@ const Shortcuts = (() => {
   function toggleStar(m) {
     // No exported helper for this one — the star is bound per row in buildRow,
     // so the honest way to fire the same code is to press the same button.
-    elFor(m.uid)?.querySelector('.m-star')?.click();
+    elFor(rowKey(m))?.querySelector('.m-star')?.click();
   }
 
   /** Archive/spam are not available in every folder (an account may have no
@@ -188,7 +190,7 @@ const Shortcuts = (() => {
   }
 
   function snoozeAtCursor(m) {
-    const li = elFor(m.uid);
+    const li = elFor(rowKey(m));
     const r = li ? li.getBoundingClientRect() : { left: 80, bottom: 80 };
     // The picker is a context menu and needs somewhere to appear: the row it
     // was invoked on, so it behaves as if it had been right-clicked.

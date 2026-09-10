@@ -64,32 +64,36 @@ for (const f of ['i18n.js', 'connection.js', 'api.js', 'dialog.js', 'app.js']) {
   let src = fs.readFileSync(path.join(root, 'public/js', f), 'utf8');
   // See the header: appended INSIDE app.js's own script scope, which is the
   // only place its top-level consts are visible from.
-  if (f === 'app.js') src += '\n;globalThis.__t = { state, selectRangeTo };';
+  if (f === 'app.js') src += '\n;globalThis.__t = { state, selectRangeTo, rowKey, rowKeys };';
   try { vm.runInContext(src, ctx, { filename: f }); }
   catch (e) { if (f === 'app.js') throw e; }
 }
 
-const { state, selectRangeTo } = ctx.__t;
+const { state, selectRangeTo, rowKey, rowKeys } = ctx.__t;
 ok(typeof selectRangeTo === 'function', 'selectRangeTo is reachable at app.js top level');
-ok(state && 'selectAnchorUid' in state, 'and state carries the range anchor it reads');
+ok(state && 'selectAnchorKey' in state, 'and state carries the range anchor it reads');
 
 /** The list on screen, newest first, as buildRow would have drawn it. `thread`
  *  makes a row a conversation of several messages, which selects as one. */
-function showList(rows, shownUids = null) {
+function showList(rows, shown = null) {
   state.messages = rows;
   // renderedRows() reads the DOM, deliberately (see its comment) — so the DOM
-  // is what the fixture has to provide. dataset.uid is a string in a browser,
-  // and that is exactly the coercion the range math has to survive.
-  domRows = (shownUids || rows.map((m) => m.uid)).map((u) => ({ dataset: { uid: String(u) } }));
+  // is what the fixture has to provide, and it has to carry the same ROW KEY
+  // (account + folder + uid) buildRow puts on a real <li>. A uid alone is not a
+  // row: two accounts can both have uid 12345 in their INBOX.
+  domRows = (shown || rows).map((m) => ({ dataset: { key: rowKey(m) } }));
 }
 
-const msg = (uid, extra = {}) => ({ uid, subject: `m${uid}`, ...extra });
-/** Runs the gesture and reports what ended up selected, in list order. */
+const msg = (uid, extra = {}) => ({ uid, folder: 'INBOX', subject: `m${uid}`, ...extra });
+/** Runs the gesture and reports which UIDS ended up selected, in list order —
+ *  the selection itself holds row keys, but every fixture here is one account,
+ *  so reporting uids keeps the assertions readable. The cross-account case at
+ *  the bottom looks at the keys themselves. */
 function shiftClick({ anchor, on, already = [] }) {
-  state.selected = new Set(already);
-  state.selectAnchorUid = anchor;
+  state.selected = new Set(already.map((u) => rowKey(msg(u))));
+  state.selectAnchorKey = anchor == null ? null : rowKey(msg(anchor));
   const hit = selectRangeTo(state.messages.find((m) => m.uid === on));
-  return { hit, picked: [...state.selected] };
+  return { hit, picked: [...state.selected].map((k) => Number(k.slice(k.lastIndexOf('\u0000') + 1))) };
 }
 
 console.log('a plain run of messages');
@@ -124,16 +128,15 @@ showList([1, 2, 3].map((u) => msg(u)));
   eq(r.picked, [], 'and nothing is selected — the caller falls back to a plain Ctrl+click');
 }
 {
-  // The case the anchor is cleared on folder navigation for: uids are unique
-  // only WITHIN a folder, so a leftover anchor must not match by number alone.
+  // A leftover anchor from another list must not match by number alone.
   const r = shiftClick({ anchor: 99, on: 2 });
   ok(!r.hit, 'an anchor that is not in this list draws no range');
   eq(r.picked, [], 'rather than a wrong one');
 }
 {
   state.selected = new Set();
-  state.selectAnchorUid = 1;
-  ok(!selectRangeTo({ uid: 77 }), 'a target that is not in the list is refused too');
+  state.selectAnchorKey = rowKey(msg(1));
+  ok(!selectRangeTo(msg(77)), 'a target that is not in the list is refused too');
 }
 
 console.log('the order shown is the order used');
@@ -142,12 +145,36 @@ console.log('the order shown is the order used');
   // renderedRows reads the DOM on purpose: a range means "what is between these
   // two AS DISPLAYED".
   const rows = [msg(1), msg(2), msg(3), msg(4)];
-  showList(rows, [4, 3, 2, 1]);
+  showList(rows, [msg(4), msg(3), msg(2), msg(1)]);
   state.selected = new Set();
-  state.selectAnchorUid = 3;
+  state.selectAnchorKey = rowKey(msg(3));
   selectRangeTo(rows.find((m) => m.uid === 1));
-  eq([...state.selected].sort((a, b) => a - b), [1, 2, 3],
+  eq([...state.selected].map((k) => Number(k.slice(k.lastIndexOf('\u0000') + 1))).sort((a, b) => a - b), [1, 2, 3],
     'the range follows the rendered order, not the array order');
+}
+
+console.log('two accounts, one uid — All inboxes');
+{
+  // The reason a row is keyed by (account, folder, uid) and not by uid: IMAP
+  // hands out low numbers per folder, so the same uid in two accounts is
+  // ordinary. Keyed by uid alone, picking one row ticked the other as well and
+  // the next Delete took a message the user never chose.
+  const a = { uid: 12345, folder: 'INBOX', account: { id: 'gmail-thj' }, subject: 'mine' };
+  const b = { uid: 12345, folder: 'INBOX', account: { id: 'gmail-andrej' }, subject: 'theirs' };
+  const c = { uid: 7, folder: 'INBOX', account: { id: 'gmail-andrej' }, subject: 'other' };
+  showList([a, b, c]);
+  ok(rowKey(a) !== rowKey(b), 'the same uid in two accounts is two different rows');
+
+  state.selected = new Set();
+  state.selectAnchorKey = rowKey(a);
+  ok(selectRangeTo(a), 'a range from a row to itself is still a range');
+  eq([...state.selected], [rowKey(a)], 'and it picks that account\'s message ONLY');
+
+  state.selected = new Set();
+  state.selectAnchorKey = rowKey(a);
+  selectRangeTo(c);
+  eq([...state.selected], [rowKey(a), rowKey(b), rowKey(c)],
+    'a range across the collision takes both of them, because both are in it');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

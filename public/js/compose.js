@@ -2269,9 +2269,11 @@ const Compose = (() => {
       // If this draft is also what the reading pane is showing, the pane has to
       // let go of it — otherwise the message stays on screen after the row it
       // came from is gone, which is what a deleted draft used to look like.
-      // Guarded on the uid: discarding a draft must not close some OTHER
-      // message the reader opened alongside it.
-      if (typeof closeMessage === 'function' && state.openUid === draftUid) closeMessage();
+      // Guarded on the whole (account, folder, uid): discarding a draft must
+      // not close some OTHER message the reader opened alongside it, and a uid
+      // on its own names a different message in every other mailbox.
+      if (typeof closeMessage === 'function'
+          && isOpenMessage(acct?.id, acct?.draftsFolder || 'Drafts', draftUid)) closeMessage();
       loadMessages(); loadFolders();
     }
     close();
