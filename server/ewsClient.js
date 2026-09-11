@@ -513,17 +513,41 @@ function itemsOf(container) {
   return out;
 }
 
+/**
+ * The To list of one FindItem result.
+ *
+ * Exchange does not return ToRecipients from FindItem. The FieldURI is accepted
+ * without complaint and the element simply never comes back: recipient
+ * collections are among the properties only GetItem will hand out. What
+ * FindItem DOES return is item:DisplayTo — the recipients' display names joined
+ * with "; ", which is exactly what Outlook's own list view shows. Without it
+ * every message of an Exchange account was cached with an empty To, and the
+ * Sent folder listed every one of them as "To: —".
+ *
+ * ToRecipients is still asked for and still preferred, in case a server does
+ * send it — it carries the addresses. DisplayTo gives names only, so those
+ * entries have an empty address: everything downstream already reads a
+ * recipient as `name || address`, and the correspondents scan skips anything
+ * without an @ rather than learning a contact from a bare name.
+ */
+function recipientsOf(it) {
+  const full = asArray(it.ToRecipients?.Mailbox).map((m) => ({ name: m.Name || '', address: m.EmailAddress || '' }));
+  if (full.length) return full;
+  return String(it.DisplayTo || '').split(';')
+    .map((n) => n.trim()).filter(Boolean)
+    .map((name) => ({ name, address: name.includes('@') && !/\s/.test(name) ? name : '' }));
+}
+
 function toEwsEnvelope(it, acc, path) {
   const idAttr = it.ItemId;
   const id = idAttr?.['@_Id'];
   rememberChangeKey(acc, path, id, idAttr?.['@_ChangeKey']);
   const from = asArray(it.From?.Mailbox)[0];
-  const to = asArray(it.ToRecipients?.Mailbox).map((m) => ({ name: m.Name || '', address: m.EmailAddress || '' }));
   return {
     uid: id,
     subject: it.Subject || '(no subject)',
     from: from ? { name: from.Name || '', address: from.EmailAddress || '' } : null,
-    to,
+    to: recipientsOf(it),
     date: it.DateTimeReceived || null,
     // Exchange has no Date:-header/received-time split to worry about here —
     // DateTimeReceived already IS when the server took delivery. Named the same
@@ -587,6 +611,8 @@ export async function listMessages(path, { page = 1, pageSize = 50, query = '', 
         <t:FieldURI FieldURI="item:Subject"/>
         <t:FieldURI FieldURI="message:From"/>
         <t:FieldURI FieldURI="message:ToRecipients"/>
+        <!-- What FindItem actually returns for recipients — see recipientsOf. -->
+        <t:FieldURI FieldURI="item:DisplayTo"/>
         <t:FieldURI FieldURI="item:DateTimeReceived"/>
         <t:FieldURI FieldURI="item:Size"/>
         <t:FieldURI FieldURI="message:IsRead"/>

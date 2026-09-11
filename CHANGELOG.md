@@ -9,6 +9,10 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Fixed: an Exchange account's Sent folder showed "To: —" for every message
+
+### A Sent row lists the first three recipients, then …
+
 ### Fixed: in All inboxes, acting on a message could act on a different account's message with the same uid
 
 ### Fixed: marking a message read failed with "No mail account selected" when the list came from this device's cache

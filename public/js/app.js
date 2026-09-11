@@ -4607,6 +4607,19 @@ function answerMarkHtml(m) {
   return '';
 }
 
+/**
+ * A Sent row's recipients, as few as fit a list cell. The cell clips with an
+ * ellipsis anyway, but a message to forty people used to build all forty names
+ * into it first — and the clip then fell wherever the width happened to put
+ * it, often mid-name. The first few, then "…", reads as a list that goes on;
+ * buildRow puts the full one in the cell's title.
+ */
+const RECIPIENTS_SHOWN = 3;
+function recipientsShort(names) {
+  if (names.length <= RECIPIENTS_SHOWN) return names.join(', ');
+  return names.slice(0, RECIPIENTS_SHOWN).join(', ') + ', …';
+}
+
 function buildRow(m) {
   const li = document.createElement('li');
   li.className = rowClassName(m);
@@ -4614,9 +4627,12 @@ function buildRow(m) {
   const a = acct();
   const isOutgoing = state.currentFolder === '__SENT__' ||
     (a && (state.currentFolder === a.sentFolder || state.currentFolder === a.draftsFolder));
+  const toNames = (m.to || []).map((t) => t.name || t.address).filter(Boolean);
   const fromLabel = isOutgoing
-    ? 'To: ' + (m.to?.map((t) => t.name || t.address).join(', ') || '—')
+    ? 'To: ' + (recipientsShort(toNames) || '—')
     : (m.from?.name || m.from?.address || '(unknown)');
+  // The whole list on hover, since the cell only ever shows the first few.
+  const fromTitle = isOutgoing && toNames.length > RECIPIENTS_SHOWN ? toNames.join(', ') : '';
   // The badge is drawn in a single-account view too now, not only in "All
   // inboxes" — it's a 20px tap target that toggles read/unread, which is worth
   // having everywhere, and it keeps rows aligned identically between the two
@@ -4630,7 +4646,7 @@ function buildRow(m) {
   li.innerHTML = `
     <label class="cb" title="Select"><input type="checkbox" ${state.selected.has(rowKey(m)) ? 'checked' : ''}></label>
     <button class="m-star ${rowStarred(m) ? 'on' : ''}" title="Star">${rowStarred(m) ? '★' : '☆'}</button>
-    ${chip}<span class="m-from">${esc(fromLabel)}</span>
+    ${chip}<span class="m-from"${fromTitle ? ` title="${escAttr(fromTitle)}"` : ''}>${esc(fromLabel)}</span>
     <!-- data-no-i18n: this span holds the user's MAIL, not the app's own words
          — a subject (or a shortened one, see below) that happened to match a
          catalogue entry would otherwise come back translated. The ↩/↪/count
