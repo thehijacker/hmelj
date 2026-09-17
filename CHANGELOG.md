@@ -9,6 +9,12 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### A conversation with "expand every message" on loads four messages at a time instead of one
+
+### Fixed: scrolling a long conversation while it was still loading kept jumping back to the newest message
+
+### Forwarding a message starts in the To field
+
 ### Fixed: an Exchange account's Sent folder showed "To: —" for every message
 
 ### A Sent row lists the first three recipients, then …

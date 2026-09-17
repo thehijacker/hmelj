@@ -141,6 +141,7 @@
     "Otherwise only the newest is opened and the rest are one-line headers you click. Each expanded message is its own fetch, so a long thread is slower to open.": "Otherwise only the newest is opened and the rest are one-line headers you click. Each expanded message is its own fetch, so a long thread is slower to open.",
     "Could not open the newest message in this conversation": "Could not open the newest message in this conversation",
     "Show this message": "Show this message",
+    "Loading the rest of this conversation… {n}/{m}": "Loading the rest of this conversation… {n}/{m}",
     "Delete this message?": "Delete this message?",
     "Delete {n} messages?": "Delete {n} messages?",
     "Delete this identity?": "Delete this identity?",

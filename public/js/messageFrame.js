@@ -975,6 +975,31 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
       }, '*');
     } catch (err) {}
   });
+
+  // ── "the user is driving" ────────────────────────────────────────────────
+  // A body frame is sized to its content and has nothing of its own to scroll,
+  // so a wheel over it scrolls the READING PANE — while the event itself stays
+  // in this document and never reaches the parent, because the frame is
+  // sandboxed onto an opaque origin. The frame fills most of the pane, so that
+  // is where most scrolling actually happens, and to the parent it was
+  // invisible: app.js#stickCardToTop could not tell that someone had taken
+  // over, and went on dragging the view back to the newest message.
+  //
+  // Nothing about the event is sent, only that there was one. The parent reads
+  // it as "hands on", nothing more.
+  //
+  // Throttled: a wheel gesture is sixty events a second and the parent has to
+  // work out which frame each one came from. "Hands on" is true for a while
+  // once it is true at all, so a few a second is all this needs to be.
+  var lastInput = 0;
+  ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function (type) {
+    document.addEventListener(type, function () {
+      var now = Date.now();
+      if (now - lastInput < 150) return;
+      lastInput = now;
+      try { parent.postMessage({ type: 'hmelj-input' }, '*'); } catch (err) {}
+    }, { passive: true, capture: true });
+  });
 })();
 ${fontOverride ? `
 (function(){
@@ -1095,6 +1120,10 @@ ${fontOverride ? `
           if (el) el.scrollTop -= +e.data.dy || 0;
         } else if (e.data.type === 'hmelj-link') {
           openLink(e.data.href);
+        } else if (e.data.type === 'hmelj-input') {
+          // Somebody's hands are on a message body — see the forwarder in
+          // buildDoc. Only that fact travels; there is nothing to inspect.
+          for (const cb of inputListeners) cb();
         } else if (e.data.type === 'hmelj-key') {
           // A keystroke from inside the body (public/js/shortcuts.js). Same
           // reasoning as the find branch below: one listener, one place that
@@ -1150,6 +1179,13 @@ ${fontOverride ? `
    *  message body. public/js/shortcuts.js is the only subscriber; see the
    *  forwarder in buildDoc for why this channel has to exist at all. */
   function onKeyMessage(cb) { keyListeners.add(cb); return () => keyListeners.delete(cb); }
+
+  const inputListeners = new Set();
+  /** cb() the moment a wheel, touch, key or click happens inside ANY message
+   *  body — the one signal the parent document cannot see for itself, and the
+   *  only reliable way to know the reader has taken the scroll position over
+   *  (app.js#stickCardToTop). Returns an unsubscribe. */
+  function onUserInput(cb) { inputListeners.add(cb); return () => inputListeners.delete(cb); }
   /** Post one of the find protocol's messages into `frame`. */
   function sendFind(frame, data) {
     try { frame.contentWindow?.postMessage(data, '*'); } catch { /* frame torn down */ }
@@ -1166,6 +1202,6 @@ ${fontOverride ? `
     return iframe;
   }
 
-  return { create, buildFontFaceCss, linkifyText, linkifyBareUrlsInHtml, splitQuotedText, onFindMessage, onKeyMessage, sendFind, openLink, scrollerFor: verticalScrollerFor };
+  return { create, buildFontFaceCss, linkifyText, linkifyBareUrlsInHtml, splitQuotedText, onFindMessage, onKeyMessage, onUserInput, sendFind, openLink, scrollerFor: verticalScrollerFor };
 })();
 if (typeof window !== 'undefined') window.MessageFrame = MessageFrame;

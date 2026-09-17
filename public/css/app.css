@@ -910,6 +910,31 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .mv-stub.unread .mv-stub-from { color: var(--text); font-weight: 600; }
 .mv-stub-marks { flex: 0 0 auto; font-size: calc(12px * var(--ui-scale)); }
 .mv-stub-date { flex: 0 0 auto; font-size: calc(12px * var(--ui-scale)); }
+
+/* "Loading the rest of this conversation" — shown while the pane is held still
+   (app.js#freezeWhileLoading). Absolutely positioned on purpose: the stack's
+   height is what the pin measures against, and a banner in the flow would move
+   the very thing it is reporting on. */
+.mv-loading-rest {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 5; pointer-events: none;
+  max-width: calc(100% - 40px);
+  padding: 6px 14px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-dim); font-size: calc(12.5px * var(--ui-scale));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+}
+/* A wheel that is about to do nothing: say why, rather than looking broken. */
+.mv-loading-rest.flash { animation: mv-loading-flash .5s ease-out; }
+@keyframes mv-loading-flash {
+  0%   { transform: translateX(-50%) scale(1); background: var(--surface-2); color: var(--text-dim); }
+  30%  { transform: translateX(-50%) scale(1.06); background: var(--accent); color: #fff; }
+  100% { transform: translateX(-50%) scale(1); background: var(--surface-2); color: var(--text-dim); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-loading-rest.flash { animation: none; border-color: var(--accent); }
+}
 .mv-stub-loading { cursor: default; opacity: .7; }
 .mv-stub-loading:hover { background: transparent; }
 

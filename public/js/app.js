@@ -6543,18 +6543,115 @@ async function openThread(m) {
   // opened after this one is on screen and pinned, so the pane is readable
   // immediately instead of waiting on N fetches — and the pin is held until
   // they are all in, since each one appears ABOVE the message you are reading.
-  const rest = state.settings.conversationExpandAll ? expandAllStubs(view) : null;
+  const rest = state.settings.conversationExpandAll
+    ? freezeWhileLoading(view, members.length, (onProgress) => expandAllStubs(view, onProgress))
+    : null;
   stickCardToTop(card, rest);
 }
 
-/** Opens every collapsed message of the conversation, oldest first. */
-async function expandAllStubs(view) {
-  for (const stub of $$('.mv-stub', view)) {
-    if (!stub.isConnected) continue;
-    // Sequentially, not Promise.all: a twenty-message thread would otherwise
-    // fire twenty body fetches at one mail server at once.
-    await expandThreadStub(stub, stub.__listEntry, { collapsed: true });
+/**
+ * Holds the reading pane still while the rest of a conversation loads into it,
+ * and says so.
+ *
+ * Every message of the thread is inserted ABOVE the one being read and grows
+ * again a moment later when its body reports a height, so for the few seconds
+ * this takes the layout under the reader is moving constantly. Letting them
+ * scroll into that means racing it: see the long note on stickCardToTop for why
+ * three attempts at compensating afterwards all failed, and why removing the
+ * race beats winning it. The wheel does nothing for those few seconds, which is
+ * only defensible if it is visibly deliberate — hence the line, which says how
+ * far along it is and flashes if somebody tries to scroll anyway.
+ *
+ * `run(onProgress)` does the loading and resolves when it is done. The freeze
+ * is lifted on rejection too: a thread that failed to load must not leave the
+ * pane stuck.
+ *
+ * Returns the same promise, so stickCardToTop still knows when to let go.
+ */
+function freezeWhileLoading(view, total, run) {
+  const pane = view.closest('.reading-pane');
+  // Absolutely positioned, deliberately: it must not add a pixel to the stack,
+  // which the pin is measuring against.
+  const note = document.createElement('div');
+  note.className = 'mv-loading-rest';
+  const label = (n) => I18n.t('Loading the rest of this conversation… {n}/{m}')
+    .replace('{n}', n).replace('{m}', total);
+  note.textContent = label(1);
+  const frozen = pane && total > 1;
+  if (frozen) {
+    pane.style.overflowY = 'hidden';
+    pane.appendChild(note);
   }
+  // A wheel or a touch that is about to do nothing — including one over a
+  // message body, which the pane never sees for itself (MessageFrame.onUserInput).
+  const flash = () => {
+    note.classList.remove('flash');
+    void note.offsetWidth; // restart the animation rather than ignore a second try
+    note.classList.add('flash');
+  };
+  const offFrameInput = frozen ? MessageFrame.onUserInput?.(flash) : null;
+  const events = ['wheel', 'touchmove', 'keydown'];
+  if (frozen) for (const ev of events) pane.addEventListener(ev, flash, { passive: true });
+
+  const thaw = () => {
+    if (!frozen) return;
+    pane.style.overflowY = '';
+    note.remove();
+    offFrameInput?.();
+    for (const ev of events) pane.removeEventListener(ev, flash);
+  };
+  const done = run((n) => { if (frozen) note.textContent = label(n); });
+  done.then(thaw, thaw);
+  // However badly the load goes, the pane is never left frozen.
+  setTimeout(thaw, 60000);
+  return done;
+}
+
+/**
+ * How many messages of a conversation are fetched at once by "expand every
+ * message".
+ *
+ * A few, not all of them and not one. All of them means a thirty-three message
+ * thread firing thirty-three body fetches at one mail server at once. One at a
+ * time — what this did first — means the whole thread takes as long as the sum
+ * of its parts, and on a long one that is most of a minute of cards arriving
+ * under the reader.
+ *
+ * Four is chosen for what actually overlaps. Against IMAP the win is real but
+ * modest: there is ONE pooled connection per account (imapClient.js) with a
+ * mailbox lock, so the fetches themselves still queue — what overlaps is the
+ * request, the parse and the render around them, plus any body already in the
+ * content cache, which needs no IMAP at all and returns immediately. Against
+ * EWS and Graph, which are plain HTTPS with no such lock, four really are in
+ * flight together.
+ */
+const EXPAND_ALL_AT_ONCE = 4;
+
+/**
+ * Opens every collapsed message of the conversation, oldest first.
+ *
+ * Handed out oldest-first to a small pool of workers rather than run as one
+ * loop. Completion order does not matter to the layout: each card replaces its
+ * own stub where it already sits (expandThreadStub), so one finishing early
+ * cannot reorder the thread.
+ */
+async function expandAllStubs(view, onProgress) {
+  const stubs = $$('.mv-stub', view);
+  let next = 0;
+  let loaded = 0;
+  const worker = async () => {
+    while (next < stubs.length) {
+      const stub = stubs[next++];
+      // Checked as it comes up, not once at the start: a message can be deleted
+      // or moved out from under a long expansion while it is still running.
+      if (!stub.isConnected) continue;
+      await expandThreadStub(stub, stub.__listEntry, { collapsed: true });
+      // Counted whether or not it succeeded — this is "how far through are we",
+      // not "how many worked", and a failed one is still one fewer to wait for.
+      onProgress?.(++loaded + 1);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(EXPAND_ALL_AT_ONCE, stubs.length) }, worker));
 }
 
 /** The collapsed form: sender, date and marks on one line. Clicking it fetches
@@ -6606,59 +6703,81 @@ function scrollCardToTop(card) {
 }
 
 /**
- * Keeps a just-opened card pinned to the top of the pane while the stack
- * settles, and abandons the pin the moment the user scrolls for themselves.
+ * Keeps a just-opened card pinned to the top of the pane until the conversation
+ * around it has finished loading.
  *
  * Two things move under it. A message body is an iframe whose height is only
  * known once its content has loaded and reported back (messageFrame.js) — and
  * until it does, the stack is barely taller than the pane, so a scroll to the
  * bottom card clamps short and the card visibly jumps into place a moment
  * later. That is what the temporary min-height is for: it makes the target
- * position reachable on the first try, and is dropped again the instant the
- * real height arrives. The other is every card ABOVE this one growing as it
- * expands ("expand every message"), which is why `done` can hold the pin open.
+ * position reachable on the first try. The other is every card ABOVE this one
+ * growing as it expands ("expand every message"), which is why `done` holds the
+ * pin open for as long as the thread is still arriving.
+ *
+ * ── Why this no longer tries to hand over to the reader mid-load ─────────────
+ * It used to let go the moment the reader scrolled, and then compensate for the
+ * remaining growth to keep them where they were. Three separate attempts at
+ * that compensation all failed the same way, and the reason is structural, not
+ * a bug that was nearly fixed: cards above the viewport change height
+ * asynchronously, the reader scrolls asynchronously, and a correction computed
+ * in JavaScript always lands a frame after the layout it was measuring. Miss
+ * one growth in that gap — and during a wheel gesture, scroll events arrive
+ * faster than a ResizeObserver gets its turn, so most of them were missed — and
+ * the view is a whole message further up the thread with nothing to tell it so.
+ * The errors accumulate; a small nudge of the wheel ended up thousands of
+ * pixels away.
+ *
+ * So the race is removed instead of run: the pane does not scroll at all while
+ * the thread is loading (see freezeWhileLoading, which is what actually stops
+ * the reader's wheel), and this simply holds the newest message at the top
+ * until it is over. Nothing here has to detect the reader, tell their scroll
+ * from the browser's, or correct anything after the fact.
  */
 function stickCardToTop(card, done) {
   const stack = card.parentElement;
   const pane = card.closest('.reading-pane') || stack;
   if (!stack || !pane) return;
   const frame = $('iframe.mv-body-frame', card);
+  const pin = () => { if (card.isConnected) scrollCardToTop(card); };
+  // Held for as long as the pin is: its first job is making the card reachable
+  // at the top before its body has a height, its second is keeping the scroll
+  // range long enough to stay there while thirty-odd collapsed messages sit
+  // above it. Dropped early, the scroll the pin asks for is past the end of the
+  // range and clamps, and the card slides down the pane instead.
   card.style.minHeight = pane.clientHeight + 'px';
-  scrollCardToTop(card);
+  pin();
   if (!window.ResizeObserver) { card.style.minHeight = ''; return; }
 
-  // The frame's FIRST report is the observation of its current (empty) size;
-  // the next one is its real content height, and that is when the reservation
-  // has done its job.
-  let firstReport = true;
-  const release = () => {
-    if (!card.style.minHeight) return;
+  const ro = new ResizeObserver(pin);
+  ro.observe(stack);
+
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    ro.disconnect();
     card.style.minHeight = '';
-    if (card.isConnected) scrollCardToTop(card);
+    pin();
   };
-  const fo = frame ? new ResizeObserver(() => {
+  // The frame's FIRST report is the observation of its current (empty) size;
+  // the next one is its real content height. For a single message that is the
+  // end of all movement, so the pin has nothing left to do.
+  let firstReport = true;
+  const fo = !done && frame ? new ResizeObserver(() => {
     if (firstReport) { firstReport = false; return; }
     fo.disconnect();
-    release();
+    stop();
   }) : null;
   fo?.observe(frame);
-  const releaseTimer = setTimeout(() => { fo?.disconnect(); release(); }, 1500);
 
-  const ro = new ResizeObserver(() => { if (card.isConnected) scrollCardToTop(card); });
-  ro.observe(stack);
-  const events = ['wheel', 'touchstart', 'keydown', 'mousedown'];
-  const stop = () => {
-    clearTimeout(releaseTimer);
-    fo?.disconnect();
-    release();
-    ro.disconnect();
-    for (const ev of events) pane.removeEventListener(ev, stop);
-  };
-  for (const ev of events) pane.addEventListener(ev, stop, { passive: true });
   // A tail after the last thing that moves: the settling report of whichever
   // body finished last still has to be caught.
-  if (done) done.then(() => setTimeout(stop, 1200), () => setTimeout(stop, 1200));
-  else setTimeout(stop, 3000);
+  const end = () => setTimeout(() => { fo?.disconnect(); stop(); }, 1200);
+  if (done) done.then(end, end); else setTimeout(end, 1500);
+  // Nothing may hold a reservation on screen indefinitely, whatever happens to
+  // the promise above.
+  setTimeout(() => { fo?.disconnect(); stop(); }, 60000);
 }
 
 /** "Move" from the message view's Open-menu — no per-message move existed

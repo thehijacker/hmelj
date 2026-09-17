@@ -141,6 +141,7 @@
     "Otherwise only the newest is opened and the rest are one-line headers you click. Each expanded message is its own fetch, so a long thread is slower to open.": "Sicer se odpre samo najnovejše, ostala pa so enovrstične glave, ki jih odprete s klikom. Vsako razširjeno sporočilo se prenese posebej, zato se dolg pogovor odpira dlje.",
     "Could not open the newest message in this conversation": "Najnovejšega sporočila v tem pogovoru ni bilo mogoče odpreti",
     "Show this message": "Pokaži to sporočilo",
+    "Loading the rest of this conversation… {n}/{m}": "Nalagam preostanek tega pogovora … {n}/{m}",
     "Delete this message?": "Izbrišem to sporočilo?",
     "Delete {n} messages?": "Izbrišem {n} sporočil?",
     "Delete this identity?": "Izbrišem to identiteto?",

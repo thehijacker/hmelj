@@ -155,7 +155,7 @@ const Compose = (() => {
   let autosaveTimer = null;
   let dirty = false;
   let pristinePayload = null; // JSON snapshot of payload() as of the last successful save, or right after open() if there hasn't been one yet
-  let composeContext = 'new'; // context passed to open() ('new' | 'reply') — re-used by applySignatureForIdentity when the From identity changes mid-compose, so a signature configured "new messages only" still respects that on a reply/forward
+  let composeContext = 'new'; // context passed to open() ('new' | 'reply' | 'forward') — re-used by applySignatureForIdentity when the From identity changes mid-compose, so a signature configured "new messages only" still respects that on a reply/forward
   let insertedSignatureNode = null; // rich mode: the actual DOM node last auto-inserted by applySignatureForIdentity, so switching identity can cleanly remove it — null if none, or if the user may have edited/removed it (see applySignatureForIdentity)
   let insertedSignaturePlainText = ''; // plain mode: the exact text last auto-inserted, same purpose
   let plainQuoteTail = ''; // plain mode: the quoted original's text, as it sits at the END of the textarea — see quotedTailText
@@ -334,7 +334,7 @@ const Compose = (() => {
    * has just asked for, because the identity is configured not to add one
    * automatically, would read as the menu being broken.
    */
-  function signatureHtml(id, context /* new | reply */, { sigId = chosenSignatureId, force = false } = {}) {
+  function signatureHtml(id, context /* new | reply | forward */, { sigId = chosenSignatureId, force = false } = {}) {
     const sig = signatureFor(id, sigId);
     if (!sig?.html) return '';
     const on = id.signatureOn || 'new-reply'; // new | new-reply | always | never
@@ -654,14 +654,19 @@ const Compose = (() => {
    * position. So a reply opened wherever the previous one happened to be left,
    * which in practice meant halfway down somebody else's quoted mail.
    *
-   * The caret was part of the same complaint. A reply and a forward arrive with
-   * their recipients and their subject already filled in, so the only thing
-   * left to do with them is write — and focus went to the Subject field, one
-   * Tab short of the place the message actually gets typed. It now starts on
-   * the first line of the writing area, above the signature and above the
-   * quote. A new message still starts at To, and one opened with a recipient
-   * already known still starts at Subject: there, the empty field IS the next
-   * thing to do.
+   * The caret was part of the same complaint. A reply arrives with its
+   * recipients and its subject already filled in, so the only thing left to do
+   * with it is write — and focus went to the Subject field, one Tab short of
+   * the place the message actually gets typed. It now starts on the first line
+   * of the writing area, above the signature and above the quote. A new message
+   * still starts at To, and one opened with a recipient already known still
+   * starts at Subject: there, the empty field IS the next thing to do.
+   *
+   * A FORWARD is the one that looks like a reply and is not. Its body is
+   * already written — by somebody else — and its subject is already filled in;
+   * the one thing it does not know is who it is going to, and that is the first
+   * thing anyone forwarding a message types. So it starts at To, like a new
+   * message, even though it carries a quote like a reply.
    */
   function placeInitialFocus(to, context, plain) {
     const panel = document.getElementById('compose-body');
@@ -671,7 +676,9 @@ const Compose = (() => {
     // preventScroll on every one of these: the scroll position is settled
     // below, deliberately, and letting focus() nudge it first only means
     // undoing that.
-    if (context !== 'reply') {
+    if (context === 'forward') {
+      document.getElementById('c-to').focus({ preventScroll: true });
+    } else if (context !== 'reply') {
       (to ? document.getElementById('c-subject') : document.getElementById('c-to')).focus({ preventScroll: true });
     } else if (plain) {
       ed.focus({ preventScroll: true });
@@ -827,7 +834,10 @@ const Compose = (() => {
       // The divider belongs to the quoted part, not to what the user is writing:
       // inside .quoted-block it stays put when the signature goes in above it.
       bodyHtml: withQuote(msg, '<div>---------- Forwarded message ----------</div>', 'below'),
-      context: 'reply',
+      // Not 'reply', only because of where the caret goes (placeInitialFocus) —
+      // everything a signature decides treats the two the same, since the
+      // per-identity rule only ever asks whether this is a NEW message.
+      context: 'forward',
       identityId: identityForAccount(msg.__account)?.id,
     });
     // Only the `original` half, deliberately: a forward is a NEW thread, so it
