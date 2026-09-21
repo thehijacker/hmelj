@@ -747,7 +747,13 @@ const Compose = (() => {
     // Only quoted mail — editDraft() below deliberately leaves the user's own
     // draft byte-for-byte as they wrote it.
     const inner = unhideCollapsedQuote(msg.html) || `<pre>${MessageFrame.linkifyText(msg.text)}</pre>`;
-    return `<br><div class="quote-header">On ${esc(when)}, ${esc(who)} wrote:</div>
+    // Written into the outgoing mail, so translated HERE: the page translator
+    // never touches the editor's contents (i18n.js skips .compose-editor), and
+    // must not — everything else in there is what the user typed.
+    // Function replacers: a sender named "Ana $& Co" must come out as written,
+    // not with the $& expanded the way a string replacement would.
+    const header = I18n.t('On {when}, {who} wrote:').replace('{when}', () => when).replace('{who}', () => who);
+    return `<br><div class="quote-header">${esc(header)}</div>
 <blockquote style="${QUOTE_STYLE}">${inner}</blockquote>`;
   }
 
@@ -833,7 +839,7 @@ const Compose = (() => {
       subject: /^fwd?:/i.test(msg.subject) ? msg.subject : 'Fwd: ' + msg.subject,
       // The divider belongs to the quoted part, not to what the user is writing:
       // inside .quoted-block it stays put when the signature goes in above it.
-      bodyHtml: withQuote(msg, '<div>---------- Forwarded message ----------</div>', 'below'),
+      bodyHtml: withQuote(msg, `<div>---------- ${esc(I18n.t('Forwarded message'))} ----------</div>`, 'below'),
       // Not 'reply', only because of where the caret goes (placeInitialFocus) —
       // everything a signature decides treats the two the same, since the
       // per-identity rule only ever asks whether this is a NEW message.
@@ -1160,7 +1166,7 @@ const Compose = (() => {
     // button is the index into `attachments`, not into the rendered list, so
     // removing a file never removes the wrong one.
     box.innerHTML = attachments.map((a, i) => (a.inline ? ''
-      : `<span class="attach-chip">📎 ${esc(a.filename)} <button data-i="${i}" title="Remove">✕</button></span>`)).join('');
+      : `<span class="attach-chip" title="${escAttr(a.filename)}">📎 <span class="attach-name">${esc(a.filename)}</span> <button data-i="${i}" title="Remove">✕</button></span>`)).join('');
     box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
       attachments.splice(+b.dataset.i, 1); renderAttachments();
     }));

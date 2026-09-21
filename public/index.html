@@ -370,9 +370,13 @@
       </div>
       <div id="c-editor" class="compose-editor" contenteditable="true"></div>
       <textarea id="c-editor-plain" class="compose-editor-plain" hidden></textarea>
-
-      <div class="attach-list" id="c-attach-list"></div>
     </div>
+    <!-- Outside .compose-body on purpose, so it never scrolls away: it used to
+         sit under the message, which on a reply to a long thread meant under
+         the whole quoted original, and a file you had just dropped in was
+         nowhere on screen. One line, scrolling sideways when there are more
+         files than fit; empty, it takes no space at all. -->
+    <div class="attach-list" id="c-attach-list"></div>
     <div class="compose-footer">
       <span class="send-split">
         <button class="send-btn" id="btn-send">Send</button>

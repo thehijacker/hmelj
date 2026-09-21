@@ -1196,6 +1196,7 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
   overflow-x: hidden; /* belt-and-suspenders against any row's content forcing this wider than its own max-width */
 }
 .compose-window.minimized .compose-body,
+.compose-window.minimized .attach-list,
 .compose-window.minimized .compose-footer { display: none; }
 
 /* Dragging files over the composer. An outline rather than a covering overlay:
@@ -1362,7 +1363,18 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .pf-lang:hover { background: var(--hover); }
 .pf-lang-auto { color: var(--text-dim); border-style: dashed; }
 .compose-editor-plain { min-height: 200px; border: none; resize: vertical; background: transparent; font-family: ui-monospace, monospace; }
-.attach-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; }
+/* The composer's attachments, pinned between the message and the footer
+   (see index.html). One line: more files than fit scroll sideways rather than
+   growing a strip that would eat into the writing area. */
+.attach-list {
+  flex: 0 0 auto; display: flex; flex-wrap: nowrap; gap: 6px;
+  padding: 6px 14px; border-top: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+}
+.attach-list:empty { display: none; }
+.attach-list .attach-chip { flex: 0 0 auto; max-width: 260px; white-space: nowrap; }
+.attach-list .attach-chip .attach-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.attach-list .attach-chip button { flex: 0 0 auto; }
 /* flex-wrap — Send + Attach + Priority + Receipt + Save draft + Discard
    all sharing one unwrapped row is what pushed Save/Discard off the visible
    edge on a narrow window, reachable only via a horizontal scrollbar (the
@@ -2524,14 +2536,35 @@ label:has(> .set-help) .set-help { margin-left: auto; }
 .account-list.reordering .account-row { cursor: default; }
 .account-list.reordering .account-row:hover { background: none; }
 .account-list.reordering .account-row.active:hover { background: var(--accent-soft); }
-.acct-move-wrap { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
+/* Taken OUT OF FLOW, which is the whole point: in flow these buttons were
+   taller than an account row's own line, so every row grew by a few pixels the
+   moment reorder mode came on and the whole list shifted under the pointer —
+   at the exact moment the user is aiming at one of them. Absolutely positioned
+   and centred, the row's height is decided by its label alone and is identical
+   in both modes, so nothing moves when the ↕ button is pressed.
+   The row reserves room for them (below) so the label is never hidden under them. */
+.account-list .account-row { position: relative; }
+.acct-move-wrap {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 2px;
+}
 .acct-move {
-  width: 30px; height: 32px; border-radius: 6px; border: 1px solid var(--border);
+  /* Shorter than it was, to stay inside the row rather than overhanging its
+     neighbour's arrows; the width keeps the target comfortable for a thumb. */
+  width: 30px; height: 26px; border-radius: 6px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: calc(11px * var(--ui-scale)); line-height: 1;
+  position: relative;
 }
+/* The tap target the visible button gave up, added back without adding a pixel
+   of layout — these are used on a phone as much as with a mouse. */
+.acct-move::after { content: ''; position: absolute; inset: -6px -3px; }
 .acct-move:hover { background: var(--hover); }
+/* Room for the two buttons, reserved on the ROW rather than the label, so the
+   🔗/👥/🔕 markers that trail the label stay clear of them too. Padding changes
+   nothing about the row's height, which is the point of all of this. */
+.account-list.reordering .account-row { padding-right: 80px; }
 
 /* account badge in the message list — small color-coded circle with 1-2
    letter initials (full label still available via the title tooltip) rather

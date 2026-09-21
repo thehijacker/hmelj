@@ -58,6 +58,20 @@ const I18n = (() => {
   // Never translate user content: message bodies, editors, inputs.
   const SKIP_SELECTOR = '.mv-body, .compose-editor, [contenteditable], textarea, pre, [data-no-i18n]';
   const ATTRS = ['title', 'placeholder', 'aria-label'];
+  // Attributes are skipped only inside real user content. A <textarea>'s TEXT is
+  // the user's, but its placeholder and title are the app's own words — and
+  // skipping the element wholesale is why the composer's To field kept saying
+  // "recipient@example.com" in Slovenian, with a translation sitting unused in
+  // sl.json the whole time.
+  const ATTR_SKIP_SELECTOR = '.mv-body, .compose-editor, [contenteditable], [data-no-i18n]';
+
+  function translateAttrs(el) {
+    if (el.closest(ATTR_SKIP_SELECTOR)) return;
+    for (const a of ATTRS) {
+      const v = el.getAttribute(a);
+      if (v) { const tv = t(v); if (tv !== v) el.setAttribute(a, tv); }
+    }
+  }
 
   function translateNode(node) {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -77,28 +91,23 @@ const I18n = (() => {
       return;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
+    translateAttrs(node);
     if (node.closest?.(SKIP_SELECTOR)) return;
-    for (const a of ATTRS) {
-      const v = node.getAttribute?.(a);
-      if (v) {
-        const tv = t(v);
-        if (tv !== v) node.setAttribute(a, tv);
-      }
-    }
     // walk children, skipping excluded subtrees
     const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
       acceptNode(n) {
         const el = n.nodeType === Node.ELEMENT_NODE ? n : n.parentElement;
-        return el && el.closest(SKIP_SELECTOR) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        if (!el || !el.closest(SKIP_SELECTOR)) return NodeFilter.FILTER_ACCEPT;
+        // A skipped element still gets its own attributes translated (see
+        // ATTR_SKIP_SELECTOR) — only its contents are left alone.
+        if (n.nodeType === Node.ELEMENT_NODE) translateAttrs(n);
+        return NodeFilter.FILTER_REJECT;
       },
     });
     let cur;
     while ((cur = walker.nextNode())) {
       if (cur.nodeType === Node.TEXT_NODE) translateNode(cur);
-      else for (const a of ATTRS) {
-        const v = cur.getAttribute(a);
-        if (v) { const tv = t(v); if (tv !== v) cur.setAttribute(a, tv); }
-      }
+      else translateAttrs(cur);
     }
   }
 

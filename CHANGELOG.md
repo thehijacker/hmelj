@@ -9,6 +9,12 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Fixed: the account list no longer shifts when the reorder arrows appear
+
+### Translated the To placeholder and the reply/forward quote lines into Slovenian
+
+### A new message's attachments stay visible above the Send bar instead of under the whole message
+
 ### A conversation with "expand every message" on loads four messages at a time instead of one
 
 ### Fixed: scrolling a long conversation while it was still loading kept jumping back to the newest message
