@@ -1866,6 +1866,14 @@ label:has(> .set-help) .set-help { margin-left: auto; }
 .attach-viewer-bar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
   padding: 8px 14px; color: #fff;
+  /* The backdrop is position:fixed;inset:0 with viewport-fit=cover, so it
+     covers the status bar and the camera cutout — and this row, which carries
+     Close, Download and Open with…, is the part that ends up underneath them.
+     Every control here is the way OUT of the viewer, so losing them to the
+     notch means being stuck looking at a document. */
+  padding-top: calc(8px + var(--sat));
+  padding-left: calc(14px + var(--sal));
+  padding-right: calc(14px + var(--sar));
 }
 .attach-viewer-bar .icon-btn { color: #fff; }
 .attach-viewer-bar .icon-btn:hover { background: rgba(255,255,255,.15); color: #fff; }
@@ -1897,6 +1905,10 @@ label:has(> .set-help) .set-help { margin-left: auto; }
   .attach-viewer-doc-shell {
     width: 100%; height: 100%; border-radius: 0;
     padding-bottom: var(--sab, 0px); background: #fff;
+    /* Full-bleed means full-bleed in landscape too, where one edge is the
+       camera cutout — the document's own left margin is not a substitute for
+       it, since a wide table scrolls right up to the edge. */
+    padding-left: var(--sal, 0px); padding-right: var(--sar, 0px);
   }
 }
 /* The frame is scaled by the zoom buttons and sized to compensate, so the
@@ -2905,6 +2917,14 @@ body.no-accounts #folder-list li:not([data-path="__CALENDAR__"]) { display: none
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  /* On a phone the calendar IS the screen (body.calendar-mode hides the two
+     mail panes), so this row is what sits under the status bar / notch —
+     exactly the job .list-search-bar and .mv-top-row already do for the mail
+     side, and this one was missed. Without it the ☰ that opens the sidebar
+     lands under the status bar on an iOS standalone PWA and cannot be tapped
+     at all, which strands you in the calendar with no way back to the menu.
+     0 everywhere without a cutout, so this is a no-op on desktop. */
+  padding-top: calc(8px + var(--sat));
 }
 .cal-period {
   background: none;

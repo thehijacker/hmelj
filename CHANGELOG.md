@@ -7,6 +7,10 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
+## Unreleased
+
+### Fixed: on an iOS PWA the calendar toolbar and the attachment viewer's buttons sat under the status bar
+
 ## 1.1.2 — 2026-09-21
 
 ### Fixed: the account list no longer shifts when the reorder arrows appear
