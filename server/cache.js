@@ -1144,6 +1144,23 @@ function indexBytes() {
  *
  * 0 means no limit.
  */
+/**
+ * Total bytes of cached message content, memoised like indexBytes above and for
+ * the same reason: it is consulted per cache write, and it only moves by
+ * kilobytes between ticks.
+ *
+ * Only ever asked about a LARGE message (see contentCache.js#MAX_CACHE_BYTES),
+ * which is rare — ordinary mail never pays for this query at all.
+ */
+let contentSizeCache = { at: 0, bytes: 0 };
+export function messageContentBytes() {
+  const now = Date.now();
+  if (now - contentSizeCache.at < SIZE_TTL_MS) return contentSizeCache.bytes;
+  const b = db.prepare('SELECT COALESCE(SUM(size), 0) AS b FROM message_content').get().b;
+  contentSizeCache = { at: now, bytes: b };
+  return b;
+}
+
 export function searchIndexOverBudget(maxMb) {
   const max = Number(maxMb) || 0;
   if (max <= 0) return false;

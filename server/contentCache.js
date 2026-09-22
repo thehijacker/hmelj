@@ -76,12 +76,34 @@ function indexIfEnabled(uKey, accountId, rowid, msg) {
 }
 
 // Not a user-facing setting (contentCacheLimit — "how many" — is; see
-// store.js) — a fixed safety valve so one unusually large HTML newsletter
-// (embedded base64 images inline in the markup, not real attachments —
-// those are never part of this cache, see cache.js's table comment) can't
-// bloat the cache unbounded. Generous for ordinary mail, which this rarely
-// if ever hits.
-const MAX_CACHE_BYTES = 2 * 1024 * 1024; // 2MB of parsed JSON
+// store.js) — a safety valve so one unusually large HTML newsletter (embedded
+// base64 images inline in the markup, not real attachments — those are never
+// part of this cache, see cache.js's table comment) can't bloat the cache
+// unbounded.
+//
+// It was 2MB, and that turned out to be exactly the wrong place to draw the
+// line: the messages over it are the slowest to fetch and parse, so refusing to
+// cache them meant the worst case was also the PERMANENT case. A 2.9MB
+// newsletter cost a full Gmail round trip and a re-parse on every single open —
+// about a second each time, and far worse whenever it landed behind a sync —
+// forever, while a 20KB message opened instantly the second time. The valve was
+// protecting a few megabytes of disk at the cost of the one thing the cache
+// exists for.
+//
+// So the per-message ceiling is generous now, and the real bound is the one
+// that was always doing the work: contentCacheLimit keeps only the newest N
+// messages per folder. A second guard stops a pathological run of huge messages
+// from filling the disk anyway — checked only for a message over BIG_BYTES, so
+// ordinary mail never pays for the query.
+const MAX_CACHE_BYTES = 12 * 1024 * 1024;         // 12MB of parsed JSON
+const BIG_BYTES = 2 * 1024 * 1024;                // above this, check the total too
+// A backstop against a pathological run of huge messages, NOT a working limit:
+// contentCacheLimit is what actually sizes this cache, and on a real mailbox of
+// twelve accounts it settles well under this. Set above what such an install
+// uses, so it never refuses anything in ordinary service — if it ever does
+// fire, the cache has grown in a way worth looking at rather than trimming
+// silently.
+const TOTAL_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 
 /**
  * Bump whenever messageParse.js starts producing a field the UI relies on.
@@ -122,7 +144,8 @@ export async function getMessage(uKey, accountId, folder, uid) {
   if (config.cacheEnabled) {
     try {
       const json = JSON.stringify(msg);
-      const tooBig = json.length > MAX_CACHE_BYTES;
+      const tooBig = json.length > MAX_CACHE_BYTES
+        || (json.length > BIG_BYTES && cache.messageContentBytes() + json.length > TOTAL_BUDGET_BYTES);
       const rowid = cache.saveMessageContent(uKey, accountId, folder, uid, tooBig ? null : msg, json.length);
       // Deliberately NOT indexed when it was too big to cache. The text is in
       // hand right here so it could be, but the row that would carry it has a

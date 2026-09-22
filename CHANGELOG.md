@@ -9,6 +9,8 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Large messages are cached too, so a big newsletter opens instantly the second time
+
 ### Opening a message no longer waits for a refresh to finish
 
 ### Fixed: on an iOS PWA the calendar toolbar and the attachment viewer's buttons sat under the status bar
