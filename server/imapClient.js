@@ -297,7 +297,78 @@ export function dropAccountConnections(uKey, accountId) {
   }
 }
 
+/* ---------- letting a click past the sync ----------
+ *
+ * Everything for one account queues on one shared connection's mailbox lock
+ * (see the pool comment above for why a second connection is opt-in). That is
+ * the right trade against Gmail's throttling, but it had one bad edge: the
+ * background poller walks a mailbox folder by folder, so opening a message
+ * while the refresh spinner was turning meant waiting for the WHOLE sync — on
+ * an account with many folders, tens of seconds of a message that simply would
+ * not appear. A body already in the content cache was unaffected, which is why
+ * this only ever showed on new mail.
+ *
+ * So the poller yields. Anything interactive registers itself as waiting, and
+ * before the poller takes the lock for its next folder it stands aside until
+ * nothing is. It cannot interrupt a fetch already in progress — no IMAP client
+ * can — so the wait becomes "the current folder", not "the whole account".
+ *
+ * Bounded on purpose: a reader working steadily through a mailbox would
+ * otherwise hold the sync off indefinitely and the folder counts would quietly
+ * stop moving. After MAX_YIELD_MS the poller takes its turn regardless.
+ */
+const interactiveWaits = new Map(); // shared pool key -> { n, wake: [] }
+const MAX_YIELD_MS = 5000;
+
+/** The shared connection's key — deliberately never the `:sync` one: an
+ *  account that opted into a second connection has no contention to resolve. */
+function sharedKey() {
+  const { userKey, accountId } = currentUser();
+  return `${userKey}:${accountId}`;
+}
+
+function noteInteractive(key, delta) {
+  const st = interactiveWaits.get(key) || { n: 0, wake: [] };
+  st.n += delta;
+  if (st.n <= 0) {
+    interactiveWaits.delete(key);
+    for (const w of st.wake) w();
+  } else {
+    interactiveWaits.set(key, st);
+  }
+}
+
+/** Resolves once no interactive request is waiting on this connection, or
+ *  after MAX_YIELD_MS, whichever comes first. */
+function yieldToInteractive(key) {
+  const st = interactiveWaits.get(key);
+  if (!st?.n) return null;
+  return new Promise((resolve) => {
+    let done = false;
+    const fire = () => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+    const timer = setTimeout(fire, MAX_YIELD_MS);
+    st.wake.push(fire);
+  });
+}
+
 async function withMailbox(path, fn, readOnly = false) {
+  // 'sync' is the background poller and the on-demand refresh (see
+  // session.js#runAsAccount); anything without it is somebody waiting at a
+  // screen. An account on its own sync connection registers nothing and waits
+  // for nobody — the two are not sharing a lock in the first place.
+  const { purpose, accountId } = currentUser();
+  const contended = !!accountId && !(purpose === 'sync' && currentAccount().allowSecondConnection);
+  const key = contended ? sharedKey() : null;
+  if (key && purpose !== 'sync') noteInteractive(key, 1);
+  try {
+    if (key && purpose === 'sync') await yieldToInteractive(key);
+    return await withMailboxLocked(path, fn, readOnly);
+  } finally {
+    if (key && purpose !== 'sync') noteInteractive(key, -1);
+  }
+}
+
+async function withMailboxLocked(path, fn, readOnly = false) {
   // One retry on a fresh connection, and ONLY for a read-only operation.
   //
   // Why this exists: every caller queues on the account's single shared
