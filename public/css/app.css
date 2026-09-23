@@ -2059,6 +2059,15 @@ label:has(> .set-help) .set-help { margin-left: auto; }
 .contact-suggest button.arm-delete,
 .contact-suggest button.arm-delete.active { background: var(--danger); color: #fff; }
 .contact-suggest button .cs-hint { opacity: .8; font-size: calc(11.5px * var(--ui-scale)); }
+/* Name and address. Inline on a wide field, where "Simona Kralj <s@example.com>"
+   fits on one line exactly as it always did — the address simply follows the
+   name with a space (the button's nowrap + ellipsis still trims the whole thing
+   if even that will not fit). */
+.contact-suggest button .cs-name { overflow: hidden; text-overflow: ellipsis; }
+.contact-suggest button .cs-addr { color: var(--text-dim); }
+.contact-suggest button .cs-name + .cs-addr::before { content: ' '; }
+.contact-suggest button.active .cs-addr { color: inherit; opacity: .85; }
+.contact-suggest button.arm-delete .cs-addr { color: inherit; }
 /* One of your own addresses (identity or account), offered in the recipient
    autocomplete but never stored as a contact — see compose.js#ownAddresses. */
 .contact-suggest button .cs-own {
@@ -2066,6 +2075,25 @@ label:has(> .set-help) .set-help { margin-left: auto; }
   border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 4px;
 }
 .contact-suggest button.active .cs-own { border-color: currentColor; color: inherit; }
+/* On a phone the field — and so the box — is barely wider than the words, and
+   one nowrap line cut every row off mid-address: "simona <sim…", four times
+   over, with the one part that tells them apart missing. Stacked, the name gets
+   the row's width and the address gets its own, and either is trimmed on its
+   own terms rather than the pair being trimmed as one string. */
+@media (max-width: 900px) {
+  .contact-suggest button { white-space: normal; }
+  .contact-suggest button .cs-name,
+  .contact-suggest button .cs-addr {
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .contact-suggest button .cs-addr { font-size: calc(12px * var(--ui-scale)); }
+  /* The space between them belongs to the one-line layout only. */
+  .contact-suggest button .cs-name + .cs-addr::before { content: none; }
+  /* Two-line rows are taller, so the same pixel height shows half as many —
+     give it a little more, still bounded by what a keyboard leaves standing
+     (positionContactSuggest flips it above the field when that is roomier). */
+  .contact-suggest { max-height: 40vh; }
+}
 
 /* Swipe-to-act row background (see bindSwipe in app.js) — a standalone
    element positioned over the swiped row's live rect, not a child of it, so

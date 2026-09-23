@@ -76,6 +76,39 @@ export function buildImapSearchCriteria(query, fullText = false) {
 // how a normal mail client behaves and avoids that penalty; interactive
 // requests simply queue briefly behind an in-progress sync fetch instead.
 const pool = new Map(); // `${userKey}:${accountId}` -> { client, connecting, lastUsed, lastPing }
+
+/**
+ * Pool keys that must not be idle-closed — an account being watched LIVE
+ * (server/idle.js calls keepWarm below when it starts and stops watching).
+ *
+ * The problem this solves only appears on an account that opted into a second
+ * connection. That account then has three sockets: the IDLE watcher, the sync,
+ * and this one. The sync runs every five minutes, comfortably inside
+ * IDLE_CLOSE_MS, so its socket never goes cold — but moving the background work
+ * off the interactive connection also took away the only traffic that was
+ * keeping THAT one warm, and nothing else stamps lastUsed (the keepalive NOOP
+ * sets lastPing, which deliberately does not count as use). Ten minutes without
+ * opening a message and the next click paid a full TLS + XOAUTH2 login to
+ * Gmail, measured at several seconds.
+ *
+ * Choosing "Monitoring: Live" for an account already says it is one being used
+ * now, and already costs a standing socket for the watcher; this keeps the
+ * interactive one alive beside it, at the cost of one more. The sweep's NOOP
+ * keeps it healthy for free, so nothing else has to change.
+ *
+ * Nothing is OPENED here — a connection that was never made is not kept warm,
+ * so an account nobody touches after a restart still holds no socket of its
+ * own, and the first click on it still pays for one.
+ */
+const warmKeys = new Set();
+
+/** Live monitoring started (`on`) or stopped for this account. */
+export function keepWarm(uKey, accountId, on) {
+  const key = `${uKey}:${accountId}`;
+  if (on) warmKeys.add(key);
+  else warmKeys.delete(key);
+}
+
 const IDLE_CLOSE_MS = 10 * 60e3;
 const SOCKET_TIMEOUT_MS = 30000;
 // Keepalive interval for pooled connections, comfortably under
@@ -198,8 +231,10 @@ setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of pool) {
     // Long unused: close it deliberately (a clean LOGOUT) rather than leaving
-    // it to be killed by a timeout.
-    if (now - entry.lastUsed > IDLE_CLOSE_MS) {
+    // it to be killed by a timeout. Unless this account is being watched live,
+    // in which case it is kept and the keepalive below holds it open — see
+    // warmKeys.
+    if (now - entry.lastUsed > IDLE_CLOSE_MS && !warmKeys.has(key)) {
       ilog.debug(`Closing idle connection ${key}`);
       try { entry.client?.logout().catch(() => {}); } catch { /* noop */ }
       pool.delete(key);

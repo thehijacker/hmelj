@@ -226,6 +226,13 @@ const Compose = (() => {
    */
   function growRecipient(el) {
     if (!el) return;
+    // An EMPTY field is one row, always. scrollHeight measures what is drawn,
+    // and for an empty textarea that is the PLACEHOLDER — which wraps on a
+    // narrow field (a phone, or any field at a larger UI font size), so a To
+    // line with nothing typed in it was being grown to two rows by its own
+    // hint text. Clearing the inline height hands it back to the stylesheet's
+    // single row and lets the hint clip, which is what a hint is for.
+    if (!el.value) { el.style.height = ''; return; }
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   }
@@ -1200,7 +1207,10 @@ const Compose = (() => {
   }
   function positionContactSuggest(inputEl, box) {
     const r = inputEl.getBoundingClientRect();
-    box.style.width = Math.max(r.width, 220) + 'px';
+    // As wide as the field, but never narrower than a readable address and
+    // never wider than the screen. On a phone the field is the narrow one, and
+    // 220px was not enough for a name and an address together.
+    box.style.width = Math.min(Math.max(r.width, 260), innerWidth - 16) + 'px';
     box.style.left = Math.max(8, Math.min(r.left, innerWidth - box.offsetWidth - 8)) + 'px';
     // Prefer below the input; flip above only if there's genuinely more
     // room there — covers the keyboard having shrunk the visible viewport
@@ -1263,9 +1273,19 @@ const Compose = (() => {
       b.classList.toggle('active', i === contactSuggestIndex);
       b.classList.toggle('arm-delete', armed);
       const o = contactSuggestOptions[i];
+      // Name and address as two elements, so CSS can lay them out on one line
+      // where there is room and stack them where there is not. On a phone the
+      // box is barely wider than the field, and one nowrap line meant every row
+      // read "simona <sim…" — the names matched, the addresses were the thing
+      // you needed to tell them apart, and the address was the half that got
+      // cut. A row with no name (an address typed straight in) is one element,
+      // as it always was.
+      const parts = o.name && o.email
+        ? `<span class="cs-name">${esc(o.name)}</span><span class="cs-addr">&lt;${esc(o.email)}&gt;</span>`
+        : `<span class="cs-name">${esc(o.label)}</span>`;
       b.innerHTML = armed
         ? `🗑 ${esc(I18n.t('Remove from contacts?'))} <span class="cs-hint">${esc(I18n.t('press Del again'))}</span>`
-        : esc(o.label) + (o.own ? ` <span class="cs-own">${esc(I18n.t('you'))}</span>` : '');
+        : parts + (o.own ? ` <span class="cs-own">${esc(I18n.t('you'))}</span>` : '');
     });
   }
   /** Moves the highlight, keeping it in view inside the (scrollable) box. */
@@ -2102,7 +2122,11 @@ const Compose = (() => {
       .slice(0, 20);
     const row = (name, email, extra) => {
       const full = name ? `${name} <${email}>` : email;
-      return { label: full, value: prefix ? `${prefix} ${full}` : full, ...extra };
+      // name/email kept apart as well as joined: the ROW needs them separate so
+      // it can put the address on its own line when there is no width for both
+      // (see paintContactSuggestRows), while `value` — what goes into the field
+      // — stays the one canonical "Name <addr>" string it always was.
+      return { label: full, name: name || '', email: email || '', value: prefix ? `${prefix} ${full}` : full, ...extra };
     };
     // Contact groups (server/contactGroups.js). Matched on the group's NAME —
     // it has no address of its own, and it is the name the server resolves at

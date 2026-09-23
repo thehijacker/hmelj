@@ -22,6 +22,7 @@
 import { ImapFlow } from 'imapflow';
 import { currentAccount } from './accounts.js';
 import { runAsAccount, userKey } from './session.js';
+import * as imap from './imapClient.js';
 import * as ews from './ewsClient.js';
 import * as graph from './graphClient.js';
 // Only for an IMAP account that signs in instead of storing a password (Gmail).
@@ -57,6 +58,11 @@ export function startWatching(user, account) {
   const w = new Watcher(user, account);
   watchers.set(account.id, w);
   w.start();
+  // An account being watched live is one in use, so its INTERACTIVE connection
+  // stops being idle-closed — see imapClient.js#warmKeys for the cold-click
+  // this is about. IMAP only: EWS and Graph are plain HTTPS and keep no pooled
+  // connection to hold open.
+  if ((account.type || 'imap') === 'imap') imap.keepWarm(userKey(user.username), account.id, true);
   ilog.info(`${account.label}: live monitoring started (${w.describe()})`);
 }
 
@@ -65,6 +71,9 @@ export function stopWatching(accountId) {
   const w = watchers.get(accountId);
   if (!w) return;
   watchers.delete(accountId);
+  // Back to ordinary rules: the connection is not closed here, it simply
+  // becomes closable again on the next sweep.
+  if ((w.account?.type || 'imap') === 'imap') imap.keepWarm(userKey(w.user.username), w.account.id, false);
   try { w.stop(); } catch (e) { ilog.debug(`Stopping watcher for ${accountId}:`, e.message); }
 }
 

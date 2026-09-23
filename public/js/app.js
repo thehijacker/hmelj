@@ -5438,22 +5438,31 @@ function scheduleMarkRead(m) {
   state.markReadTimers.set(key, setTimeout(async () => {
     state.markReadTimers.delete(key);
     // Optimistic, like every other mark-read path (quickToggleRead): flip the
-    // row and nudge the badges first, then confirm. This one used to skip
-    // adjustUnreadCounts entirely and reach for the heavyweight loadFolders()
-    // instead, so opening a message left every unread badge stale until that
-    // round trip (a full per-account fan-out in the unified view) came back.
+    // row and nudge the badges FIRST, then confirm — and, until this was fixed,
+    // the comment was the only place that was true. The write was awaited
+    // before any of it, so a message you had opened and were reading sat there
+    // in bold for as long as the round trip took. Usually milliseconds, which
+    // is why it looked fine; against Gmail it can be a fresh IMAP connection
+    // and a queue behind the sync, and then it is ten seconds of a message that
+    // plainly will not mark itself read. Reported exactly that way.
+    const flip = (seen) => {
+      m.seen = seen;
+      noteMemberRead(m, seen); // if this message is part of a conversation row, that row's count moves too
+      adjustUnreadCounts(m, seen ? -1 : 1);
+      renderList();
+    };
+    flip(true);
     try {
       await trackMutation(withMsgCtx(m, (folder, acct) => API.flags(folder, [m.uid], ['\\Seen'], [], acct)));
     } catch (e) {
-      // Previously uncaught inside the timer: an unhandled rejection, no
-      // toast, and the message silently left unread.
+      // Put it back: the server never took it, so leaving the row read would be
+      // this device quietly disagreeing with the mailbox. Previously uncaught
+      // inside the timer — an unhandled rejection, no toast, and the message
+      // silently left unread either way.
+      flip(false);
       toast('Mark as read failed: ' + e.message);
       return;
     }
-    m.seen = true;
-    noteMemberRead(m, true); // if this message is part of a conversation row, that row's count moves too
-    adjustUnreadCounts(m, -1);
-    renderList();
     scheduleReconcile(2); // true up against the server without rebuilding the tree
   }, delay));
 }
