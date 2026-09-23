@@ -342,7 +342,7 @@ async function notifyNewMail(uKey, account, folder, freshMessages) {
   }
 }
 
-export async function pollFolder(uKey, account, folder, { force = false, limit = null, tick = null } = {}) {
+export async function pollFolder(uKey, account, folder, { force = false, limit = null, tick = null, statusAt = 0 } = {}) {
   // The user's own choice (Settings > General), not a fixed constant — read
   // fresh each call (cheap: local JSON file, no network) so a change takes
   // effect on the very next tick.
@@ -391,6 +391,9 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
   // wasn't enough on its own: on every 10th tick (and on every manual
   // refresh, which forces a full scan) the change landed with nobody told.
   const unseenBefore = cache.countUnseenRows(uKey, account.id, path);
+  // Set once this folder's count has been written from a fresh STATUS below;
+  // what is left over is settled at the end of this function.
+  let countsWritten = false;
 
   let messages;
   const fetchedAt = Date.now();
@@ -510,6 +513,7 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
         slog.debug(`${account.label}/${path}: STATUS predates our own write — keeping the adjusted count`);
       } else if (status) {
         cache.setFolderCounts(uKey, account.id, path, status);
+        countsWritten = true;
       }
     } catch (e) {
       slog.debug(`${account.label}/${path}: STATUS after change failed, using cached counts:`, e.message);
@@ -706,6 +710,20 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
     slog.debug(`${account.label}/${path}: skipping filters on first sync (${newUids.length} pre-existing message(s), not new mail)`);
   }
 
+  // The count the folder listing carried, applied now that the rows it
+  // describes are in the cache — see cache.js#upsertFolders for why it was not
+  // written when the cycle started. Only when nothing above already wrote a
+  // FRESHER one: that STATUS was read after this listing and is the better
+  // number. Same rule as that branch about a write of our own — a count read
+  // before the user marked something read here must not land on top of it.
+  if (!countsWritten && folder.unseen != null && statusAt) {
+    if (localWriteSince(uKey, account.id, path, statusAt)) {
+      slog.debug(`${account.label}/${path}: folder listing predates our own write — keeping the adjusted count`);
+    } else {
+      cache.setFolderCounts(uKey, account.id, path, { total: folder.total, unseen: folder.unseen });
+    }
+  }
+
   // Throttled catch-up: content-cache whatever's in the current top-
   // contentCacheLimit window that isn't cached yet (bounded per tick — see
   // contentCache.js), then drop anything that's fallen out of that window.
@@ -816,13 +834,14 @@ export async function syncAccountNow(uKey, account, { limit = ON_DEMAND_SYNC_LIM
     // cheaply): that would just overwrite this correct value with a worse
     // under-counting approximation for no reason, since we already have the
     // real number from seconds ago.
+    const statusAt = Date.now();
     const folders = await imap.listFolders();
-    cache.upsertFolders(uKey, account.id, folders);
-    pruneVanishedFolders(uKey, account, folders);
     const hidden = new Set(account.hiddenFolders || []);
     const inScope = folders.filter((f) => !hidden.has(f.path) && isSyncScope(f, account));
+    cache.upsertFolders(uKey, account.id, folders, { skipCountsFor: new Set(inScope.map((f) => f.path)) });
+    pruneVanishedFolders(uKey, account, folders);
     for (const f of inScope) {
-      await pollFolder(uKey, account, f, { force: true, limit });
+      await pollFolder(uKey, account, f, { force: true, limit, statusAt });
     }
   });
 }
@@ -845,14 +864,17 @@ export async function pollAccount(user, account) {
     // routes onto a dedicated second connection instead, for accounts that
     // opted into allowSecondConnection.
     await runAsAccount(user, account.id, async () => {
+      const statusAt = Date.now();
       const folders = await imap.listFolders();
-      cache.upsertFolders(uKey, account.id, folders);
-      pruneVanishedFolders(uKey, account, folders);
       const hidden = new Set(account.hiddenFolders || []);
       const inScope = folders.filter((f) => !hidden.has(f.path) && isSyncScope(f, account));
+      // Scope first, so the folders about to be polled can have their counts
+      // held back until their messages land — see cache.js#upsertFolders.
+      cache.upsertFolders(uKey, account.id, folders, { skipCountsFor: new Set(inScope.map((f) => f.path)) });
+      pruneVanishedFolders(uKey, account, folders);
       slog.debug(`${account.label}: syncing ${inScope.length}/${folders.length} folders (${inScope.map((f) => f.path).join(', ')})`);
       for (const f of inScope) {
-        await pollFolder(uKey, account, f, { tick });
+        await pollFolder(uKey, account, f, { tick, statusAt });
       }
     }, { purpose: 'sync' });
     recordSuccess(account.id);
@@ -1056,12 +1078,17 @@ async function onWatcherActivity(user, account, folderPath, kind = 'mail') {
       let folder = cache.getFolders(uKey, account.id).find((f) => f.path === folderPath);
       if (!folder) folder = (await imap.listFolders()).find((f) => f.path === folderPath);
       if (!folder) { slog.debug(`${account.label}: ${folderPath} not found, skipping IDLE-triggered sync`); return; }
+      // The poll FIRST, the count after — the same ordering the scheduled
+      // cycle now keeps (see cache.js#upsertFolders). Read the other way round,
+      // IDLE announced "one new message" and the badge went up while the
+      // message itself was still being fetched, so the inbox it pointed at did
+      // not have it yet. Reading STATUS afterwards is also simply fresher.
+      await pollFolder(uKey, account, folder);
       const readAt = Date.now();
       const status = await imap.folderStatus(folderPath).catch(() => null);
       if (status && localWriteSince(uKey, account.id, folderPath, readAt)) {
         slog.debug(`${account.label}/${folderPath}: STATUS predates our own write — keeping the adjusted count`);
       } else if (status) cache.setFolderCounts(uKey, account.id, folderPath, status);
-      await pollFolder(uKey, account, folder);
     }, { purpose: 'sync' });
   } catch (e) {
     slog.warn(`${account.label}/${folderPath}: IDLE-triggered sync failed:`, e.message);

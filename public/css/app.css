@@ -2953,6 +2953,16 @@ body.no-accounts #folder-list li:not([data-path="__CALENDAR__"]) { display: none
 /* The sidebar toggle belongs to the mobile layout only — on desktop the sidebar
    is always there and the button would do nothing visible. */
 #btn-cal-menu { display: none; }
+/* Shown wherever the sidebar is an overlay, which is this breakpoint — not the
+   600px one it used to be tied to. Between the two, a phone in landscape got
+   the overlay sidebar with no button anywhere to open it: the mail list's ☰ is
+   always there, but the calendar hides it, so turning the phone sideways in the
+   calendar left no way back to the accounts at all.
+   Immediately after the rule it overrides, deliberately. Both are one ID, so
+   the media query buys no specificity at all and source order alone decides —
+   put earlier in the file (where it first went), it lost to the display:none
+   above and the button simply never appeared. */
+@media (max-width: 900px) { #btn-cal-menu { display: inline-flex; } }
 
 .cal-body { flex: 1; min-height: 0; overflow: auto; }
 .cal-loading { padding: 24px; color: var(--text-dim); text-align: center; }
@@ -3299,8 +3309,13 @@ body.no-accounts #folder-list li:not([data-path="__CALENDAR__"]) { display: none
 /* ---- phone ---- */
 
 @media (max-width: 600px) {
-  #btn-cal-menu { display: inline-flex; }
-  .cal-bar { padding: 6px 8px; gap: 4px; }
+  /* padding-top restated after the shorthand, or it silently wins: this rule
+     comes later in the file than .cal-bar's own safe-area padding, and
+     `padding: 6px 8px` resets all four sides. That is how the calendar kept
+     drawing its toolbar under the status bar on an iOS PWA after the inset was
+     added — the inset was there, and this line was quietly throwing it away on
+     exactly the screens that need it. */
+  .cal-bar { padding: 6px 8px; padding-top: calc(6px + var(--sat)); gap: 4px; }
   .cal-views button { padding: 4px 7px; }
   /* The week view draws THREE day columns here rather than seven — decided in
      calendar.js#weekDays, not in CSS. Scrolling seven columns sideways instead

@@ -1533,7 +1533,23 @@ const upsertFolderStmt = db.prepare(`
  * for its own live IMAP LIST+STATUS call, which is what was making a
  * heavily-loaded account feel slow to even open.
  */
-export function upsertFolders(userKey, accountId, folders) {
+/**
+ * `skipCountsFor` — paths whose total/unseen must NOT be written yet.
+ *
+ * The listing carries the server's real counts, and writing them here means a
+ * folder's unread badge jumps the moment the sync STARTS, while the messages it
+ * is counting are still several folders away from being fetched. That is the
+ * "it says 2 unread and there is nothing there" report: a badge describing rows
+ * that do not exist on this device yet. For a folder this cycle is about to
+ * poll, the count is left to sync.js#pollFolder, which writes it once the rows
+ * are actually in — so the number and the mail it stands for appear together.
+ * Folders NOT being polled still take their counts from here; this listing is
+ * the only count they will ever get.
+ *
+ * Passing null relies on the UPSERT's COALESCE, which already means exactly
+ * this: "I did not find out", never "zero".
+ */
+export function upsertFolders(userKey, accountId, folders, { skipCountsFor = null } = {}) {
   const tx = db.transaction((rows) => {
     // Delete only folders the server no longer reports — NOT "delete
     // everything, then re-insert". The wholesale version dropped and
@@ -1553,7 +1569,8 @@ export function upsertFolders(userKey, accountId, folders) {
       upsertFolderStmt.run({
         userKey, accountId, path: f.path, name: f.name, delimiter: f.delimiter, parent: f.parent,
         specialUse: f.specialUse || null, subscribed: f.subscribed ? 1 : 0, hidden: f.hidden ? 1 : 0,
-        total: f.total, unseen: f.unseen, sortRank: i,
+        ...(skipCountsFor?.has(f.path) ? { total: null, unseen: null } : { total: f.total, unseen: f.unseen }),
+        sortRank: i,
       });
     });
   });

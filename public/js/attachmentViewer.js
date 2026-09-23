@@ -98,6 +98,38 @@ const AttachmentViewer = (() => {
     return url + (url.includes('?') ? '&' : '?') + 'download=1';
   }
 
+  /* iPadOS reports itself as MacIntel, which is why the touch-point test is
+     there — without it an iPad gets the desktop path and the trap below. */
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || '')
+    || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+
+  /**
+   * Hand the actual FILE to the system share sheet. Resolves false when that
+   * was not possible at all, true when the sheet was shown — including when the
+   * user then cancelled it, which is a completed hand-off from here.
+   *
+   * Shared by the bar's Share button and, on iOS, by "Open with…" — see
+   * handOffToOS for why that one cannot use a download link there.
+   */
+  async function shareFile(url, filename, contentType) {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      // Whatever the preview is already showing, not a second download of it —
+      // then the saved copy, then the network.
+      const blob = recall(url)?.blob
+        || (await offlineBytes(url))?.blob
+        || await fetch(url, { credentials: 'same-origin' }).then((r) => r.blob());
+      const file = new File([blob], filename || 'attachment', { type: contentType || blob.type });
+      if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
+      else await navigator.share({ url });
+      return true;
+    } catch (e) {
+      // AbortError is the user closing the sheet — the hand-off worked, they
+      // changed their mind. Anything else means it never opened.
+      return e?.name === 'AbortError';
+    }
+  }
+
   /** Saves the file. Prefers bytes already fetched for the preview — that is
    *  the whole difference between "Download" being instant and it being the
    *  same multi-second wait a second time. `a.download` supplies the filename
@@ -119,6 +151,12 @@ const AttachmentViewer = (() => {
       handOffToOS(url, filename, contentType);
       return;
     }
+    // Same trap as handOffToOS, and the same way out: on iOS a download link is
+    // a NAVIGATION, and in an installed PWA that replaces the app with a
+    // preview there is no way back from. "Save to Files" on the share sheet is
+    // what Download means on that platform anyway. Only when the sheet cannot
+    // be opened at all does this fall through to the link below.
+    if (IS_IOS && await shareFile(url, filename, contentType)) return;
     let cached = recall(url);
     // Offline, `downloadUrl(url)` is a navigation to a server that is not
     // there, which a browser answers with its own error page over the top of
@@ -160,6 +198,23 @@ const AttachmentViewer = (() => {
         bridge.openAttachment(downloadUrl(new URL(url, location.href).href), filename || '', contentType || '');
         return;
       } catch { /* bridge threw — fall back to the browser path below */ }
+    }
+    // iOS: the share sheet, never the download link below.
+    //
+    // iOS does not honour the `download` attribute here — it NAVIGATES to the
+    // file instead, and an installed PWA has no browser chrome, so the app is
+    // replaced by a document preview offering 'Open in "Word"' and 'More' with
+    // no way back. Reported exactly that way: the app was simply gone until it
+    // was force-quit. The share sheet is the same hand-off done properly — the
+    // same "Open in Word" is on it, and Cancel returns to where you were.
+    if (IS_IOS) {
+      shareFile(url, filename, contentType).then((shared) => {
+        // Only if the sheet could not be opened at all. A cancelled sheet is
+        // not a failure, and re-trying as a navigation would spring the trap
+        // the moment somebody changed their mind.
+        if (!shared) window.open(downloadUrl(url), '_blank', 'noopener');
+      });
+      return;
     }
     const a = document.createElement('a');
     a.href = downloadUrl(url);
@@ -524,12 +579,87 @@ const AttachmentViewer = (() => {
     return root;
   }
 
-  function frameDoc(css, bodyHtml, { zoomable = false } = {}) {
+  /**
+   * Keeps the document out of sight until its text will be drawn in its final
+   * font, so the reader is never shown a paragraph twice in two typefaces.
+   *
+   * Only the BODY is hidden — the html background still paints, so this reads
+   * as a page that has not filled in yet rather than a hole in the viewer.
+   *
+   * Three ways out, because the one thing worse than a flash is a preview that
+   * never appears: document.fonts.ready (which settles on a FAILED font load
+   * too, not just a successful one), a 1.2s timer in the same script, and a CSS
+   * animation that reveals it even if the script never runs at all.
+   */
+  const HOLD_CSS = `
+    /* "html > body" rather than a bare body selector: the document's own
+       stylesheet is spliced into the BODY, so it comes after this one and would
+       take any tie on equal specificity. Not !important either — the reveal
+       below is an inline style, and !important here would outrank it and leave
+       the preview hidden for good, the one outcome this must not risk. */
+    html > body { visibility: hidden; animation: av-reveal 0s 1.2s forwards; }
+    @keyframes av-reveal { to { visibility: visible; } }`;
+  const HOLD_SCRIPT = `
+    (function () {
+      var b = document.body;
+      var show = function () { b.style.visibility = 'visible'; };
+      setTimeout(show, 1200);
+      try {
+        var ready = document.fonts && document.fonts.ready;
+        if (ready && ready.then) ready.then(function () { requestAnimationFrame(show); });
+        else show();
+      } catch (e) { show(); }
+    })();`;
+
+  function frameDoc(css, bodyHtml, { zoomable = false, hold = false } = {}) {
     return `<!doctype html><html><head><meta charset="utf-8">`
       + `<meta name="viewport" content="width=device-width, initial-scale=1">`
-      + `<base target="_blank"><style>${css}</style></head><body>${bodyHtml}`
+      + `<base target="_blank"><style>${css}${hold ? HOLD_CSS : ''}</style></head><body>${bodyHtml}`
       + (zoomable ? `<script>${FRAME_EVENTS}<\/script>` : '')
+      + (hold ? `<script>${HOLD_SCRIPT}<\/script>` : '')
       + `</body></html>`;
+  }
+
+  /**
+   * The app's own font, as CSS a preview frame can actually use.
+   *
+   * A .docx carries the fonts WORD had — Calibri, Cambria — and names them in
+   * the stylesheet docx-preview emits and in inline styles on the runs. Neither
+   * exists on iOS, so the whole document fell back to the browser's default
+   * serif, which is what "the font looks ugly" is: not a styling choice, a
+   * missing typeface. A preview is for reading what the document SAYS, so it
+   * reads in the font the app is already set to.
+   *
+   * Two parts, because a srcdoc frame on an opaque origin shares nothing with
+   * this page: the family itself, read off --ui-font (app.js#applyUiFont sets
+   * it from Settings → App font), and @font-face rules for it when that font is
+   * one of the admin-uploaded ones — an @font-face in the parent document does
+   * not cross the frame boundary, which is the same reason
+   * messageFrame.js#buildFontFaceCss exists. Reused rather than repeated, and
+   * it already handles the offline case by inlining the file as a data: URL.
+   *
+   * `overrideDocument` is for the .docx only: there, beating the file's own
+   * rules takes !important, since docx-preview writes font-family both into its
+   * <style> and inline on the elements. A spreadsheet or a CSV has no fonts of
+   * its own and only needs the family set on the body.
+   */
+  function frameFontCss({ overrideDocument = false } = {}) {
+    let family = '';
+    try {
+      family = getComputedStyle(document.documentElement).getPropertyValue('--ui-font').trim();
+    } catch { /* no computed style to read (a detached document) — the stack below stands in */ }
+    // Never interpolated raw: this lands inside a <style>, and a custom font
+    // family is a name an admin typed.
+    family = family.replace(/[<>{};]/g, '').trim()
+      || 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    // `state` is app.js's, and the message popout (message.html) loads this
+    // file without it — there, the stack above is the answer and there are no
+    // custom faces to register.
+    const custom = typeof state !== 'undefined' ? (state.customFonts || []) : [];
+    const faces = window.MessageFrame?.buildFontFaceCss?.(custom) || '';
+    return `${faces}
+      html, body { font-family: ${family}; }
+      ${overrideDocument ? `.docx, .docx * { font-family: ${family} !important; }` : ''}`;
   }
 
   const DOC_BASE_CSS = `
@@ -701,8 +831,13 @@ const AttachmentViewer = (() => {
     if (!isCurrent(body)) return;
     stripActiveContent(bodyEl);
     stripActiveContent(styleEl);
-    officeShell(body, frameDoc(DOC_BASE_CSS + (narrow ? DOCX_NARROW_CSS : DOCX_WIDE_CSS),
-      styleEl.innerHTML + bodyEl.innerHTML, { zoomable: true }));
+    // !important is what makes this win, not placement: the document's own
+    // <style> is spliced into the BODY below, so it comes after this one and
+    // would take any tie on source order. docx-preview writes no !important of
+    // its own, so there is no tie to take.
+    officeShell(body, frameDoc(DOC_BASE_CSS + (narrow ? DOCX_NARROW_CSS : DOCX_WIDE_CSS)
+      + frameFontCss({ overrideDocument: true }),
+      styleEl.innerHTML + bodyEl.innerHTML, { zoomable: true, hold: true }));
   }
 
   /* A preview, not a spreadsheet application: no formulas, no styling, no
@@ -773,7 +908,7 @@ const AttachmentViewer = (() => {
         ? `<div class="attach-viewer-sheet-tabs">${names.map((n, i) =>
           `<button class="attach-viewer-sheet-tab${i === active ? ' is-active' : ''}" data-sheet="${i}">${esc(n)}</button>`).join('')}</div>`
         : '';
-      officeShell(body, frameDoc(SHEET_CSS, sheetHtml(wb.Sheets[names[active]]), { zoomable: true }), tabs);
+      officeShell(body, frameDoc(SHEET_CSS + frameFontCss(), sheetHtml(wb.Sheets[names[active]]), { zoomable: true, hold: true }), tabs);
       body.querySelectorAll('[data-sheet]').forEach((b) => b.addEventListener('click', () => {
         active = Number(b.dataset.sheet);
         draw();
@@ -981,18 +1116,7 @@ const AttachmentViewer = (() => {
     if (navigator.share && navigator.canShare) {
       const shareBtn = overlay.querySelector('#av-share');
       shareBtn.hidden = false;
-      shareBtn.addEventListener('click', async () => {
-        try {
-          // Whatever the preview is already showing, not a second download of
-          // it — then the saved copy, then the network.
-          const blob = recall(url)?.blob
-            || (await offlineBytes(url))?.blob
-            || await fetch(url, { credentials: 'same-origin' }).then((r) => r.blob());
-          const file = new File([blob], filename || 'attachment', { type: contentType || blob.type });
-          if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
-          else await navigator.share({ url });
-        } catch { /* user cancelled, or sharing unsupported for this file — no-op */ }
-      });
+      shareBtn.addEventListener('click', () => { shareFile(url, filename, contentType); });
     }
 
     // Nothing here can draw it, so there is nothing to fetch: the paperclip

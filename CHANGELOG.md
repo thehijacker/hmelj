@@ -9,11 +9,19 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Fixed: the unread badge went up during a refresh before the messages it counted were there
+
+### Fixed: on iOS, Open with… and Download trapped the app on a file preview with no way back
+
+### Word and Excel previews read in the app's own font instead of the file's, and no longer flash the file's font first
+
 ### Large messages are cached too, so a big newsletter opens instantly the second time
 
 ### Opening a message no longer waits for a refresh to finish
 
 ### Fixed: on an iOS PWA the calendar toolbar and the attachment viewer's buttons sat under the status bar
+
+### Fixed: the calendar had no way to open the sidebar on a phone held in landscape
 
 ## 1.1.2 — 2026-09-21
 
