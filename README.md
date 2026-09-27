@@ -88,7 +88,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Exchange (EWS)** — on-premises Exchange over NTLM
 - **Multi-user** — separate Hmelj logins, each with their own mailboxes, settings and filters
 - **Unified views** — merged Inbox and Sent, coloured per-account chips, per-account unread counts
-- **Per-account monitoring** — IMAP IDLE for instant delivery, or a poll interval from 30 seconds to 15 minutes
+- **Per-account monitoring** — IMAP IDLE for instant delivery, or a poll interval from 30 seconds to 15 minutes. Settings says whether a live account is *actually* connected, so a server that quietly refuses IDLE shows up as **live: reconnecting** rather than as mail that is mysteriously late
 - **Account presets**, editable by an admin, that prefill the wizard for your own provider
 - **Share an account** with another Hmelj user
 - **Full-text index, per account** — turn searching inside messages on only for the mailboxes you actually search, with a size ceiling you set
@@ -106,6 +106,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Word and Excel previews** in the same overlay — `.docx` with its page layout, tables and images intact, `.xlsx/.xls/.csv/.ods` as a scrollable grid with a tab per sheet, `.doc` as text. Rendered in the browser by libraries served from your own instance, so nothing about an attachment reaches a CDN
 - **Find in message** (Ctrl/Cmd+F), live match count, without modifying the message
 - **Sender verification** — the SPF/DKIM/DMARC result your own server recorded: a quiet chip when the checks pass, a warning when a message claims a domain it may not use, or wears a contact's name over a different address. Mail nobody checked is left unmarked rather than treated as suspect
+- **Tell the name check it is wrong** — a ticketing system that sends as *Name Surname &lt;service-desk@firma.si&gt;* is character for character the shape the spoofed-name warning exists to catch. **This sender is fine** adds that address to an allowlist and the warning stops, for that address only
 - **Calendar invitations** — accept, tentative or decline, with or without a reply
 - **Read receipts** — asked for and answered on your terms, never automatically
 - **Print · View headers · Save as EML · Open in a new view**
@@ -116,9 +117,11 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Scheduled sending** — queued on the server, retried with backoff, reschedulable
 - **Undo send** — a window you choose (10 seconds by default). The wait is on the server, so closing the tab right after Send still honours it
 - **Templates** — reusable snippets, inserted at the caret, above your signature, written with the composer's own formatting toolbar
-- **Before it goes out** — "you said it was attached, and nothing is", and "you replied to one of nine". Both read English and Slovenian, including forms typed without šumniki, and both read only your own text — never the quoted original
+- **Before it goes out** — three checks, each switchable: "you said it was attached, and nothing is", "you replied to one of nine", and "this one has no subject". The first reads English and Slovenian, including forms typed without šumniki, and reads only your own text — never the quoted original
 - **Attachments** by button, by drag-and-drop, or by pasting — a screenshot pasted into the body goes inline, sent as a real embedded part rather than a `data:` URL that most webmail would strip
 - **Draft autosave**, Cc/Bcc, read-receipt request, and a **priority** button whose arrow and colour say which of the three is set. The composer also remembers whether you keep it enlarged, and fills the screen on a phone
+- **A reply you started is marked in the list** — the ✎ against a message you began answering and left, with *Continue* or *Discard* on its menu, so an unfinished reply is not something you have to remember on your own
+- **Attachments stay in view** — the files on a message sit just above Send rather than under the quoted thread, so attaching one to a long reply is something you can see happened
 - **Spell checking** as you type — Slovenian and English, detected automatically
 - **Contact autocomplete**, learned from the mail you actually send
 
@@ -128,14 +131,15 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Spam and Archive** in one gesture, with the return trip remembered per message
 - **Select mode** (Ctrl+click a row, Shift+click for a whole run), swipe gestures, right-click menus, undo on destructive actions
 - **Attachments** — preview overlay for images/PDF/audio/video and Word/Excel documents, or *Download all* as one zip
-- **Search** with Gmail-style syntax — `from:`, `-word`, `"phrase"`, `is:starred` — cached-first with a one-click *Search everywhere*
+- **Search** with Gmail-style syntax — `from:`, `-word`, `"phrase"`, `is:starred`, `has:attachment` and `filetype:pdf` — cached-first with a one-click *Search everywhere*
 - **Search inside messages** — an optional local full-text index, per account, that answers `body:` in milliseconds; accented and unaccented spellings match each other
 - **Saved searches** — pin a question to the sidebar with its own unread count; opening one re-runs it, so it is never stale
 - **Snooze** — the message really moves into a `Snoozed` folder and comes back when you asked, marked unread, optionally with a calendar reminder for the same moment. A missed wake-up still fires when the server is back
 - **Keyboard shortcuts** — Gmail's letters (`j`/`k`, `r`, `e`, `s`, `z`, `c`, `/`) and Outlook's <kbd>Del</kbd>, <kbd>Ctrl+Q</kbd> and <kbd>Ctrl+U</kbd>; press `?` for the list
 - **Mailbox analytics** — where the quota went, who sends the most, what is safe to delete (and it counts Gmail labels honestly)
 - **Subject rules** — shorten machine-generated subjects in the list and in notifications, without touching what is on the server
-- **Folders** — full tree, create/rename/delete/empty, hide per folder, unread counters
+- **Folders** — full tree, hide per folder, unread counters, and **create, rename, delete, empty, mute or mark-read straight from a folder's right-click menu** in the sidebar. A new subfolder is nested with that account's own separator, not an assumed one
+- **Archive by date** — *Archive before…* on any folder asks for a date, tells you how many messages that is, and then moves them. Or set **auto-archive** per account and mail older than N days leaves the Inbox once a day on its own, logged each time. Mail that arrived *on* the date you pick stays
 
 ### Calendar & contacts
 - **Calendars from anywhere** — CalDAV, Google, Microsoft 365, Exchange, or one that lives in Hmelj itself, all in one month/week/day/agenda view
@@ -143,7 +147,8 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Reminders** delivered as push, whether or not Hmelj is open
 - **Contacts** — address book, learned from the mail you actually send, sortable by name or address and filterable (*Without a name*, *Same name several addresses*, local vs synced) for going through it quickly, with vCard import, a direct pull from Microsoft or Exchange, and a **CSV importer you point at your own columns** — pick which is name, surname and e-mail over a live preview, so any company export goes in, not only a Google-shaped one
 - **Contact groups** — name a set of addresses, then type that name into To, Cc or Bcc; Hmelj puts the people in when the message goes out. Backspace at a recipient boundary takes the whole name, group or person, the way Outlook does
-- **Hmelj as a CalDAV/CardDAV server** — subscribe a phone or another app, with per-device app passwords and busy-only sharing
+- **Colours that mean something** — a colour per calendar and, over it, a colour per event, so one *Bins* calendar can carry paper in blue and plastic in yellow
+- **Hmelj as a CalDAV/CardDAV server** — subscribe a phone or another app, with per-device app passwords and busy-only sharing. A password can be limited to **particular published collections**, so somebody can have the family calendar and nothing else; whatever you publish keeps its colours on the way out
 
 ### Notifications
 - **Web Push (VAPID)** for browsers and PWAs, working with Hmelj fully closed
@@ -155,10 +160,12 @@ over this connection, and installing it as a PWA requires HTTPS.
 ### Running it
 - **One container**, `linux/amd64` and `linux/arm64`, non-root, with a healthcheck
 - **Everything in one volume** — accounts, settings, filters, cache, encryption key
+- **Two-step verification**, optional and per user — a code from any authenticator app on top of your password, with ten one-time recovery codes. App passwords are deliberately exempt, so calendar and contacts clients keep working
 - **Admin panel** — users, sign-up control, OAuth clients, account presets, custom fonts
 - **Per-user error log** in plain language, separate from server debug noise
 - **Instant cross-device sync** over Server-Sent Events
 - **Export everything** — settings, identities, filters, saved searches, templates, contacts, contact groups and local calendars as one zip; mail as streamed mbox, one folder at a time, in the format Thunderbird imports
+- **Works offline** — the mail you have read stays readable with no connection, and anything you do to it queues in an Outbox and goes out when the connection is back
 - **PWA** install on desktop and mobile, plus a native Android APK
 - **English and Slovenščina**
 

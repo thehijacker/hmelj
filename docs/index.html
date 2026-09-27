@@ -316,7 +316,7 @@ AGPL-3.0
 
 <h2 id="about-glance">At a Glance</h2>
 <ul>
-<li><strong>Multi-account and multi-user</strong> — every Hmelj user has their own mailboxes, settings, identities, contacts and filters</li>
+<li><strong>Multi-account and multi-user</strong> — every Hmelj user has their own mailboxes, settings, identities, contacts and filters, and an optional second factor on the login</li>
 <li><strong>Four backends</strong> — IMAP/SMTP, Gmail (app password or OAuth), Microsoft Graph, Exchange EWS — presented identically</li>
 <li><strong>Unified inbox</strong> — merged Inbox and merged Sent across accounts, with per-account colours and unread counts</li>
 <li><strong>Local SQLite cache</strong> — a background poller keeps it warm, so lists are instant instead of a live fetch on every click</li>
@@ -913,6 +913,19 @@ anything saved.</p>
   Live accounts still run a slow background poll as a safety net, so a dropped watcher
   costs latency and nothing else. Accounts that say nothing default to
   <code>SYNC_INTERVAL_MS</code>.
+</p>
+<p>
+  <strong>Settings → Accounts says whether it is actually connected.</strong> An account
+  set to Live shows <b>live</b> once its watcher is up, and <b>live: reconnecting</b> while
+  it is not — a watcher that has dropped and is backing off. Choosing Live is a request,
+  not a guarantee: a server that refuses IDLE, or a network that keeps cutting the
+  connection, leaves the account on its slow safety-net poll, and without this the only
+  symptom would be mail arriving later than expected with nothing to explain why.
+</p>
+<p>
+  An account watched live also keeps its ordinary connection open rather than letting it
+  close after ten minutes idle, so the first message you open after a pause does not wait
+  for a fresh login. That costs one held connection per live account.
 </p>
 
 <h2 id="acc-second">A second connection</h2>
@@ -2812,6 +2825,19 @@ share them — and they are included in the settings export.</li>
 
 <div class="callout">
   <p>
+    <b>Colours do travel to anyone who subscribes to a calendar you publish.</b> The
+    paragraph above is about calendars that live on someone else's server, where Hmelj is a
+    client and has nowhere safe to put a colour. On a calendar
+    <a data-scroll="dav-server" data-section="calendar" href="#dav-server">published from
+    Hmelj</a>, Hmelj <em>is</em> the server: the calendar's colour and each event's own are
+    sent with it, as the standard <code>COLOR</code> property, so the person subscribing
+    sees your Bins calendar in the colours you chose rather than one flat default. A source
+    set to <b>busy only</b> sends no colour, for the same reason it sends no title.
+  </p>
+</div>
+
+<div class="callout">
+  <p>
     <b>A repeat Microsoft cannot express is refused, not approximated.</b> iCalendar states a
     recurrence as one rule with independent parts; Microsoft states it as one of six named
     patterns. Most rules map exactly, the last day of the month included — that one goes out as
@@ -3013,9 +3039,13 @@ share them — and they are included in the settings export.</li>
 </li>
 <li>
   <b>Create an app password.</b> <b>Settings → Login → App passwords → New app password</b>.
-  Give it a name you will recognise and tick only what that device needs. The password is
-  shown <em>once</em> — copy it then, because it is not stored in a form that can be shown
-  again.
+  Give it a name you will recognise and tick only what that device needs: calendars,
+  contacts, or both — and, if you like, <em>only certain published collections</em>. Leave
+  the collection list untouched and the password reaches everything you publish; tick two
+  of five and it reaches those two, and the rest are not merely hidden from it but answer
+  as though they do not exist. That is what lets you hand somebody the family calendar
+  without handing them the rest. The password is shown <em>once</em> — copy it then,
+  because it is not stored in a form that can be shown again.
 </li>
 <li>
   <b>Add the account on the device</b>, using the server address shown under
