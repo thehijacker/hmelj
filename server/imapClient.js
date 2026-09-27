@@ -545,6 +545,30 @@ export async function emptyFolder(path) {
   });
 }
 
+/**
+ * Every uid in this folder that arrived strictly BEFORE `before` — the set
+ * "archive everything older than this" acts on.
+ *
+ * Same search-then-act shape as emptyFolder above: one real IMAP SEARCH for
+ * the whole matching set, never a paginated envelope fetch just to read dates
+ * off it. That matters more here than anywhere else, because the messages this
+ * is looking for are by definition the OLD ones — the ones the local cache
+ * does not hold (it keeps only the newest syncBackfillLimit per folder), so
+ * the cache cannot answer this question at all.
+ *
+ * IMAP's BEFORE is a DATE comparison against INTERNALDATE, not a timestamp: it
+ * means "delivered on a day earlier than this one", with no time part. That is
+ * exactly the granularity a date picker offers, and it makes the boundary
+ * unambiguous — a message that arrived on the chosen day is NOT older than it
+ * and stays put.
+ */
+export async function findOlderThan(path, before) {
+  return withMailbox(path, async (c) => {
+    const uids = await c.search({ before: new Date(before) }, { uid: true });
+    return uids || [];
+  }, true); // read-only: this only ever reads, and the caller does the moving
+}
+
 /** "Mark all as read" for a whole folder — same cheap search-then-act shape
  * as emptyFolder above (a real IMAP SEARCH for the full matching UID set,
  * not a paginated envelope fetch just to read off uids) rather than routing

@@ -1,6 +1,11 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+// Explicit, though `crypto.randomUUID()` below worked without it: that was the
+// WebCrypto global, which has randomUUID but NOT randomBytes — and the login
+// ticket needs randomBytes. node:crypto has both, so naming it here makes the
+// existing calls mean the same thing and the new one work at all.
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import sanitizeHtml from 'sanitize-html';
 import multer from 'multer';
@@ -16,6 +21,8 @@ import { isActionable } from './icalendar.js';
 import { createByteLru, attachmentKey, etagFor, etagMatches } from './attachmentCache.js';
 import { zipSync, safeEntryName } from './zip.js';
 import { runFilters } from './filters.js';
+import * as archive from './archive.js';
+import * as autoArchive from './autoArchive.js';
 import {
   requireAuth, createSession, destroySession, sessionFromRequest,
   setSessionCookie, clearSessionCookie, parseCookies, COOKIE_NAME,
@@ -23,7 +30,9 @@ import {
   loginAllowed, loginFailed, loginSucceeded,
   isAdminUser, listUsers, setUserDisabled, deleteUser, getAllowSignup, setAllowSignup,
   changePassword, renameUser,
+  totpEnabled, getTotp, setPendingTotp, enableTotp, disableTotp, resetRecoveryCodes, verifySecondFactor,
 } from './session.js';
+import { generateSecret, verify as verifyTotpCode, otpauthUri, generateRecoveryCodes } from './totp.js';
 import * as accounts from './accounts.js';
 import { addContacts, learnRecipients } from './contacts.js';
 import { expandPayloadGroups } from './contactGroups.js';
@@ -342,6 +351,45 @@ app.post('/api/signup', wrap(async (req, res) => {
   }
 }));
 
+/* ---------- the second factor's half-finished logins ----------
+ *
+ * A password that checks out on an account with 2FA does NOT get a session. It
+ * gets a ticket: a random handle to "this user got their password right, a
+ * moment ago", which /api/login/totp trades for a real session once the code
+ * checks out too.
+ *
+ * In memory and not persisted, deliberately — unlike sessions, which survive a
+ * restart on purpose (session.js). A ticket is worth seconds; losing them all
+ * on a restart costs somebody one re-typed password and closes the window on
+ * every one an attacker might be holding.
+ *
+ * Five minutes is long enough to find the phone and short enough that a ticket
+ * left on a shared machine is worthless by the time anyone finds it. The
+ * sweep is lazy — there are never many of these, and a timer for them would
+ * outlive the process it belongs to.
+ */
+const pendingLogins = new Map(); // ticket -> { userId, at }
+const TICKET_TTL_MS = 5 * 60e3;
+
+function issueTicket(userId) {
+  const now = Date.now();
+  for (const [t, p] of pendingLogins) if (now - p.at > TICKET_TTL_MS) pendingLogins.delete(t);
+  const ticket = crypto.randomBytes(24).toString('base64url');
+  pendingLogins.set(ticket, { userId, at: now });
+  return ticket;
+}
+
+function claimTicket(ticket) {
+  const p = pendingLogins.get(String(ticket || ''));
+  if (!p) return null;
+  // Single use, whatever happens next: a ticket that has been offered to the
+  // code check is spent, so a wrong code costs the password step again rather
+  // than leaving the handle alive to be guessed against.
+  pendingLogins.delete(ticket);
+  if (Date.now() - p.at > TICKET_TTL_MS) return null;
+  return p;
+}
+
 app.post('/api/login', wrap(async (req, res) => {
   const ip = req.ip || 'unknown';
   if (!loginAllowed(ip)) return res.status(429).json({ error: 'Too many attempts — try again in a minute' });
@@ -353,10 +401,48 @@ app.post('/api/login', wrap(async (req, res) => {
     log.warn(`Login failed for "${username}" from ${ip}${user?.disabled ? ' (account disabled)' : ''}`);
     return res.status(401).json({ error: 'Invalid username or password' });
   }
+  // The password was right. On an account with a second factor that is half
+  // the answer, and no session exists until the other half arrives.
+  if (totpEnabled(user.id)) {
+    loginSucceeded(ip); // the password attempt succeeded; the code has its own budget below
+    log.info(`Password accepted for ${user.username}, waiting for a second factor`);
+    return res.json({ totpRequired: true, ticket: issueTicket(user.id) });
+  }
   loginSucceeded(ip);
   const token = createSession(user, remember !== false);
   setSessionCookie(res, token, req, remember !== false);
   log.info(`Logged in: ${user.username}`);
+  res.json({ ok: true, username: user.username, displayUsername: user.displayUsername || user.username });
+}));
+
+/**
+ * The second step: a ticket from /api/login plus either the authenticator's
+ * six digits or one recovery code.
+ *
+ * Rate-limited on the same per-IP budget as the password, which is the point —
+ * six digits is a million guesses, and without a limit that is an afternoon.
+ * A used recovery code is consumed inside verifySecondFactor, so replaying one
+ * fails even within the same ticket's lifetime.
+ */
+app.post('/api/login/totp', wrap(async (req, res) => {
+  const ip = req.ip || 'unknown';
+  if (!loginAllowed(ip)) return res.status(429).json({ error: 'Too many attempts — try again in a minute' });
+  const { ticket, code, remember } = req.body || {};
+  const pending = claimTicket(ticket);
+  if (!pending) {
+    loginFailed(ip);
+    return res.status(401).json({ error: 'That sign-in expired — start again' });
+  }
+  const user = listUsers().find((u) => u.id === pending.userId);
+  if (!user || user.disabled || !verifySecondFactor(pending.userId, code)) {
+    loginFailed(ip);
+    log.warn(`Second factor failed for "${user?.username || pending.userId}" from ${ip}`);
+    return res.status(401).json({ error: 'That code is not right' });
+  }
+  loginSucceeded(ip);
+  const token = createSession(user, remember !== false);
+  setSessionCookie(res, token, req, remember !== false);
+  log.info(`Logged in: ${user.username} (second factor)`);
   res.json({ ok: true, username: user.username, displayUsername: user.displayUsername || user.username });
 }));
 
@@ -493,6 +579,78 @@ app.post('/api/account/password', wrap(async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 }));
+/* ---------- two-factor enrolment (server/totp.js, Settings › Security) ----------
+ *
+ * Everything here is behind requireAuth, so the person changing the factor has
+ * already got past whatever factor is currently in force.
+ *
+ * App passwords (server/appPasswords.js) are deliberately untouched by any of
+ * this. They exist for CalDAV/CardDAV clients, which have nowhere to type a
+ * six-digit code and no way to be prompted for one — a factor applied there
+ * would not be security, it would be the calendar silently never syncing
+ * again. Each is a per-device secret the user can revoke on its own, which is
+ * the same trade every mail provider makes.
+ */
+app.get('/api/totp', wrap(async (req, res) => {
+  const t = getTotp(currentUser().userId);
+  res.json({ enabled: !!t?.enabled, enabledAt: t?.enabledAt || null, recoveryLeft: t?.recoveryLeft ?? 0 });
+}));
+
+/** Offer a secret. Held as PENDING — an enrolment abandoned at the QR leaves
+ *  the account exactly as it was, rather than locked behind a code nobody
+ *  has. */
+app.post('/api/totp/start', wrap(async (req, res) => {
+  const { userId, username } = currentUser();
+  const secret = generateSecret();
+  setPendingTotp(userId, secret);
+  res.json({ secret, uri: otpauthUri(secret, { issuer: 'Hmelj', account: username }) });
+}));
+
+/** Confirm it by proving the phone has it. The recovery codes are returned
+ *  here and nowhere else — only their hashes are kept. */
+app.post('/api/totp/enable', wrap(async (req, res) => {
+  const { userId } = currentUser();
+  const t = getTotp(userId);
+  if (!t?.pending) return res.status(400).json({ error: 'Start the setup again' });
+  if (!verifyTotpCode(t.pending, req.body?.code)) return res.status(400).json({ error: 'That code is not right' });
+  const codes = generateRecoveryCodes();
+  enableTotp(userId, t.pending, codes);
+  log.info(`Two-factor authentication enabled for ${currentUser().username}`);
+  res.json({ ok: true, recoveryCodes: codes });
+}));
+
+/**
+ * Turn it off — with the account PASSWORD, not a code.
+ *
+ * A code would be the obvious thing to ask for and is the wrong thing: the one
+ * moment somebody needs to turn this off is the moment their authenticator is
+ * gone. They can still get in with a recovery code, and then they must be able
+ * to switch it off and set it up again on the new phone. The password is what
+ * proves it is them; the session already proves they got past the factor.
+ */
+app.post('/api/totp/disable', wrap(async (req, res) => {
+  const { userId, username } = currentUser();
+  if (!verifyUser(username, req.body?.password || '')) {
+    return res.status(400).json({ error: 'That password is not right' });
+  }
+  disableTotp(userId);
+  log.info(`Two-factor authentication disabled for ${username}`);
+  res.json({ ok: true });
+}));
+
+/** Fresh recovery codes, replacing whatever is left. The old ones stop working
+ *  the moment this returns — which is the point of asking for new ones. */
+app.post('/api/totp/recovery-codes', wrap(async (req, res) => {
+  const { userId, username } = currentUser();
+  if (!getTotp(userId)?.enabled) return res.status(400).json({ error: 'Two-factor authentication is not on' });
+  if (!verifyUser(username, req.body?.password || '')) {
+    return res.status(400).json({ error: 'That password is not right' });
+  }
+  const codes = generateRecoveryCodes();
+  resetRecoveryCodes(userId, codes);
+  res.json({ ok: true, recoveryCodes: codes });
+}));
+
 app.post('/api/account/username', wrap(async (req, res) => {
   try {
     const { oldKey, newKey, unchanged } = renameUser(currentUser().userId, req.body?.newUsername || '');
@@ -731,7 +889,7 @@ app.patch('/api/accounts/:id', (req, res) => {
   const id = req.params.id;
   const viewerKey = currentUser().viewerKey;
   if (accounts.isOwnAccount(viewerKey, id)) {
-    const allowed = ['label', 'color', 'sentFolder', 'draftsFolder', 'trashFolder', 'junkFolder', 'archiveFolder', 'hiddenFolders', 'disabled', 'monitorMode', 'pollIntervalMs', 'notificationSchedule', 'folderNotificationSchedules', 'searchIndex', 'snoozeFolder', 'authservId'];
+    const allowed = ['label', 'color', 'sentFolder', 'draftsFolder', 'trashFolder', 'junkFolder', 'archiveFolder', 'autoArchiveDays', 'hiddenFolders', 'disabled', 'monitorMode', 'pollIntervalMs', 'notificationSchedule', 'folderNotificationSchedules', 'searchIndex', 'snoozeFolder', 'authservId'];
     const patch = Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => allowed.includes(k)));
     const wasIndexed = !!accounts.getAccount(id)?.searchIndex;
     accounts.updateAccountFields(id, patch);
@@ -2673,6 +2831,49 @@ app.post('/api/folders/:path/empty', wrap(async (req, res) => {
   events.broadcastForAccount(currentUser().userKey, currentUserAccountId());
   res.json(result);
 }));
+/**
+ * "Archive before…" — move everything in this folder older than a date into
+ * the account's Archive folder. See server/archive.js for the sweep itself.
+ *
+ * `dryRun` answers only "how many", so the confirmation can name a number
+ * before anything moves. It is a separate round trip rather than part of the
+ * move on purpose: the count is the whole basis on which somebody says yes.
+ */
+app.post('/api/folders/:path/archive-before', wrap(async (req, res) => {
+  const folder = decodeURIComponent(req.params.path);
+  const { before, dryRun = false } = req.body || {};
+  if (!before) return res.status(400).json({ error: 'Pick a date' });
+
+  const acc = accounts.currentAccount();
+  const uKey = currentUser().userKey;
+  const target = refileFolderFor(acc, 'archive', uKey);
+  if (!target) return res.status(400).json({ error: 'No Archive folder is set for this account' });
+  // The backstop for the client's own guard: sweeping Sent or Trash into the
+  // Archive is never what was meant, and this route must not be talked into it
+  // just because a folder name was typed into the URL.
+  if (!archive.isArchivableFolder(acc, folder, target)) {
+    return res.status(400).json({ error: 'That folder cannot be archived from' });
+  }
+
+  let cutoff;
+  try { cutoff = archive.startOfDay(before); } catch (e) { return res.status(400).json({ error: e.message }); }
+
+  if (dryRun) return res.json({ count: await archive.countOlderThan(folder, cutoff), target });
+
+  const acctId = currentUserAccountId();
+  const { moved } = await archive.sweepFolder({ uKey, acctId, folder, target, before: cutoff });
+  if (moved && config.cacheEnabled) {
+    // Once, at the end — not per batch. The destination has to be re-read for
+    // the moved mail to appear there (moveAndMirror's own comment explains
+    // why), but doing that fifty times during one sweep would cost more than
+    // the sweep.
+    try { await sync.syncFolderNow(uKey, acc, target); }
+    catch (e) { log.warn(`Could not sync "${target}" after archiving:`, e.message); }
+  }
+  events.broadcastForAccount(uKey, acctId);
+  res.json({ moved, target });
+}));
+
 app.post('/api/folders/:path/mark-read', wrap(async (req, res) => {
   const path = decodeURIComponent(req.params.path);
   const result = await imap.markAllRead(path);
@@ -4893,6 +5094,12 @@ snooze.start();
 // Same reasoning again: contact sync writes to DATA_DIR, not to the message
 // cache, so it has nothing to do with whether the cache is on.
 contactSyncRunner.start();
+// "Keep the last N days in the Inbox" (server/autoArchive.js). Its own slow
+// loop rather than a step inside the sync cycle: it moves mail in bulk, and
+// nothing that does that belongs inside the pass a reader is waiting on. An
+// account with autoArchiveDays 0 — every account, until somebody sets one —
+// costs it a comparison a day.
+autoArchive.start();
 // Calendars DO live in cache.sqlite, so this one genuinely needs it.
 if (config.cacheEnabled) {
   calendarSync.start();

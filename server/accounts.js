@@ -686,6 +686,13 @@ export function saveAccount(input, existingId = null) {
     // With || that choice was silently undone by the next account edit.
     junkFolder: input.junkFolder ?? prev?.junkFolder ?? '',
     archiveFolder: input.archiveFolder ?? prev?.archiveFolder ?? '',
+    // Auto-archive: move INBOX mail older than this many days into the folder
+    // above, once a day (server/autoArchive.js). 0 — the default, and what
+    // every existing account has — means never. Kept next to archiveFolder
+    // because it is meaningless without one, and the runner skips an account
+    // that has no Archive folder set rather than inventing somewhere to put
+    // mail nobody asked it to move.
+    autoArchiveDays: Math.max(0, Number(input.autoArchiveDays ?? prev?.autoArchiveDays ?? 0) || 0),
     hiddenFolders: input.hiddenFolders || prev?.hiddenFolders || [],
     // Where snoozed mail waits (server/snooze.js). Empty means "not chosen
     // yet" — the folder is created on the first snooze and the name written

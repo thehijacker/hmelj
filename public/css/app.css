@@ -2095,6 +2095,36 @@ label:has(> .set-help) .set-help { margin-left: auto; }
   .contact-suggest { max-height: 40vh; }
 }
 
+/* ---------- two-step verification (Settings › Security) ----------
+   The QR is inline SVG whose modules are painted black by the generator, so it
+   sits on an explicit WHITE plate rather than inheriting the surface: a
+   black-on-dark code in dark mode is not a styling problem, it is a code no
+   scanner can read. Fixed width so it stays a comfortable scanning size on a
+   phone without filling the dialog on a desktop. */
+.totp-qr {
+  background: #fff; padding: 10px; border-radius: 8px;
+  width: 200px; max-width: 100%; margin: 4px 0 12px;
+}
+.totp-qr svg { display: block; width: 100%; height: auto; }
+/* The key, for an app that cannot scan. Monospace and spaced out because it
+   gets read off the screen and typed into a phone one character at a time. */
+.totp-secret {
+  display: inline-block; margin-top: 4px; padding: 4px 8px;
+  background: var(--surface-2); border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--ui-scale)); letter-spacing: .08em; word-break: break-all;
+}
+/* Recovery codes, shown once. Two columns so ten of them fit without
+   scrolling, and selectable as a block for copying by hand. */
+.totp-codes {
+  list-style: none; margin: 0 0 12px; padding: 10px 12px;
+  background: var(--surface-2); border-radius: 8px;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--ui-scale)); user-select: all;
+}
+@media (max-width: 600px) { .totp-codes { grid-template-columns: 1fr; } }
+
 /* Swipe-to-act row background (see bindSwipe in app.js) — a standalone
    element positioned over the swiped row's live rect, not a child of it, so
    the row can slide via transform without this moving along with it. */

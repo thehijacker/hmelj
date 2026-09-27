@@ -425,6 +425,20 @@ async function idsIn(folderId, { filter = '', cap = 5000 } = {}) {
   return items.map((m) => m.id).filter(Boolean).slice(0, cap);
 }
 
+/**
+ * imapClient.js#findOlderThan on Graph. idsIn already takes a $filter and
+ * already pages, so this is that one filter.
+ *
+ * `receivedDateTime lt` against an ISO instant — Graph compares the full
+ * timestamp, where IMAP's BEFORE compares only the date. The caller passes
+ * midnight of the chosen day, which makes the two agree: everything delivered
+ * before that day starts.
+ */
+export async function findOlderThan(path, before) {
+  const id = await resolveFolderId(path);
+  return idsIn(id, { filter: `receivedDateTime lt ${new Date(before).toISOString()}` });
+}
+
 export async function emptyFolder(path) {
   const id = await resolveFolderId(path);
   const ids = await idsIn(id);

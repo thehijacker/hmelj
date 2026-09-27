@@ -26,6 +26,7 @@ export const createFolder = (...a) => client().createFolder(...a);
 export const deleteFolder = (...a) => client().deleteFolder(...a);
 export const renameFolder = (...a) => client().renameFolder(...a);
 export const emptyFolder = (...a) => client().emptyFolder(...a);
+export const findOlderThan = (...a) => client().findOlderThan(...a);
 export const markAllRead = (...a) => client().markAllRead(...a);
 export const listMessages = (...a) => client().listMessages(...a);
 export const listNewMessages = (...a) => client().listNewMessages(...a);

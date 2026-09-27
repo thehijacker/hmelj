@@ -1341,7 +1341,14 @@ new messages and replies, always, or never</li>
 <ul>
 <li><strong>Show in sidebar</strong> — per folder, per account. Hiding a folder does not delete anything.</li>
 <li><strong>Create, rename, delete, empty</strong> — these act on the real mailbox.</li>
-<li><strong>Mark all as read</strong> and <strong>Mute</strong> live on the folder's own right-click menu in the sidebar.</li>
+<li><strong>Mark all as read</strong>, <strong>Mute</strong>, <strong>New folder</strong>,
+  <strong>New subfolder</strong>, <strong>Rename</strong>, <strong>Delete</strong> and
+  <strong>Archive before…</strong> all live on the folder's own right-click menu in the
+  sidebar (long-press on a phone), so the folder you act on is the one under the pointer.
+  A new subfolder is nested using that account's own separator — <code>/</code> on Gmail,
+  <code>.</code> on a Courier-style server — rather than an assumed one. The Inbox and the
+  account's special folders can be added to but not renamed or deleted from here: repoint
+  those in <b>Special folders</b> above, deliberately.</li>
 <li>Each folder shows its message and unread counts.</li>
 </ul>
 
@@ -1351,6 +1358,29 @@ account, a grantee sees only the "show in sidebar" checkboxes — special folder
 create/rename/delete/empty stay with the owner, because they change the real mailbox.
 A folder the owner excluded from sync has nothing cached to show, so its checkbox is
 locked off rather than offered as a false choice.
+</div>
+
+<h2 id="folders-archive">Archiving old mail</h2>
+<p>
+  Two ways, both moving mail into the account's <strong>Archive folder</strong> (set in
+  <b>Special folders</b> above — with none set, neither is offered).
+</p>
+<ul>
+<li><strong>By hand.</strong> Right-click a folder → <strong>Archive before…</strong>, pick
+  a date. Hmelj first says how many messages that is and asks again before moving anything.
+  Mail that arrived <em>on</em> the date you pick stays — the date is a cut-off, not a
+  range end.</li>
+<li><strong>Once a day.</strong> <b>Settings → Folders → Auto-archive mail older than N
+  days</b>, per account. <code>0</code> is off, which is what every account starts as. The
+  sweep covers the Inbox and its subfolders only, and never Sent, Drafts, Trash, Junk,
+  Snoozed or the Archive itself — each of those has a job of its own. Every sweep is
+  written to the <a data-scroll="set-log" data-section="settings" href="#set-log">Log</a>
+  tab, so mail never moves without a record.</li>
+</ul>
+<div class="callout">
+  Archiving is a move, not a delete: the messages are in the Archive folder, searchable and
+  intact. A bulk sweep is not undone message by message the way a single
+  <em>Archive</em> is — to bring some back, select them in the Archive folder and move them.
 </div>
 
 <h2 id="folders-scope">What gets synced</h2>
@@ -3363,6 +3393,27 @@ account's <strong>Search inside messages</strong> switch with its live index siz
   <a data-scroll="dav-server" data-section="calendar" href="#dav-server">CalDAV/CardDAV
   server</a>.
 </p>
+<h3>Two-step verification</h3>
+<p>
+  Optional, and off unless you turn it on. With it on, signing in on the web asks for a
+  six-digit code from an authenticator app (Google Authenticator, Aegis, 1Password,
+  anything that reads a standard <code>otpauth://</code> QR) as well as your password.
+  Setup shows a QR code and, for a device that cannot scan, the key to type in by hand.
+</p>
+<p>
+  Turning it on produces <strong>ten recovery codes</strong>, shown once and never again —
+  Hmelj keeps only their hashes. Each signs you in once, in place of a code, and they are
+  the only way back in if the phone with the authenticator is lost. Save them somewhere
+  that is not that phone. You can generate a fresh set at any time, which invalidates the
+  old ones, and turning the factor off asks for your password rather than a code —
+  precisely because the moment you need to turn it off is the moment you cannot produce
+  one.
+</p>
+<div class="callout">
+  <strong>App passwords are not affected.</strong> A CalDAV or CardDAV client has nowhere to
+  type a six-digit code, so those keep signing in with their own per-device password, which
+  you can revoke individually. Two-step verification guards the web login.
+</div>
 
 <h2 id="set-log">Log</h2>
 <p>

@@ -305,6 +305,14 @@ const API = {
   // A created password's secret comes back exactly once — there is no route
   // that can produce it again, by design, so the UI has to show it there and
   // then and say so.
+  // Two-factor authentication on the web login (server/totp.js). The login
+  // steps themselves are NOT here: login.html is a standalone page with no
+  // api.js, and talks to /api/login and /api/login/totp with plain fetch.
+  totpStatus: () => API.get('/api/totp'),
+  totpStart: () => API.post('/api/totp/start'),
+  totpEnable: (code) => API.post('/api/totp/enable', { code }),
+  totpDisable: (password) => API.post('/api/totp/disable', { password }),
+  totpRecoveryCodes: (password) => API.post('/api/totp/recovery-codes', { password }),
   appPasswords: () => API.get('/api/app-passwords'),
   createAppPassword: (label, scopes, pubIds = []) => API.post('/api/app-passwords', { label, scopes, pubIds }),
   deleteAppPassword: (id) => API.del('/api/app-passwords/' + encodeURIComponent(id)),
@@ -408,6 +416,10 @@ const API = {
   searchSuggest: (q) => API.get('/api/search-suggest?q=' + encodeURIComponent(q)),
 
   folders: (accountId, { live = false } = {}) => API.get(API._acct('/api/folders' + (live ? '?live=1' : ''), accountId)),
+  /** "Archive before…" — `dryRun` answers only how many would move, which is
+   *  what the confirmation names before anything is touched. */
+  archiveBefore: (path, before, { dryRun = false, accountId } = {}) =>
+    API.post(API._acct('/api/folders/' + encodeURIComponent(path) + '/archive-before', accountId), { before, dryRun }),
   createFolder: (path, accountId) => API.post(API._acct('/api/folders', accountId), { path }),
   deleteFolder: (path, accountId) => API.del(API._acct('/api/folders/' + encodeURIComponent(path), accountId)),
   renameFolder: (path, newPath, accountId) => API.post(API._acct('/api/folders/' + encodeURIComponent(path) + '/rename', accountId), { newPath }),

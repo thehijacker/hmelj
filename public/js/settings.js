@@ -2919,6 +2919,12 @@ const Settings = (() => {
           <label>${I18n.t('Archive folder')}&nbsp; ${sel('fo-archive', [['', `(${I18n.t('None')})`], ...folderList.map((f) => [f.path, f.path])], foldersAccount()?.archiveFolder || '')}</label>
         </div>
         <p class="set-hint" style="grid-column:auto;margin:8px 0 0">${I18n.t('These last two are what "Mark as spam" and "Move to Archive" mean for this account. Set either to (None) and that entry stops appearing in the message menus.')}</p>
+        <div class="row" style="flex-wrap:wrap;gap:14px 20px;margin-top:12px">
+          <label>${I18n.t('Auto-archive mail older than')}&nbsp;
+            <input type="number" id="fo-autoarchive" min="0" max="3650" step="1" style="width:5em"
+                   value="${escAttr(String(foldersAccount()?.autoArchiveDays || 0))}">&nbsp;${I18n.t('days')}</label>
+        </div>
+        <p class="set-hint" style="grid-column:auto;margin:8px 0 0">${I18n.t('0 is off. Once a day, mail older than this moves from the Inbox and its subfolders into the Archive folder above — never from Sent, Drafts, Trash, Junk or Snoozed. Each sweep is written to the Log tab.')}</p>
       </div>` : `<p class="set-hint" style="grid-column:auto">${I18n.t("This account is shared with you — pick which of its folders show in your own sidebar. The owner's settings (special folders, sync) aren't shown here.")}</p>`}
       <div class="card-list">
       ${folderList.map((f) => `<div class="card"><div class="row">
@@ -2953,6 +2959,25 @@ const Settings = (() => {
       catch (e) { toast('Cannot load folders: ' + e.message); }
     });
     if (isOwner) {
+      // Saved on change like the pickers above, but on `change` rather than
+      // `input` — a number field fires input on every keystroke, and "9" on
+      // the way to "90" is a setting that would archive most of the mailbox.
+      document.getElementById('fo-autoarchive')?.addEventListener('change', async (e) => {
+        const days = Math.max(0, Math.min(3650, Number(e.target.value) || 0));
+        e.target.value = String(days);
+        const a = state.accounts.find((x) => x.id === foldersAccountId);
+        if (days > 0 && !a?.archiveFolder) {
+          toast(I18n.t('Pick an Archive folder first — there is nowhere to move mail to'), 6000);
+          e.target.value = '0';
+          return;
+        }
+        try {
+          await API.patchAccount(foldersAccountId, { autoArchiveDays: days });
+          if (a) a.autoArchiveDays = days;
+          toast(days ? `${I18n.t('Auto-archiving mail older than')} ${days} ${I18n.t('days')}` : I18n.t('Auto-archive off'));
+        } catch (err) { toast('Save failed: ' + err.message); }
+      });
+
       ['sent', 'drafts', 'trash', 'junk', 'archive'].forEach((role) => {
         document.getElementById(`fo-${role}`).addEventListener('change', async (e) => {
           const key = role + 'Folder';
@@ -3466,6 +3491,144 @@ const Settings = (() => {
     } catch (e) { toast(e.message, 6000); }
   }
 
+  /* ---------- two-factor authentication (server/totp.js) ---------- */
+
+  let totpState = null; // null = not loaded yet
+
+  /** The QR generator, loaded the first time a setup dialog opens and never at
+   *  boot — same reasoning as the attachment viewer's vendored libraries (see
+   *  public/vendor/README.md): most sessions never need it. */
+  let qrLoading = null;
+  function ensureQrLib() {
+    if (window.qrcode) return Promise.resolve();
+    if (qrLoading) return qrLoading;
+    qrLoading = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = '/vendor/qrcode-generator-1.4.4.min.js';
+      el.addEventListener('load', () => resolve());
+      el.addEventListener('error', () => { qrLoading = null; reject(new Error('Could not load the QR code generator')); });
+      document.head.appendChild(el);
+    });
+    return qrLoading;
+  }
+
+  /** Inline SVG, not an <img>: no data: URL, no second request, and it takes
+   *  the theme's own colours so the code is readable in dark mode too. */
+  function qrSvg(text) {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+  }
+
+  /** Shown once, and only once — the server keeps hashes, so there is no way
+   *  to show them again later. Says so, rather than letting someone find out. */
+  function showRecoveryCodes(codes) {
+    const list = codes.map((c) => `<li>${esc(c)}</li>`).join('');
+    return Dialog.alert('', {
+      title: I18n.t('Recovery codes'),
+      bodyHtml: `<p class="set-hint" style="margin-top:0">${esc(I18n.t('Save these somewhere safe. Each one signs you in once if you lose your authenticator — this is the only time they are shown.'))}</p>
+        <ul class="totp-codes">${list}</ul>
+        <p><button class="btn-sm" id="totp-copy">${esc(I18n.t('Copy'))}</button></p>`,
+      onOpen: (root) => {
+        root.querySelector('#totp-copy')?.addEventListener('click', () => {
+          navigator.clipboard?.writeText(codes.join('\n')).then(
+            () => toast(I18n.t('Copied')),
+            () => toast(I18n.t('Could not copy')),
+          );
+        });
+      },
+    });
+  }
+
+  async function startTotpSetup() {
+    let started;
+    try {
+      await ensureQrLib();
+      started = await API.totpStart();
+    } catch (e) { toast(e.message, 6000); return; }
+
+    const code = await Dialog.form(
+      I18n.t('Set up two-step verification'),
+      `<p class="set-hint" style="margin-top:0">${esc(I18n.t('Scan this with your authenticator app, then enter the 6-digit code it shows.'))}</p>
+       <div class="totp-qr" id="totp-qr"></div>
+       <p class="set-hint">${esc(I18n.t('Cannot scan? Enter this key by hand:'))}<br><code class="totp-secret">${esc(started.secret)}</code></p>
+       <label class="dialog-label">${esc(I18n.t('Code from the app'))}</label>
+       <input class="dialog-input" id="totp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000">`,
+      {
+        okLabel: I18n.t('Turn on'),
+        getValue: (root) => root.querySelector('#totp-code').value.trim(),
+        onOpen: (root) => {
+          // The URI carries the secret, so it is built by the server and only
+          // ever rendered here — never logged, never put in a URL bar.
+          root.querySelector('#totp-qr').innerHTML = qrSvg(started.uri);
+          root.querySelector('#totp-code').focus();
+        },
+      },
+    );
+    if (!code) return; // cancelled — the pending secret is left unconfirmed and simply never used
+    try {
+      const r = await API.totpEnable(code);
+      totpState = await API.totpStatus();
+      renderTotpCard();
+      await showRecoveryCodes(r.recoveryCodes || []);
+    } catch (e) { toast(e.message, 6000); }
+  }
+
+  /** Both destructive-ish actions ask for the account password. See the route
+   *  comments in server/index.js: a CODE would be the wrong thing to ask for,
+   *  because the moment you need to turn this off is the moment you cannot
+   *  produce one. */
+  async function askPassword(title, okLabel) {
+    return Dialog.form(
+      I18n.t(title),
+      `<label class="dialog-label">${esc(I18n.t('Your Hmelj password'))}</label>
+       <input class="dialog-input" type="password" id="totp-pass" autocomplete="current-password">`,
+      { okLabel: I18n.t(okLabel), getValue: (root) => root.querySelector('#totp-pass').value },
+    );
+  }
+
+  function renderTotpCard() {
+    const card = document.getElementById('totp-card');
+    if (!card) return;
+    if (totpState === null) { card.innerHTML = `<div class="set-hint">${esc(I18n.t('Loading…'))}</div>`; return; }
+    const on = totpState.enabled;
+    card.innerHTML = `
+      <div class="row" style="margin-bottom:8px"><b>${esc(I18n.t('Two-step verification'))}</b></div>
+      <p class="set-hint" style="grid-column:auto;margin:0 0 10px">${esc(I18n.t(on
+        ? 'Signing in on the web asks for a code from your authenticator app as well as your password.'
+        : 'Ask for a code from an authenticator app as well as your password when signing in on the web.'))}
+        ${esc(I18n.t('App passwords are not affected — calendar and contacts clients keep working as they are.'))}</p>
+      ${on
+        ? `<p class="set-hint" style="margin:0 0 10px">✅ ${esc(I18n.t('On'))}${totpState.enabledAt ? ` — ${esc(fmtDate(totpState.enabledAt, { long: true }))}` : ''}
+             · ${esc(I18n.t('{n} recovery codes left').replace('{n}', totpState.recoveryLeft))}</p>
+           <p><button class="btn-sm" id="totp-codes">${esc(I18n.t('New recovery codes'))}</button>
+              <button class="btn-sm danger" id="totp-off">${esc(I18n.t('Turn off'))}</button></p>`
+        : `<p><button class="btn-sm" id="totp-on">${esc(I18n.t('Set up two-step verification'))}</button></p>`}`;
+
+    card.querySelector('#totp-on')?.addEventListener('click', startTotpSetup);
+    card.querySelector('#totp-off')?.addEventListener('click', async () => {
+      const pass = await askPassword('Turn off two-step verification', 'Turn off');
+      if (!pass) return;
+      try {
+        await API.totpDisable(pass);
+        totpState = await API.totpStatus();
+        renderTotpCard();
+        toast(I18n.t('Two-step verification is off'));
+      } catch (e) { toast(e.message, 6000); }
+    });
+    card.querySelector('#totp-codes')?.addEventListener('click', async () => {
+      const pass = await askPassword('New recovery codes', 'Generate');
+      if (!pass) return;
+      try {
+        const r = await API.totpRecoveryCodes(pass);
+        totpState = await API.totpStatus();
+        renderTotpCard();
+        await showRecoveryCodes(r.recoveryCodes || []);
+      } catch (e) { toast(e.message, 6000); }
+    });
+  }
+
   function renderSecurity() {
     body().innerHTML = `
       <div class="card" style="margin-bottom:14px">
@@ -3485,8 +3648,13 @@ const Settings = (() => {
         </div>
         <p><button class="btn-sm" id="sec-user-save">${I18n.t('Change username')}</button> <span class="set-hint" id="sec-user-status" style="margin:0"></span></p>
       </div>
+      <div class="card" style="margin-top:14px" id="totp-card"></div>
       <div class="card" style="margin-top:14px" id="ap-card"></div>`;
 
+    renderTotpCard();
+    if (totpState === null) {
+      API.totpStatus().then((t) => { totpState = t; renderTotpCard(); }).catch(() => {});
+    }
     renderAppPasswords();
     if (apList === null) loadAppPasswords().then(renderAppPasswords);
 

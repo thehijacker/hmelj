@@ -1435,6 +1435,108 @@ function showMuteMenu(accountId, path, x, y) {
   openCtxMenu(items, x, y);
 }
 
+/* ---------- creating and managing folders from the sidebar ----------
+ *
+ * The server routes and API helpers already existed for Settings › Folders
+ * (index.js's /api/folders family, api.js's createFolder/renameFolder/
+ * deleteFolder). All that was missing was reaching them from the folder you
+ * are actually looking at.
+ */
+
+/** The separator this account nests folders with. Read off the folder rows the
+ *  server sent (cache.js#getFolders carries it), never assumed: Gmail uses
+ *  '/', Courier-style IMAP uses '.', Exchange has its own. Guessing wrong does
+ *  not fail — it silently creates a top-level folder with a slash in its
+ *  NAME, which then cannot be nested or cleanly deleted. */
+function folderDelimiter() {
+  return (state.folders || []).find((f) => f.delimiter)?.delimiter || '/';
+}
+
+/** The account's own special folders, which may not be renamed or deleted from
+ *  here: breaking the link between the account's Sent/Drafts/Trash setting and
+ *  a real folder does not announce itself — mail simply stops being filed
+ *  where it should be, days later. Settings › Folders is where those are
+ *  repointed, deliberately. */
+function isProtectedFolder(path) {
+  if (String(path).toUpperCase() === 'INBOX') return true;
+  const a = acct();
+  if (!a) return false;
+  return [a.sentFolder, a.draftsFolder, a.trashFolder, a.junkFolder, a.archiveFolder, a.snoozeFolder]
+    .filter(Boolean).includes(path);
+}
+
+/** The leaf name and the parent prefix of a path, split on this account's own
+ *  delimiter. Rename edits only the leaf, so renaming can never silently MOVE
+ *  a folder to a different parent. */
+function splitFolderPath(path) {
+  const d = folderDelimiter();
+  const at = String(path).lastIndexOf(d);
+  return at < 0 ? { parent: '', leaf: String(path) } : { parent: path.slice(0, at + d.length), leaf: path.slice(at + d.length) };
+}
+
+/** Create, then show it: a folder made and left invisible reads as a failure.
+ *  loadFolders() re-reads the sidebar; the server already refreshed its own
+ *  cache and broadcast to other tabs. */
+async function createFolderAt(fullPath) {
+  try {
+    await API.createFolder(fullPath);
+    toast(`${I18n.t('Folder created')}: ${fullPath}`);
+    await loadFolders();
+  } catch (e) { toast(I18n.t('Could not create the folder') + ': ' + e.message, 6000); }
+}
+
+/** Folders a date sweep may run on: not the ones with a job of their own.
+ *  Mirrors archive.js#isArchivableFolder on the server, which is the one that
+ *  actually enforces it. */
+function isArchivableFrom(path) {
+  const a = acct();
+  if (!a || !path || path.startsWith('__')) return false;
+  return ![a.sentFolder, a.draftsFolder, a.trashFolder, a.junkFolder, a.archiveFolder, a.snoozeFolder]
+    .filter(Boolean).includes(path);
+}
+
+/**
+ * "Archive before…": pick a date, hear how many messages that is, then decide.
+ *
+ * Two round trips on purpose. The count is the whole basis on which somebody
+ * says yes to moving mail in bulk, and a confirmation that cannot name one
+ * ("archive old mail in this folder?") is not a confirmation.
+ */
+async function askArchiveBefore(path) {
+  // A year back: old enough that the answer is rarely "all of it", recent
+  // enough to be a plausible default rather than a number to be overwritten.
+  const suggested = new Date();
+  suggested.setFullYear(suggested.getFullYear() - 1);
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const before = await Dialog.form(
+    I18n.t('Archive before'),
+    `<label class="dialog-label">${esc(I18n.t('Move messages that arrived before this date'))}</label>
+     <input class="dialog-input" type="date" id="arch-date" value="${escAttr(iso(suggested))}">
+     <div class="set-hint">${esc(I18n.t('They move to this account\'s Archive folder. Mail that arrived ON the date you pick stays.'))}</div>`,
+    { okLabel: I18n.t('Continue'), getValue: (r) => r.querySelector('#arch-date').value },
+  );
+  if (!before) return;
+
+  let count;
+  try {
+    ({ count } = await API.archiveBefore(path, before, { dryRun: true }));
+  } catch (e) { toast(I18n.t('Could not count those messages') + ': ' + e.message, 6000); return; }
+  if (!count) { toast(I18n.t('Nothing in this folder is older than that')); return; }
+
+  if (!await Dialog.confirm(
+    `${I18n.t('Move {n} message(s) to the Archive?').replace('{n}', count)} ${I18n.t('This is not undone message by message — they can be moved back from the Archive folder.')}`,
+    { title: I18n.t('Archive before'), okLabel: I18n.t('Archive') })) return;
+
+  toast(I18n.t('Archiving…'));
+  try {
+    const r = await API.archiveBefore(path, before);
+    toast(`${I18n.t('Archived')} ${r.moved} ${I18n.t('message(s)')}`, 5000);
+    await loadFolders();
+    if (state.currentFolder === path) loadMessages();
+  } catch (e) { toast(I18n.t('Archiving failed') + ': ' + e.message, 8000); }
+}
+
 function showFolderMenu(path, x, y) {
   const items = [{
     label: 'Mark all as read',
@@ -1484,6 +1586,74 @@ function showFolderMenu(path, x, y) {
         } catch (e) { toast('Empty failed: ' + e.message); }
       },
     });
+  }
+  // "Archive before…" — only where there is an Archive folder to move into
+  // (withRefileBoxes puts hasArchive on the account) and only from a folder it
+  // makes sense to sweep. The server checks both again; this is what stops the
+  // entry being offered and then refused.
+  if (account && !account.shared && account.hasArchive && isArchivableFrom(path)) {
+    items.push({ label: `🗄 ${I18n.t('Archive before…')}`, onClick: () => askArchiveBefore(path) });
+  }
+  // Folder management. Only on an account of your own: a shared-in account's
+  // folders belong to whoever shared it, and the server would refuse anyway —
+  // the same reasoning the Mute entry above uses.
+  if (account && !account.shared) {
+    const d = folderDelimiter();
+    items.push({
+      label: `📁 ${I18n.t('New folder…')}`,
+      onClick: async () => {
+        const name = await Dialog.prompt(I18n.t('New folder'), { label: I18n.t('Name') });
+        if (name) createFolderAt(name);
+      },
+    });
+    items.push({
+      label: `📂 ${I18n.t('New subfolder…')}`,
+      onClick: async () => {
+        const name = await Dialog.prompt(I18n.t('New subfolder'), {
+          label: I18n.t('Name'),
+          hint: `${I18n.t('Inside')} ${esc(path)}`,
+        });
+        // The name is a LEAF, so a delimiter typed into it would create a
+        // level nobody asked for — and on a server that forbids it, an error
+        // instead of a folder. Folded to a space, which is what the user
+        // almost certainly meant by it.
+        if (name) createFolderAt(path + d + name.split(d).join(' ').trim());
+      },
+    });
+    if (!isProtectedFolder(path)) {
+      items.push({
+        label: `✏️ ${I18n.t('Rename…')}`,
+        onClick: async () => {
+          const { parent, leaf } = splitFolderPath(path);
+          const next = await Dialog.prompt(I18n.t('Rename folder'), { label: I18n.t('Name'), value: leaf });
+          if (!next || next === leaf) return;
+          const target = parent + next.split(d).join(' ').trim();
+          try {
+            await API.renameFolder(path, target);
+            toast(I18n.t('Renamed'));
+            await loadFolders();
+            // Following it matters more than it sounds: the old path is gone,
+            // so a list still pointed at it would sit there empty with no
+            // explanation.
+            if (state.currentFolder === path) openFolder(target);
+          } catch (e) { toast(I18n.t('Could not rename the folder') + ': ' + e.message, 6000); }
+        },
+      });
+      items.push({
+        label: `🗑 ${I18n.t('Delete folder')}`, danger: true,
+        onClick: async () => {
+          if (!await Dialog.confirm(
+            `${I18n.t('Delete the folder')} "${path}" ${I18n.t('and every message in it?')}`,
+            { title: I18n.t('Delete folder'), okLabel: I18n.t('Delete'), danger: true })) return;
+          try {
+            await API.deleteFolder(path);
+            toast(I18n.t('Folder deleted'));
+            await loadFolders();
+            if (state.currentFolder === path) openFolder('INBOX');
+          } catch (e) { toast(I18n.t('Could not delete the folder') + ': ' + e.message, 6000); }
+        },
+      });
+    }
   }
   openCtxMenu(items, x, y);
 }

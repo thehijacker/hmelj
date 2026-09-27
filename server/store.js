@@ -470,6 +470,17 @@ export const store = {
   getRefileOrigins: () => load('refile-origins', {}),
   saveRefileOrigins(map) { save('refile-origins', map); return map; },
 
+  /* When each account was last swept by the auto-archive runner
+   * (server/autoArchive.js), as `{ [accountId]: epochMs }`.
+   *
+   * On disk rather than in memory because the runner must not sweep an account
+   * again just because the server restarted: a sweep is dozens of folder moves
+   * against somebody's mailbox, and a restart loop would repeat them all day.
+   * Explicit-userKey variants, because the runner walks every user from
+   * outside any request and has no ALS context of its own to read one from. */
+  getAutoArchiveRunsFor: (uKey) => loadFor(uKey, 'auto-archive-runs', {}),
+  saveAutoArchiveRunsFor(uKey, map) { saveFor(uKey, 'auto-archive-runs', map); return map; },
+
   /* Addresses the display-name check must leave alone.
    *
    * The check (public/js/app.js#authSpoofCheck) warns when a message wears the

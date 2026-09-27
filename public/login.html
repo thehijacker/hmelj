@@ -32,7 +32,9 @@
   .login-error { color: var(--danger); font-size: 13px; margin-top: 14px; text-align: center; min-height: 18px; }
   .lang-row { display: flex; justify-content: flex-end; }
   .lang-row select { font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
-  .login-alt { text-align: center; margin-top: 16px; }
+  /* flex, not text-align: the two-step screen shows two of these side by side
+     ("Use a recovery code" and "Back") and they would otherwise run together. */
+  .login-alt { display: flex; gap: 14px; justify-content: center; margin-top: 16px; }
   .login-alt .link-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13.5px; }
   .remember-row { display: flex; align-items: center; gap: 7px; margin: 16px 0 0; font-size: 13px; color: var(--text-muted); cursor: pointer; }
   .remember-row input { width: auto; padding: 0; }
@@ -49,14 +51,30 @@
     <h1 id="mode-title">Sign in to Hmelj</h1>
     <div class="sub" id="mode-sub"></div>
     <div class="offline-banner" id="offline-banner" hidden>📶 <span id="offline-banner-text">Offline — waiting for a connection</span></div>
-    <label for="username">Username or e-mail</label>
-    <input id="username" type="text" autocomplete="username" autofocus>
-    <label for="password">Password</label>
-    <input id="password" type="password" autocomplete="current-password">
-    <label class="remember-row"><input id="remember" type="checkbox" checked> <span id="remember-label">Stay signed in</span></label>
+    <div id="step-password">
+      <label for="username">Username or e-mail</label>
+      <input id="username" type="text" autocomplete="username" autofocus>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password">
+      <label class="remember-row"><input id="remember" type="checkbox" checked> <span id="remember-label">Stay signed in</span></label>
+    </div>
+    <!-- The second factor, when the account has one (server/totp.js). A step
+         rather than a second page: the ticket the password step returns is
+         short-lived, so this must not cost a navigation. inputmode=numeric +
+         one-time-code gets the phone keyboard right and lets iOS offer the
+         code straight from Messages/the authenticator. -->
+    <div id="step-totp" hidden>
+      <label for="totp-code" id="totp-label">Authentication code</label>
+      <input id="totp-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="11" placeholder="000000">
+      <div class="sub" id="totp-hint">Open your authenticator app and enter the 6-digit code.</div>
+    </div>
     <button id="btn-login">Sign in</button>
     <div class="login-error" id="error"></div>
-    <div class="login-alt"><button class="link-btn" id="btn-mode" hidden>Create account</button></div>
+    <div class="login-alt">
+      <button class="link-btn" id="btn-mode" hidden>Create account</button>
+      <button class="link-btn" id="btn-recovery" hidden>Use a recovery code</button>
+      <button class="link-btn" id="btn-back" hidden>Back</button>
+    </div>
   </div>
 </div>
 <script src="/js/i18n.js"></script>
@@ -136,7 +154,83 @@
 
   const err = document.getElementById('error');
   const btn = document.getElementById('btn-login');
+
+  /* ---------- the second factor ----------
+   * `ticket` is what /api/login hands back instead of a session when the
+   * account has one: proof the password was right, good for five minutes and
+   * for one attempt. Holding it in a variable rather than anywhere persistent
+   * is deliberate — reloading the page should start the sign-in over, not
+   * resume half of it.
+   */
+  let ticket = null;
+  let recoveryMode = false;
+  const $ = (id) => document.getElementById(id);
+
+  function showTotpStep(on) {
+    $('step-password').hidden = on;
+    $('step-totp').hidden = !on;
+    $('btn-recovery').hidden = !on || recoveryMode;
+    $('btn-back').hidden = !on;
+    modeBtn.hidden = on || !allowSignup;
+    $('mode-title').textContent = I18n.t(on ? 'Two-step verification' : (signupMode ? 'Create a Hmelj account' : 'Sign in to Hmelj'));
+    if (on) $('totp-code').focus();
+  }
+
+  function setRecoveryMode(on) {
+    recoveryMode = on;
+    $('totp-label').textContent = I18n.t(on ? 'Recovery code' : 'Authentication code');
+    $('totp-hint').textContent = I18n.t(on
+      ? 'Enter one of the recovery codes you saved when you turned this on. Each one works once.'
+      : 'Open your authenticator app and enter the 6-digit code.');
+    $('totp-code').placeholder = on ? 'XXXXX-XXXXX' : '000000';
+    $('totp-code').setAttribute('inputmode', on ? 'text' : 'numeric');
+    $('btn-recovery').hidden = on;
+    $('totp-code').value = '';
+    $('totp-code').focus();
+  }
+
+  function resetToPassword() {
+    ticket = null;
+    setRecoveryMode(false);
+    showTotpStep(false);
+    err.textContent = '';
+    $('password').value = '';
+    $('password').focus();
+  }
+
+  $('btn-recovery').addEventListener('click', () => setRecoveryMode(true));
+  $('btn-back').addEventListener('click', resetToPassword);
+
+  /** The code step. Shares the button and the error line with the password
+   *  step, so there is one place that says what went wrong. */
+  async function submitCode() {
+    err.textContent = '';
+    const code = $('totp-code').value.trim();
+    if (!code) return;
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/login/totp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket, code, remember: $('remember').checked }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { location.replace('/'); return; }
+      err.textContent = I18n.t(d.error || 'That code is not right');
+      // The ticket is spent on the server whether the code was right or not,
+      // so a second try has to start from the password — saying so beats
+      // letting them type three more codes against a handle that is gone.
+      ticket = null;
+      $('totp-code').value = '';
+      $('btn-back').hidden = false;
+    } catch {
+      err.textContent = I18n.t('Cannot reach the Hmelj server');
+    }
+    btn.disabled = false;
+  }
+
   async function submit() {
+    if (ticket) return submitCode();
     err.textContent = '';
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
@@ -156,6 +250,9 @@
         body: JSON.stringify({ username, password, remember }),
       });
       const d = await r.json().catch(() => ({}));
+      // Right password, account has a second factor: no session yet, just a
+      // ticket to trade for one. The response is 200 — nothing has failed.
+      if (r.ok && d.totpRequired) { ticket = d.ticket; btn.disabled = false; showTotpStep(true); return; }
       if (r.ok) { location.replace('/'); return; }
       err.textContent = I18n.t(d.error || 'Invalid username or password');
     } catch {

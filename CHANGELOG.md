@@ -9,6 +9,12 @@ set when the release is tagged — entries are never given one in advance.
 
 ## Unreleased
 
+### Optional two-step verification on the web login, with an authenticator app and recovery codes
+
+### Create, rename and delete folders by right-clicking one in the sidebar
+
+### Archive mail before a date, by hand or once a day per account
+
 ### A live account keeps its connection warm, so the first click after a pause is not slow
 
 ### Fixed: opening a message marked it read only once the server answered

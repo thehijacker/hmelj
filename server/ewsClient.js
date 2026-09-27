@@ -1524,6 +1524,59 @@ export async function markAllRead(path) {
   return { marked: uids.length, uids };
 }
 
+/**
+ * imapClient.js#findOlderThan on Exchange — the ItemIds in this folder
+ * received before `before`.
+ *
+ * A paged IdOnly FindItem with an IsLessThan restriction on DateTimeReceived,
+ * modelled on markAllRead above. Paged rather than capped, unlike that one:
+ * "everything older than 2024" in a mailbox nobody has ever archived is
+ * exactly the case where the answer runs to thousands, and silently returning
+ * the first thousand would archive part of what was asked for and report it as
+ * all of it.
+ *
+ * ChangeKeys are primed as they go past, the same way markAllRead does, so the
+ * move that follows does not re-fetch one per item.
+ */
+export async function findOlderThan(path, before) {
+  const acc = currentAccount();
+  const { id } = await resolveFolderId(path);
+  const iso = new Date(before).toISOString();
+  const out = [];
+  const PAGE = 500;
+  for (let offset = 0; ; offset += PAGE) {
+    const body = `<m:FindItem Traversal="Shallow">
+      <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+      <m:IndexedPageItemView MaxEntriesReturned="${PAGE}" Offset="${offset}" BasePoint="Beginning"/>
+      <m:Restriction>
+        <t:IsLessThan>
+          <t:FieldURI FieldURI="item:DateTimeReceived"/>
+          <t:FieldURIOrConstant><t:Constant Value="${escXml(iso)}"/></t:FieldURIOrConstant>
+        </t:IsLessThan>
+      </m:Restriction>
+      <m:ParentFolderIds><t:FolderId Id="${escXml(id)}"/></m:ParentFolderIds>
+    </m:FindItem>`;
+    const xml = await soapRequest(acc.ews, 'FindItem', body);
+    const parsed = xmlParser.parse(xml);
+    const msg = asArray(parsed?.Envelope?.Body?.FindItemResponse?.ResponseMessages?.FindItemResponseMessage)[0];
+    checkResponseCode(msg, 'FindItem');
+    const root = msg?.RootFolder;
+    const items = itemsOf(root?.Items);
+    for (const it of items) {
+      const itemId = it.ItemId?.['@_Id'];
+      if (!itemId) continue;
+      rememberChangeKey(acc, path, itemId, it.ItemId?.['@_ChangeKey']);
+      out.push(itemId);
+    }
+    // Exchange says so itself; the length check is the backstop for a server
+    // that does not set the attribute, and stops this looping forever.
+    if (root?.['@_IncludesLastItemInRange'] === 'true' || root?.['@_IncludesLastItemInRange'] === true) break;
+    if (items.length < PAGE) break;
+  }
+  ilog.debug(`findOlderThan ${path}: ${out.length} item(s) before ${iso}`);
+  return out;
+}
+
 /** Cheap flags-only refresh for the background poller's reconciliation pass
  * (see sync.js#pollFolder) — same shape as imapClient.js's own refreshFlags:
  * one batched GetItem, IdOnly + just the two fields that matter. */

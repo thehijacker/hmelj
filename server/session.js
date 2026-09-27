@@ -16,7 +16,8 @@ import { config } from './config.js';
 // already documented is: both sides only touch the other's export from
 // inside a function body, at call time (requireAuth runs per-request, long
 // after both modules have finished loading), never at module-top-level.
-import { isOwnAccount, resolveSharedOwnerKey } from './accounts.js';
+import { isOwnAccount, resolveSharedOwnerKey, encrypt, decrypt } from './accounts.js';
+import { verify as verifyTotp, normalizeRecoveryCode } from './totp.js';
 
 const als = new AsyncLocalStorage();
 const sessions = new Map(); // token -> { userId, username, userKey, createdAt, lastSeen, ttlMs }
@@ -196,6 +197,114 @@ export function renameUser(userId, newUsername) {
 export function isAdminUser(username) {
   const u = findUser(username);
   return !!(u && u.isAdmin && !u.disabled);
+}
+
+/* ---------- second factor (server/totp.js) ----------
+ *
+ * The record lives on the user in auth.json as
+ * `totp: { secret, pending, enabledAt, recoveryCodes: [] }` — absent means off,
+ * which is what every existing install has and what every new user starts as.
+ *
+ * `secret` goes through the same encrypt()/decrypt() that protects mail account
+ * passwords, so auth.json read off a backup disk does not hand over the second
+ * factor along with it. `pending` is a secret generated for a setup that has
+ * not been confirmed yet: it is deliberately a SEPARATE field, so an
+ * interrupted setup — the QR shown, the phone not scanned — cannot leave an
+ * account demanding codes from an authenticator nobody has.
+ *
+ * Recovery codes are stored as scrypt digests, never in the clear, for the same
+ * reason the password is: they ARE a password, one that bypasses the factor.
+ * That is also why they can only be shown once and regenerated, never re-read.
+ */
+
+/** The record with its secrets decrypted, or null. Server-side use only. */
+export function getTotp(userId) {
+  const u = loadUsers().find((x) => x.id === userId);
+  if (!u?.totp) return null;
+  const t = u.totp;
+  return {
+    enabled: !!t.enabledAt,
+    enabledAt: t.enabledAt || null,
+    secret: t.secret ? decrypt(t.secret) : '',
+    pending: t.pending ? decrypt(t.pending) : '',
+    recoveryLeft: (t.recoveryCodes || []).length,
+  };
+}
+
+/** Whether a login has to ask for a code. Cheap, and the only thing the login
+ *  route needs to know. */
+export function totpEnabled(userId) {
+  return !!loadUsers().find((x) => x.id === userId)?.totp?.enabledAt;
+}
+
+function writeTotp(userId, mutate) {
+  const users = loadUsers();
+  const target = users.find((u) => u.id === userId);
+  if (!target) throw new Error('User not found');
+  const next = mutate({ ...(target.totp || {}) });
+  if (next) target.totp = next; else delete target.totp;
+  saveUsers(users);
+  return next;
+}
+
+/** Start an enrolment: hold `secret` as pending, leaving any ENABLED factor
+ *  exactly as it was until the new one is confirmed. */
+export function setPendingTotp(userId, secret) {
+  writeTotp(userId, (t) => ({ ...t, pending: encrypt(secret) }));
+}
+
+/** Confirm the pending secret and store the recovery codes. Returns nothing —
+ *  the plaintext codes are the caller's to show once and then forget. */
+export function enableTotp(userId, secret, recoveryCodes) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  writeTotp(userId, () => ({
+    secret: encrypt(secret),
+    enabledAt: new Date().toISOString(),
+    recoverySalt: salt,
+    recoveryCodes: recoveryCodes.map((c) => scryptHash(normalizeRecoveryCode(c), salt)),
+  }));
+}
+
+/** Turn it off completely — the record goes, rather than being left disabled
+ *  with a live secret still on disk. */
+export function disableTotp(userId) {
+  writeTotp(userId, () => null);
+}
+
+/** Replace the recovery codes on an already-enabled factor. */
+export function resetRecoveryCodes(userId, recoveryCodes) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  writeTotp(userId, (t) => ({
+    ...t,
+    recoverySalt: salt,
+    recoveryCodes: recoveryCodes.map((c) => scryptHash(normalizeRecoveryCode(c), salt)),
+  }));
+}
+
+/**
+ * Check a code at login: the authenticator's six digits, or one recovery code.
+ *
+ * A recovery code that matches is REMOVED before this returns — that is what
+ * makes it one-time, and it has to happen here, inside the read-modify-write,
+ * rather than being left to the caller to remember.
+ */
+export function verifySecondFactor(userId, code) {
+  const users = loadUsers();
+  const u = users.find((x) => x.id === userId);
+  const t = u?.totp;
+  if (!t?.enabledAt) return false;
+  if (t.secret && verifyTotp(decrypt(t.secret), code)) return true;
+
+  const given = normalizeRecoveryCode(code);
+  if (!given || !t.recoverySalt) return false;
+  const hash = scryptHash(given, t.recoverySalt);
+  const idx = (t.recoveryCodes || []).findIndex(
+    (h) => h.length === hash.length && crypto.timingSafeEqual(Buffer.from(h), Buffer.from(hash)),
+  );
+  if (idx < 0) return false;
+  t.recoveryCodes.splice(idx, 1);
+  saveUsers(users);
+  return true;
 }
 
 /** Admin-facing user list (never includes salt/hash). */
