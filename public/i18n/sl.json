@@ -1172,7 +1172,6 @@
     "Size limit reached — pausing until older mail ages out": "Dosežena omejitev velikosti — premor, dokler starejša pošta ne izpade iz predpomnilnika",
     "Turn on": "Vklopi",
     "Turned on": "Vklopljeno",
-    "Save failed": "Shranjevanje ni uspelo",
     "Turn off": "Izklopi",
     "Stop searching inside this account's messages? The index is deleted; your mail and its cached content are untouched.": "Ali želite ustaviti iskanje po vsebini sporočil tega računa? Indeks bo izbrisan; vaša pošta in njena predpomnjena vsebina ostaneta nedotaknjeni.",
     "Indexing started — searching inside messages will get more complete over the next few minutes.": "Indeksiranje se je začelo — iskanje po vsebini sporočil bo v naslednjih minutah vse popolnejše.",
@@ -1468,144 +1467,19 @@
     "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.": "Odkljukajte, če boste to geslo dali nekomu drugemu samo za določene zbirke. Do ničesar, kar boste delili pozneje, ne bo imelo dostopa.",
     "This password reaches only these shared collections.": "To geslo doseže samo te deljene zbirke.",
     "(removed)": "(odstranjeno)",
-    "Could not attach": "Ni bilo mogoče pripeti"
+    "Could not attach": "Ni bilo mogoče pripeti",
+    "Show trimmed content": "Pokaži skrito vsebino",
+    "Hide trimmed content": "Skrij skrito vsebino",
+    "(NTLM domain, if required)": "(domena NTLM, če je potrebna)"
   },
   "prefixes": [
-    [
-      "Always trust ",
-      "Vedno zaupaj "
-    ],
-    [
-      "Moved to ",
-      "Premaknjeno v "
-    ],
-    [
-      "Draft saved ",
-      "Osnutek shranjen "
-    ],
-    [
-      "Theme: ",
-      "Tema: "
-    ],
-    [
-      "To: ",
-      "Za: "
-    ],
-    [
-      "Cannot load folders: ",
-      "Map ni mogoče naložiti: "
-    ],
-    [
-      "IMAP connection failed: ",
-      "Povezava IMAP ni uspela: "
-    ],
-    [
-      "IMAP error: ",
-      "Napaka IMAP: "
-    ],
-    [
-      "Startup error: ",
-      "Napaka ob zagonu: "
-    ],
-    [
-      "Send failed: ",
-      "Pošiljanje ni uspelo: "
-    ],
-    [
-      "Draft save failed: ",
-      "Shranjevanje osnutka ni uspelo: "
-    ],
-    [
-      "Create failed: ",
-      "Ustvarjanje ni uspelo: "
-    ],
-    [
-      "Delete failed: ",
-      "Brisanje ni uspelo: "
-    ],
-    [
-      "Restore failed: ",
-      "Obnovitev ni uspela: "
-    ],
-    [
-      "Remove failed: ",
-      "Odstranjevanje ni uspelo: "
-    ],
-    [
-      "Empty failed: ",
-      "Praznjenje ni uspelo: "
-    ],
-    [
-      "Rename failed: ",
-      "Preimenovanje ni uspelo: "
-    ],
-    [
-      "Save failed: ",
-      "Shranjevanje ni uspelo: "
-    ],
-    [
-      "Could not star message: ",
-      "Sporočila ni bilo mogoče označiti z zvezdico: "
-    ],
-    [
-      "Could not update message: ",
-      "Sporočila ni bilo mogoče posodobiti: "
-    ],
-    [
-      "Move failed: ",
-      "Premikanje ni uspelo: "
-    ],
-    [
-      "Could not load headers: ",
-      "Glav ni bilo mogoče naložiti: "
-    ],
-    [
-      "Error: ",
-      "Napaka: "
-    ],
-    [
-      "Could not save order: ",
-      "Vrstnega reda ni bilo mogoče shraniti: "
-    ],
-    [
-      "Exchange import failed: ",
-      "Uvoz iz Exchange ni uspel: "
-    ],
-    [
-      "Could not add contacts: ",
-      "Stikov ni bilo mogoče dodati: "
-    ],
-    [
-      "Mark as read failed: ",
-      "Označevanje kot prebrano ni uspelo: "
-    ],
-    [
-      "Mute failed: ",
-      "Utišanje ni uspelo: "
-    ],
-    [
-      "Action failed: ",
-      "Dejanje ni uspelo: "
-    ],
-    [
-      "Test failed: ",
-      "Preizkus ni uspel: "
-    ],
-    [
-      "Could not send: ",
-      "Pošiljanje ni bilo mogoče: "
-    ],
-    [
-      "Could not start: ",
-      "Ni bilo mogoče začeti: "
-    ],
     [
       "Could not check the selection: ",
       "Izbora ni bilo mogoče preveriti: "
     ],
     [
-      "Connection test failed: ",
-      "Preizkus povezave ni uspel: "
+      "That sign-in did not complete: ",
+      "Prijava ni bila dokončana: "
     ],
     [
       "Could not reach that server: ",
@@ -1616,16 +1490,176 @@
       "Vira ni bilo mogoče shraniti: "
     ],
     [
-      "Could not share: ",
-      "Deljenje ni uspelo: "
+      "Could not send the receipt: ",
+      "Potrdila ni bilo mogoče poslati: "
+    ],
+    [
+      "Could not update message: ",
+      "Sporočila ni bilo mogoče posodobiti: "
+    ],
+    [
+      "Could not reload message: ",
+      "Sporočila ni bilo mogoče znova naložiti: "
     ],
     [
       "Microsoft import failed: ",
       "Uvoz iz Microsofta ni uspel: "
     ],
     [
-      "That sign-in did not complete: ",
-      "Prijava ni bila dokončana: "
+      "IMAP connection failed: ",
+      "Povezava IMAP ni uspela: "
+    ],
+    [
+      "Could not star message: ",
+      "Sporočila ni bilo mogoče označiti z zvezdico: "
+    ],
+    [
+      "Could not load headers: ",
+      "Glav ni bilo mogoče naložiti: "
+    ],
+    [
+      "Exchange import failed: ",
+      "Uvoz iz Exchange ni uspel: "
+    ],
+    [
+      "Could not add contacts: ",
+      "Stikov ni bilo mogoče dodati: "
+    ],
+    [
+      "Connection test failed: ",
+      "Preizkus povezave ni uspel: "
+    ],
+    [
+      "Could not open message: ",
+      "Sporočila ni bilo mogoče odpreti: "
+    ],
+    [
+      "Could not save order: ",
+      "Vrstnega reda ni bilo mogoče shraniti: "
+    ],
+    [
+      "Could not reschedule: ",
+      "Termina ni bilo mogoče spremeniti: "
+    ],
+    [
+      "Cannot load folders: ",
+      "Map ni mogoče naložiti: "
+    ],
+    [
+      "Mark as read failed: ",
+      "Označevanje kot prebrano ni uspelo: "
+    ],
+    [
+      "Could not schedule: ",
+      "Pošiljanja ni bilo mogoče načrtovati: "
+    ],
+    [
+      "Unsubscribe failed: ",
+      "Odjava ni uspela: "
+    ],
+    [
+      "Draft save failed: ",
+      "Shranjevanje osnutka ni uspelo: "
+    ],
+    [
+      "Could not cancel: ",
+      "Preklic ni uspel: "
+    ],
+    [
+      "Could not start: ",
+      "Ni bilo mogoče začeti: "
+    ],
+    [
+      "Could not share: ",
+      "Deljenje ni uspelo: "
+    ],
+    [
+      "Restore failed: ",
+      "Obnovitev ni uspela: "
+    ],
+    [
+      "Could not send: ",
+      "Pošiljanje ni bilo mogoče: "
+    ],
+    [
+      "Startup error: ",
+      "Napaka ob zagonu: "
+    ],
+    [
+      "Create failed: ",
+      "Ustvarjanje ni uspelo: "
+    ],
+    [
+      "Delete failed: ",
+      "Brisanje ni uspelo: "
+    ],
+    [
+      "Remove failed: ",
+      "Odstranjevanje ni uspelo: "
+    ],
+    [
+      "Rename failed: ",
+      "Preimenovanje ni uspelo: "
+    ],
+    [
+      "Action failed: ",
+      "Dejanje ni uspelo: "
+    ],
+    [
+      "Empty failed: ",
+      "Praznjenje ni uspelo: "
+    ],
+    [
+      "Always trust ",
+      "Vedno zaupaj "
+    ],
+    [
+      "Send failed: ",
+      "Pošiljanje ni uspelo: "
+    ],
+    [
+      "Save failed: ",
+      "Shranjevanje ni uspelo: "
+    ],
+    [
+      "Move failed: ",
+      "Premikanje ni uspelo: "
+    ],
+    [
+      "Mute failed: ",
+      "Utišanje ni uspelo: "
+    ],
+    [
+      "Test failed: ",
+      "Preizkus ni uspel: "
+    ],
+    [
+      "Undo failed: ",
+      "Razveljavitev ni uspela: "
+    ],
+    [
+      "Draft saved ",
+      "Osnutek shranjen "
+    ],
+    [
+      "IMAP error: ",
+      "Napaka IMAP: "
+    ],
+    [
+      "Moved to ",
+      "Premaknjeno v "
+    ],
+    [
+      "Theme: ",
+      "Tema: "
+    ],
+    [
+      "Error: ",
+      "Napaka: "
+    ],
+    [
+      "To: ",
+      "Za: "
     ]
   ],
   "regexes": [

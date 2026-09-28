@@ -173,10 +173,21 @@ const MessageFrame = (() => {
     return null;
   }
 
+  /** The two words on the ⋯ button, translated HERE and carried into the frame.
+   *
+   *  The frame is a separate document on an opaque origin, so the app's i18n
+   *  observer — which walks this page's DOM — never reaches inside it. Anything
+   *  the frame says has to be translated on the way in or not at all, and this
+   *  tooltip was the one string in there still saying it in English. */
+  const quoteLabels = () => ({
+    show: (typeof I18n !== 'undefined' ? I18n.t('Show trimmed content') : 'Show trimmed content'),
+    hide: (typeof I18n !== 'undefined' ? I18n.t('Hide trimmed content') : 'Hide trimmed content'),
+  });
+
   /** The '…' button plus the collapsed block, in the markup shape the frame
    *  script's one toggle handler understands (see the quote block there). */
   function quoteToggleHtml(innerHtml) {
-    return `<button type="button" class="hmelj-quote-toggle" title="Show trimmed content">&#8943;</button>`
+    return `<button type="button" class="hmelj-quote-toggle" title="${attrEsc(quoteLabels().show)}">&#8943;</button>`
       + `<div class="hmelj-quoted">${innerHtml}</div>`;
   }
 
@@ -777,7 +788,7 @@ img.blocked-image{border:1px dashed ${dim};padding:8px;color:${dim};box-sizing:b
     }
     var btns = document.querySelectorAll('.hmelj-quote-toggle');
     for (var j = 0; j < btns.length; j++) {
-      btns[j].title = open ? 'Hide trimmed content' : 'Show trimmed content';
+      btns[j].title = open ? ${JSON.stringify(quoteLabels().hide)} : ${JSON.stringify(quoteLabels().show)};
     }
   }
 

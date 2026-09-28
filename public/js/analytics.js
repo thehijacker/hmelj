@@ -419,7 +419,7 @@ const Analytics = (() => {
     const sizes = summaryData.sizesAvailable;
     body().innerHTML = `
       <div class="an-search">
-        <input id="an-q" placeholder="${I18n.t('e.g. +aliexpress -invoice -&quot;order successful&quot;')}" value="${escAttr(queryText)}">
+        <input id="an-q" placeholder="${escAttr(I18n.t('e.g. +aliexpress -invoice -"order successful"'))}" value="${escAttr(queryText)}">
         <button class="btn-sm" id="btn-an-search">${I18n.t('Search')}</button>
       </div>
       <p class="set-hint">${I18n.t('A bare word or +word must appear; -word must not. Use quotes for phrases. Terms are matched against subject and sender. Nothing is deleted until you confirm, and the confirmation shows the server\'s own count.')}</p>

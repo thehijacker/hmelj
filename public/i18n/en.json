@@ -1172,7 +1172,6 @@
     "Size limit reached — pausing until older mail ages out": "Size limit reached — pausing until older mail ages out",
     "Turn on": "Turn on",
     "Turned on": "Turned on",
-    "Save failed": "Save failed",
     "Turn off": "Turn off",
     "Stop searching inside this account's messages? The index is deleted; your mail and its cached content are untouched.": "Stop searching inside this account's messages? The index is deleted; your mail and its cached content are untouched.",
     "Indexing started — searching inside messages will get more complete over the next few minutes.": "Indexing started — searching inside messages will get more complete over the next few minutes.",
@@ -1468,144 +1467,19 @@
     "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.": "Untick to hand this password to somebody else for particular collections only. It will not reach anything you share afterwards.",
     "This password reaches only these shared collections.": "This password reaches only these shared collections.",
     "(removed)": "(removed)",
-    "Could not attach": "Could not attach"
+    "Could not attach": "Could not attach",
+    "Show trimmed content": "Show trimmed content",
+    "Hide trimmed content": "Hide trimmed content",
+    "(NTLM domain, if required)": "(NTLM domain, if required)"
   },
   "prefixes": [
-    [
-      "Always trust ",
-      "Always trust "
-    ],
-    [
-      "Moved to ",
-      "Moved to "
-    ],
-    [
-      "Draft saved ",
-      "Draft saved "
-    ],
-    [
-      "Theme: ",
-      "Theme: "
-    ],
-    [
-      "To: ",
-      "To: "
-    ],
-    [
-      "Cannot load folders: ",
-      "Cannot load folders: "
-    ],
-    [
-      "IMAP connection failed: ",
-      "IMAP connection failed: "
-    ],
-    [
-      "IMAP error: ",
-      "IMAP error: "
-    ],
-    [
-      "Startup error: ",
-      "Startup error: "
-    ],
-    [
-      "Send failed: ",
-      "Send failed: "
-    ],
-    [
-      "Draft save failed: ",
-      "Draft save failed: "
-    ],
-    [
-      "Create failed: ",
-      "Create failed: "
-    ],
-    [
-      "Delete failed: ",
-      "Delete failed: "
-    ],
-    [
-      "Restore failed: ",
-      "Restore failed: "
-    ],
-    [
-      "Remove failed: ",
-      "Remove failed: "
-    ],
-    [
-      "Empty failed: ",
-      "Empty failed: "
-    ],
-    [
-      "Rename failed: ",
-      "Rename failed: "
-    ],
-    [
-      "Save failed: ",
-      "Save failed: "
-    ],
-    [
-      "Could not star message: ",
-      "Could not star message: "
-    ],
-    [
-      "Could not update message: ",
-      "Could not update message: "
-    ],
-    [
-      "Move failed: ",
-      "Move failed: "
-    ],
-    [
-      "Could not load headers: ",
-      "Could not load headers: "
-    ],
-    [
-      "Error: ",
-      "Error: "
-    ],
-    [
-      "Could not save order: ",
-      "Could not save order: "
-    ],
-    [
-      "Exchange import failed: ",
-      "Exchange import failed: "
-    ],
-    [
-      "Could not add contacts: ",
-      "Could not add contacts: "
-    ],
-    [
-      "Mark as read failed: ",
-      "Mark as read failed: "
-    ],
-    [
-      "Mute failed: ",
-      "Mute failed: "
-    ],
-    [
-      "Action failed: ",
-      "Action failed: "
-    ],
-    [
-      "Test failed: ",
-      "Test failed: "
-    ],
-    [
-      "Could not send: ",
-      "Could not send: "
-    ],
-    [
-      "Could not start: ",
-      "Could not start: "
-    ],
     [
       "Could not check the selection: ",
       "Could not check the selection: "
     ],
     [
-      "Connection test failed: ",
-      "Connection test failed: "
+      "That sign-in did not complete: ",
+      "That sign-in did not complete: "
     ],
     [
       "Could not reach that server: ",
@@ -1616,16 +1490,176 @@
       "Could not save that source: "
     ],
     [
-      "Could not share: ",
-      "Could not share: "
+      "Could not send the receipt: ",
+      "Could not send the receipt: "
+    ],
+    [
+      "Could not update message: ",
+      "Could not update message: "
+    ],
+    [
+      "Could not reload message: ",
+      "Could not reload message: "
     ],
     [
       "Microsoft import failed: ",
       "Microsoft import failed: "
     ],
     [
-      "That sign-in did not complete: ",
-      "That sign-in did not complete: "
+      "IMAP connection failed: ",
+      "IMAP connection failed: "
+    ],
+    [
+      "Could not star message: ",
+      "Could not star message: "
+    ],
+    [
+      "Could not load headers: ",
+      "Could not load headers: "
+    ],
+    [
+      "Exchange import failed: ",
+      "Exchange import failed: "
+    ],
+    [
+      "Could not add contacts: ",
+      "Could not add contacts: "
+    ],
+    [
+      "Connection test failed: ",
+      "Connection test failed: "
+    ],
+    [
+      "Could not open message: ",
+      "Could not open message: "
+    ],
+    [
+      "Could not save order: ",
+      "Could not save order: "
+    ],
+    [
+      "Could not reschedule: ",
+      "Could not reschedule: "
+    ],
+    [
+      "Cannot load folders: ",
+      "Cannot load folders: "
+    ],
+    [
+      "Mark as read failed: ",
+      "Mark as read failed: "
+    ],
+    [
+      "Could not schedule: ",
+      "Could not schedule: "
+    ],
+    [
+      "Unsubscribe failed: ",
+      "Unsubscribe failed: "
+    ],
+    [
+      "Draft save failed: ",
+      "Draft save failed: "
+    ],
+    [
+      "Could not cancel: ",
+      "Could not cancel: "
+    ],
+    [
+      "Could not start: ",
+      "Could not start: "
+    ],
+    [
+      "Could not share: ",
+      "Could not share: "
+    ],
+    [
+      "Restore failed: ",
+      "Restore failed: "
+    ],
+    [
+      "Could not send: ",
+      "Could not send: "
+    ],
+    [
+      "Startup error: ",
+      "Startup error: "
+    ],
+    [
+      "Create failed: ",
+      "Create failed: "
+    ],
+    [
+      "Delete failed: ",
+      "Delete failed: "
+    ],
+    [
+      "Remove failed: ",
+      "Remove failed: "
+    ],
+    [
+      "Rename failed: ",
+      "Rename failed: "
+    ],
+    [
+      "Action failed: ",
+      "Action failed: "
+    ],
+    [
+      "Empty failed: ",
+      "Empty failed: "
+    ],
+    [
+      "Always trust ",
+      "Always trust "
+    ],
+    [
+      "Send failed: ",
+      "Send failed: "
+    ],
+    [
+      "Save failed: ",
+      "Save failed: "
+    ],
+    [
+      "Move failed: ",
+      "Move failed: "
+    ],
+    [
+      "Mute failed: ",
+      "Mute failed: "
+    ],
+    [
+      "Test failed: ",
+      "Test failed: "
+    ],
+    [
+      "Undo failed: ",
+      "Undo failed: "
+    ],
+    [
+      "Draft saved ",
+      "Draft saved "
+    ],
+    [
+      "IMAP error: ",
+      "IMAP error: "
+    ],
+    [
+      "Moved to ",
+      "Moved to "
+    ],
+    [
+      "Theme: ",
+      "Theme: "
+    ],
+    [
+      "Error: ",
+      "Error: "
+    ],
+    [
+      "To: ",
+      "To: "
     ]
   ],
   "regexes": [
