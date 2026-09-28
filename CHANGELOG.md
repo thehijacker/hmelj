@@ -7,7 +7,9 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
-## Unreleased
+## 1.1.4 — 2026-09-28
+
+### Fixed: ten error messages, the quote tooltip and the analytics hint were stuck in English
 
 ### Optional two-step verification on the web login, with an authenticator app and recovery codes
 
