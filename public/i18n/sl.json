@@ -1171,6 +1171,7 @@
     "{n} waiting": "čaka: {n}",
     "Size limit reached — pausing until older mail ages out": "Dosežena omejitev velikosti — premor, dokler starejša pošta ne izpade iz predpomnilnika",
     "Turn on": "Vklopi",
+    "Turned on": "Vklopljeno",
     "Turn off": "Izklopi",
     "Stop searching inside this account's messages? The index is deleted; your mail and its cached content are untouched.": "Ali želite ustaviti iskanje po vsebini sporočil tega računa? Indeks bo izbrisan; vaša pošta in njena predpomnjena vsebina ostaneta nedotaknjeni.",
     "Indexing started — searching inside messages will get more complete over the next few minutes.": "Indeksiranje se je začelo — iskanje po vsebini sporočil bo v naslednjih minutah vse popolnejše.",

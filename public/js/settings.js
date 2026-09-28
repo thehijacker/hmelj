@@ -3600,7 +3600,12 @@ const Settings = (() => {
         : 'Ask for a code from an authenticator app as well as your password when signing in on the web.'))}
         ${esc(I18n.t('App passwords are not affected — calendar and contacts clients keep working as they are.'))}</p>
       ${on
-        ? `<p class="set-hint" style="margin:0 0 10px">✅ ${esc(I18n.t('On'))}${totpState.enabledAt ? ` — ${esc(fmtDate(totpState.enabledAt, { long: true }))}` : ''}
+        // "Turned on", not "On": a bare two-letter word is a bad catalogue key —
+        // it collides with every other "on" in the app (a toggle's state, the
+        // preposition in a date) and Slovenian does not use one word for all of
+        // them. It also reads as a sentence with the date after it, which "On —
+        // 27.09.2026" did not.
+        ? `<p class="set-hint" style="margin:0 0 10px">✅ ${esc(I18n.t('Turned on'))}${totpState.enabledAt ? ` ${esc(fmtDate(totpState.enabledAt, { long: true }))}` : ''}
              · ${esc(I18n.t('{n} recovery codes left').replace('{n}', totpState.recoveryLeft))}</p>
            <p><button class="btn-sm" id="totp-codes">${esc(I18n.t('New recovery codes'))}</button>
               <button class="btn-sm danger" id="totp-off">${esc(I18n.t('Turn off'))}</button></p>`
