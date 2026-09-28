@@ -1172,6 +1172,7 @@
     "Size limit reached — pausing until older mail ages out": "Size limit reached — pausing until older mail ages out",
     "Turn on": "Turn on",
     "Turned on": "Turned on",
+    "Save failed": "Save failed",
     "Turn off": "Turn off",
     "Stop searching inside this account's messages? The index is deleted; your mail and its cached content are untouched.": "Stop searching inside this account's messages? The index is deleted; your mail and its cached content are untouched.",
     "Indexing started — searching inside messages will get more complete over the next few minutes.": "Indexing started — searching inside messages will get more complete over the next few minutes.",

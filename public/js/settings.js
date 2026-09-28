@@ -2149,7 +2149,7 @@ const Settings = (() => {
       toast(I18n.t('Filters saved') + ' ✓');
       return true;
     } catch (e) {
-      toast(I18n.t('Save failed: ') + e.message);
+      toast(I18n.t('Save failed') + ': ' + e.message);
       return false;
     } finally {
       if (btn) btn.disabled = false;
@@ -2975,7 +2975,7 @@ const Settings = (() => {
           await API.patchAccount(foldersAccountId, { autoArchiveDays: days });
           if (a) a.autoArchiveDays = days;
           toast(days ? `${I18n.t('Auto-archiving mail older than')} ${days} ${I18n.t('days')}` : I18n.t('Auto-archive off'));
-        } catch (err) { toast('Save failed: ' + err.message); }
+        } catch (err) { toast(I18n.t('Save failed') + ': ' + err.message); }
       });
 
       ['sent', 'drafts', 'trash', 'junk', 'archive'].forEach((role) => {
@@ -2994,7 +2994,7 @@ const Settings = (() => {
               a[role === 'junk' ? 'hasJunk' : 'hasArchive'] = !!e.target.value;
             }
             toast('Saved');
-          } catch (err) { toast('Save failed: ' + err.message); }
+          } catch (err) { toast(I18n.t('Save failed') + ': ' + err.message); }
         });
       });
     }
@@ -3256,7 +3256,7 @@ const Settings = (() => {
       const value = readScheduleEditorValue(acctEditorEl);
       account.notificationSchedule = value;
       try { await API.patchAccount(account.id, { notificationSchedule: value }); toast('Saved'); }
-      catch (e) { toast('Save failed: ' + e.message); }
+      catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); }
     });
 
     document.getElementById('sch-hol-year').addEventListener('change', (e) => { schedulerHolidayYear = +e.target.value; renderScheduler(); });
@@ -3270,7 +3270,7 @@ const Settings = (() => {
         if (h && c.checked !== h.workFreeDefault) overrides[c.dataset.date] = c.checked;
       });
       try { await API.saveHolidayOverrides(overrides); toast('Saved'); }
-      catch (e) { toast('Save failed: ' + e.message); }
+      catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); }
     }));
 
     // Custom holidays: unlike the built-in Slovenian ones above, a custom entry's
@@ -3278,7 +3278,7 @@ const Settings = (() => {
     // comment on resolveHolidaysForYear), so this patches the entry directly.
     body().querySelectorAll('.sch-hol-custom-workfree').forEach((cb) => cb.addEventListener('change', async () => {
       try { await API.patchCustomHoliday(cb.dataset.id, { workFree: cb.checked }); toast('Saved'); }
-      catch (e) { toast('Save failed: ' + e.message); cb.checked = !cb.checked; }
+      catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); cb.checked = !cb.checked; }
     }));
     body().querySelectorAll('.sch-hol-delete').forEach((btn) => btn.addEventListener('click', async () => {
       if (!await Dialog.confirm(I18n.t('Delete this custom holiday?'), { title: I18n.t('Delete'), okLabel: I18n.t('Delete') })) return;
@@ -3295,7 +3295,7 @@ const Settings = (() => {
         workFree: document.getElementById('sch-hol-new-workfree').checked,
       };
       try { await API.addCustomHoliday(data); toast('Saved'); renderScheduler(); }
-      catch (e) { toast('Save failed: ' + e.message); }
+      catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); }
     });
 
     body().querySelectorAll('.sch-folder-edit').forEach((btn) => btn.addEventListener('click', async () => {
@@ -3322,7 +3322,7 @@ const Settings = (() => {
       const next = { ...(account.folderNotificationSchedules || {}), [path]: value };
       account.folderNotificationSchedules = next;
       try { await API.patchAccount(account.id, { folderNotificationSchedules: next }); toast('Saved'); renderScheduler(); }
-      catch (e) { toast('Save failed: ' + e.message); }
+      catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); }
     }));
     body().querySelectorAll('.sch-folder-unmute').forEach((btn) => btn.addEventListener('click', async () => {
       try {
@@ -3335,7 +3335,7 @@ const Settings = (() => {
         // account-field edit.
         updateSilenceMarkers();
         if (account.id === state.currentAccount) loadFolders(); else refreshUnread();
-      } catch (e) { toast('Save failed: ' + e.message); }
+      } catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); }
     }));
     body().querySelectorAll('.sch-folder-clear').forEach((btn) => btn.addEventListener('click', async () => {
       const path = btn.dataset.path;
@@ -3343,7 +3343,7 @@ const Settings = (() => {
       delete next[path];
       account.folderNotificationSchedules = next;
       try { await API.patchAccount(account.id, { folderNotificationSchedules: next }); toast('Saved'); renderScheduler(); }
-      catch (e) { toast('Save failed: ' + e.message); }
+      catch (e) { toast(I18n.t('Save failed') + ': ' + e.message); }
     }));
   }
 
