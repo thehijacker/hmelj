@@ -122,6 +122,41 @@ const Compose = (() => {
     btn.title = I18n.t(p.label);
   }
 
+  /* ---------- follow-up reminder ----------
+   * "Remind me if nobody answers within N days" (server/followUps.js). The
+   * choices are the server's own list (followUps.ALLOWED_DAYS); each has its
+   * own label rather than one "{n} days" template, because Slovenian inflects
+   * the noun by number — čez 1 dan, čez 2 dneva, čez 3 dni — and no template
+   * gets all three right. */
+  const FOLLOW_UP_CHOICES = [
+    [1, 'In 1 day'], [2, 'In 2 days'], [3, 'In 3 days'], [5, 'In 5 days'], [7, 'In 7 days'],
+  ];
+  let followUpDays = 0;
+  function setFollowUp(days) {
+    followUpDays = FOLLOW_UP_CHOICES.some(([d]) => d === days) ? days : 0;
+    const btn = document.getElementById('c-followup');
+    if (!btn) return;
+    // The number on the button is the point: a reminder that is armed has to
+    // be visible before Send, not discovered afterwards.
+    btn.textContent = followUpDays ? `⏰ ${followUpDays} d` : '⏰';
+    btn.classList.toggle('on', !!followUpDays);
+    const label = FOLLOW_UP_CHOICES.find(([d]) => d === followUpDays)?.[1];
+    btn.title = followUpDays
+      ? `${I18n.t('Remind me if nobody replies')}: ${I18n.t(label)}`
+      : I18n.t('Remind me if nobody replies');
+  }
+
+  /** A reminder was just sent with a message — make the app start asking about
+   *  reminders on its background polls (app.js#reconcileFolders asks only while
+   *  one is waiting). Counted here rather than fetched: the server keeps the
+   *  reminder once the message has actually gone out, which is after /api/send
+   *  has already answered, so asking now would race it and see nothing. The
+   *  next poll replaces this guess with the server's own number. */
+  function noteFollowUpArmed(p) {
+    if (!p.followUpDays || !state.followUps) return;
+    state.followUps.waiting = (state.followUps.waiting || 0) + 1;
+  }
+
   // Whether the composer opens enlarged on THIS machine. A dedicated key rather
   // than a device setting: this is window position, the same kind of thing
   // Dialog's own `hmelj.dialogExpanded` and the remembered Settings tab keep —
@@ -605,6 +640,9 @@ const Compose = (() => {
     growRecipients();
     document.getElementById('c-subject').value = subject;
     setPriority('normal');
+    // A reminder belongs to one message. Never carried into the next composer,
+    // and not restored with a draft either — choosing it is part of sending.
+    setFollowUp(0);
     document.getElementById('c-receipt').checked = !!state.settings.requestReadReceipt;
     document.getElementById('compose-title').textContent = subject || 'New message';
     document.getElementById('draft-status').textContent = '';
@@ -912,6 +950,9 @@ const Compose = (() => {
     growRecipients();
     setPriority(p.priority || 'normal');
     document.getElementById('c-receipt').checked = !!p.readReceipt;
+    // A message recalled by Undo, or a scheduled one taken back, keeps the
+    // reminder it was going to go out with — it is the same message.
+    setFollowUp(Number(p.followUpDays) || 0);
     attachments = (p.attachments || []).map((a) => ({ ...a }));
     restoreInlineImages();
     renderAttachments();
@@ -2197,6 +2238,8 @@ const Compose = (() => {
       text,
       priority: document.getElementById('c-priority').value,
       readReceipt: document.getElementById('c-receipt').checked,
+      // Only meaningful to /api/send; saving a draft simply ignores it.
+      followUpDays: followUpDays || undefined,
       // Only ever set on a reply — see the declaration. Rides along in the
       // stored payload too, so a scheduled message reopened months later still
       // knows which of its recipients the user actually chose.
@@ -2676,6 +2719,7 @@ const Compose = (() => {
       await API.send({ ...p, previousUid: draftUid, sendAt: at },
         currentIdentity().accountId || state.accounts[0]?.id);
       dirty = false;
+      noteFollowUpArmed(p);
       close();
       toast(`${I18n.t('Will send')} ${fmtDate(at, { long: true })}`, 5000);
       loadFolders();
@@ -2767,6 +2811,7 @@ const Compose = (() => {
         // anymore — dropped the old post-send deleteMsgs call here.
         const r = await API.send({ ...p, previousUid: draftUid }, currentIdentity().accountId || state.accounts[0]?.id);
         dirty = false;
+        noteFollowUpArmed(p);
         close();
         // With an undo window configured the server has QUEUED the message
         // rather than sent it (server/index.js's undo branch), and hands back
@@ -2860,6 +2905,18 @@ const Compose = (() => {
         label: `${p.glyph}  ${I18n.t(p.label)}${p.value === current ? '  ✓' : ''}`,
         onClick: () => { setPriority(p.value); dirty = true; },
       })), r.left, r.bottom + 4);
+    });
+
+    document.getElementById('c-followup').addEventListener('click', (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      openCtxMenu([
+        { label: I18n.t('Remind me if nobody replies'), disabled: true },
+        ...FOLLOW_UP_CHOICES.map(([d, label]) => ({
+          label: `${I18n.t(label)}${d === followUpDays ? '  ✓' : ''}`,
+          onClick: () => { setFollowUp(d); dirty = true; },
+        })),
+        { label: `${I18n.t('No reminder')}${followUpDays ? '' : '  ✓'}`, onClick: () => { setFollowUp(0); dirty = true; } },
+      ], r.left, r.bottom + 4);
     });
 
     document.getElementById('btn-send-later').addEventListener('click', (e) => {

@@ -663,6 +663,100 @@ const Settings = (() => {
     </div>`;
   }
 
+  /* ---------- Storage (cache.js#storageReport) ---------- */
+
+  // Order is the order they are drawn in: biggest-and-most-actionable first.
+  const STORAGE_CATEGORIES = [
+    ['bodies', 'Cached message bodies', 'The full text of messages kept ready to open instantly. Grows back to the newest messages per folder on its own after it is cleared.'],
+    ['analytics', 'Analytics', 'The complete index Mailbox analytics builds when you run a scan. Returns only when you scan again.'],
+    ['list', 'Message list', 'The envelopes the message list is drawn from. Small, and what makes the list instant.'],
+    ['search', 'Search index', 'For searching inside messages, on the accounts where it is switched on.'],
+    ['calendars', 'Calendars', 'Events from every calendar you show.'],
+    ['other', 'Other', 'Filter bookkeeping and the error log.'],
+  ];
+
+  async function renderStorage() {
+    body().innerHTML = `<div class="set-hint">${esc(I18n.t('Loading…'))}</div>`;
+    let r;
+    try { r = await API.storage(); }
+    catch (e) { body().innerHTML = `<p class="set-hint">${esc(I18n.t('Could not load storage figures'))}: ${esc(e.message)}</p>`; return; }
+    if (r.disabled) {
+      body().innerHTML = `<p class="set-hint">${esc(I18n.t('The message cache is switched off on this server, so there is nothing stored to show.'))}</p>`;
+      return;
+    }
+
+    // The whole file — admins only, since it holds every user's rows.
+    const w = r.whole;
+    const wholeHtml = !w ? '' : `
+      <div class="card">
+        <div class="row" style="margin-bottom:6px"><b>${esc(I18n.t('Whole database'))}</b>
+          <span class="set-hint" style="margin:0 0 0 auto">${esc(mb(w.fileBytes))}</span></div>
+        ${w.categories ? STORAGE_CATEGORIES.map(([k, label, hint]) => {
+          const bytes = w.categories[k] || 0;
+          const pct = w.usedBytes ? (bytes / w.usedBytes) * 100 : 0;
+          return `<div class="st-row" title="${escAttr(I18n.t(hint))}">
+            <span class="st-label">${esc(I18n.t(label))}</span>
+            <span class="st-bar"><span style="width:${pct.toFixed(1)}%"></span></span>
+            <span class="st-num">${esc(mb(bytes))}</span>
+          </div>`;
+        }).join('') : `<p class="set-hint">${esc(I18n.t('This server\'s SQLite cannot break the file down by table; only the totals are shown.'))}</p>`}
+        <p class="set-hint" style="margin:10px 0 0">${esc(I18n.t('Reclaimable'))}: <b>${esc(mb(w.reclaimableBytes))}</b>.
+          ${esc(I18n.t('Space freed by deleting is reused by SQLite rather than given back to the disk, so clearing something below lowers what is used without shrinking the file.'))}</p>
+      </div>`;
+
+    // Your own accounts.
+    const accountsHtml = r.accounts.length ? r.accounts
+      .slice().sort((a, b) => (b.bodies.bytes + b.analytics.bytes) - (a.bodies.bytes + a.analytics.bytes))
+      .map((a) => `
+        <div class="card">
+          <div class="row" style="margin-bottom:6px">
+            ${a.color ? `<span class="acct-dot" style="background:${escAttr(a.color)}"></span>` : ''}
+            <b data-no-i18n>${esc(a.label)}</b>
+          </div>
+          <div class="st-row"><span class="st-label">${esc(I18n.t('Cached message bodies'))}</span>
+            <span class="st-num">${esc(mb(a.bodies.bytes))} · ${a.bodies.count}</span>
+            <button class="btn-sm" data-clear="bodies" data-acct="${escAttr(a.accountId)}" ${a.bodies.count ? '' : 'disabled'}>${esc(I18n.t('Clear'))}</button></div>
+          <div class="st-row"><span class="st-label">${esc(I18n.t('Analytics'))}</span>
+            <span class="st-num">≈ ${esc(mb(a.analytics.bytes))} · ${a.analytics.count}</span>
+            <button class="btn-sm" data-clear="analytics" data-acct="${escAttr(a.accountId)}" ${a.analytics.count ? '' : 'disabled'}>${esc(I18n.t('Clear'))}</button></div>
+          <div class="st-row"><span class="st-label">${esc(I18n.t('Message list'))}</span>
+            <span class="st-num">≈ ${esc(mb(a.list.bytes))} · ${a.list.count}</span></div>
+          ${a.indexed ? `<div class="st-row"><span class="st-label">${esc(I18n.t('Searchable inside'))}</span>
+            <span class="st-num">${a.indexed}</span></div>` : ''}
+        </div>`).join('')
+      : `<p class="set-hint">${esc(I18n.t('No mail accounts of your own.'))}</p>`;
+
+    body().innerHTML = `
+      <p class="set-hint" style="grid-column:auto;margin-top:0">${esc(I18n.t('What this Hmelj server keeps in its own cache. Nothing here is your mail itself — every figure is a copy that can be rebuilt from the mail server.'))}</p>
+      ${wholeHtml}
+      <div class="row" style="margin:14px 0 6px"><b>${esc(I18n.t('Your accounts'))}</b></div>
+      <p class="set-hint" style="grid-column:auto;margin:0 0 8px">${esc(I18n.t('≈ marks an estimate: the database cannot split a table by account, so those are each account\'s share by row count.'))}
+        ${esc(I18n.t('Cached bodies are kept for the newest {n} messages per folder.').replace('{n}', r.contentCacheLimit))}
+        <button class="link-btn" id="st-goto-general">${esc(I18n.t('Change that'))}</button></p>
+      <div class="card-list">${accountsHtml}</div>`;
+
+    body().querySelector('#st-goto-general')?.addEventListener('click', () => switchTab('general'));
+    body().querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', async () => {
+      const what = b.dataset.clear;
+      const acct = r.accounts.find((x) => x.accountId === b.dataset.acct);
+      const message = what === 'bodies'
+        ? I18n.t('Clear the cached message bodies for {account}? Your mail is not touched. Messages open a little slower until they are cached again, and the newest ones per folder are re-fetched in the background.')
+        : I18n.t('Clear the analytics index for {account}? Your mail is not touched. Mailbox analytics will be empty for this account until you scan it again.');
+      if (!await Dialog.confirm(message.replace('{account}', acct?.label || ''), {
+        title: I18n.t('Clear'), okLabel: I18n.t('Clear'), danger: true,
+      })) return;
+      b.disabled = true;
+      try {
+        await API.clearStorage(b.dataset.acct, what);
+        toast(I18n.t('Cleared'));
+        renderStorage();
+      } catch (e) {
+        b.disabled = false;
+        toast('Clear failed: ' + e.message, 6000);
+      }
+    }));
+  }
+
   /** Human-readable byte size for the index figures. */
   function mb(bytes) {
     if (!bytes) return '0 MB';
@@ -2127,6 +2221,40 @@ const Settings = (() => {
       openFilterEditor(f.id, { isNew: true });
     });
     document.getElementById('f-save-all')?.addEventListener('click', (e) => saveFiltersNow(e.currentTarget));
+  }
+
+  /**
+   * A new filter, prefilled from a message, opened straight into the editor.
+   *
+   * The entry point for "Filter messages like this…" (message menus, app.js) and
+   * for the Subscriptions page's "Auto-archive" (analytics.js). Built exactly the
+   * way + Add filter builds one, and opened as `isNew`, so Back without saving
+   * discards it through the same revertOpenFilter path — nothing half-made is
+   * ever left in the list.
+   *
+   * The move target defaults to the account's Archive folder where it has one:
+   * "do something about this sender" usually means "get it out of my Inbox",
+   * and pre-selecting the Inbox itself — what + Add filter does — would offer a
+   * filter that moves mail to where it already is.
+   */
+  async function newFilterFrom({ accountId = null, from = '', name = '', subject = '', moveTo = '' } = {}) {
+    await open('filters');
+    const account = state.accounts.find((a) => a.id === accountId);
+    const rules = [
+      ...(from ? [{ field: 'from', op: 'contains', value: from }] : []),
+      ...(subject ? [{ field: 'subject', op: 'contains', value: subject }] : []),
+    ];
+    const f = {
+      id: uid(),
+      name: name || from || I18n.t('New filter'),
+      enabled: true,
+      match: 'all',
+      accountId: account ? account.id : defaultFilterAccountId(),
+      rules: rules.length ? rules : [{ field: 'subject', op: 'contains', value: '' }],
+      actions: [{ type: 'move', value: moveTo || account?.archiveFolder || 'INBOX' }],
+    };
+    filters.push(f);
+    return openFilterEditor(f.id, { isNew: true });
   }
 
   /** Saves filters on their own, without closing the dialog — the whole point
@@ -6023,7 +6151,7 @@ const Settings = (() => {
   }
 
   function renderTab() {
-    ({ general: renderGeneral, reading: renderReading, compose: renderCompose, identities: renderIdentities, filters: renderFilters, subject: renderSubject, saved: renderSaved, templates: renderTemplates, folders: renderFolders, scheduler: renderScheduler, offline: renderOffline, contacts: renderContacts, calendars: renderCalendars, accounts: renderAccountsTab, security: renderSecurity, admin: renderAdmin, log: renderLog }[tab])();
+    ({ general: renderGeneral, reading: renderReading, compose: renderCompose, identities: renderIdentities, filters: renderFilters, subject: renderSubject, saved: renderSaved, templates: renderTemplates, folders: renderFolders, scheduler: renderScheduler, offline: renderOffline, contacts: renderContacts, calendars: renderCalendars, accounts: renderAccountsTab, security: renderSecurity, admin: renderAdmin, log: renderLog, storage: renderStorage }[tab])();
   }
 
   /** `startTab` is for the callers that mean a specific one (the user menu's
@@ -6259,5 +6387,5 @@ const Settings = (() => {
     if (btn) btn.hidden = !isAdmin;
   }
 
-  return { init, open, close, isOpen, collapseOneLevel, accountWizard, setAdmin };
+  return { init, open, close, isOpen, collapseOneLevel, accountWizard, setAdmin, newFilterFrom };
 })();

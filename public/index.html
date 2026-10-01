@@ -391,6 +391,11 @@
            as it did when this was a select. -->
       <button id="c-priority" class="icon-btn prio-btn" value="normal" data-priority="normal" title="Priority" data-no-i18n>≡</button>
       <label class="mini-toggle" title="Request read receipt"><input type="checkbox" id="c-receipt"> Receipt</label>
+      <!-- Follow-up reminder (server/followUps.js). Shows the chosen number of
+           days while one is set, so it is visible before Send that a reminder
+           is armed — the reason this is a footer button and not an entry in
+           the Send ▾ menu. -->
+      <button id="c-followup" class="icon-btn followup-btn" title="Remind me if nobody replies" data-no-i18n>⏰</button>
       <span class="spacer"></span>
       <button class="icon-btn" id="btn-draft-save" title="Save draft now">💾</button>
       <button class="icon-btn" id="btn-compose-discard" title="Discard draft">🗑</button>
@@ -425,6 +430,7 @@
           <button data-tab="folders"><span class="tab-icon">📁</span><span>Folders</span></button>
           <button data-tab="scheduler"><span class="tab-icon">🔔</span><span>Scheduler</span></button>
           <button data-tab="offline"><span class="tab-icon">💾</span><span>Offline</span></button>
+          <button data-tab="storage"><span class="tab-icon">🗄️</span><span>Storage</span></button>
           <button data-tab="contacts"><span class="tab-icon">👥</span><span>Contacts</span></button>
           <button data-tab="calendars"><span class="tab-icon">📅</span><span>Calendars</span></button>
           <button data-tab="accounts"><span class="tab-icon">✉️</span><span>Accounts</span></button>
@@ -465,6 +471,7 @@
           <button class="active" data-tab="overview"><span class="tab-icon">📊</span> Overview</button>
           <button data-tab="senders"><span class="tab-icon">👤</span> Senders</button>
           <button data-tab="largest"><span class="tab-icon">📦</span> Largest</button>
+          <button data-tab="subs"><span class="tab-icon">📰</span> Subscriptions</button>
           <button data-tab="cleanup"><span class="tab-icon">🧹</span> Search &amp; clean up</button>
         </div>
         <div class="modal-content-col">

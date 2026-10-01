@@ -308,6 +308,14 @@ const API = {
   // Two-factor authentication on the web login (server/totp.js). The login
   // steps themselves are NOT here: login.html is a standalone page with no
   // api.js, and talks to /api/login and /api/login/totp with plain fetch.
+  // Settings › Storage — what this server's own cache holds, and the two
+  // per-account prunes. Neither touches the mail server.
+  // Follow-up reminders (server/followUps.js) — the viewer's own list.
+  followUps: () => API.get('/api/follow-ups'),
+  followUpAgain: (id, days) => API.post('/api/follow-ups/' + encodeURIComponent(id) + '/snooze', { days }),
+  followUpDone: (id) => API.del('/api/follow-ups/' + encodeURIComponent(id)),
+  storage: () => API.get('/api/storage'),
+  clearStorage: (accountId, what) => API.post('/api/storage/' + encodeURIComponent(accountId) + '/clear', { what }),
   totpStatus: () => API.get('/api/totp'),
   totpStart: () => API.post('/api/totp/start'),
   totpEnable: (code) => API.post('/api/totp/enable', { code }),
@@ -440,6 +448,7 @@ const API = {
   anQuery: (accountId, body) => API.post(API._acct('/api/analytics/query', accountId), body),
   anDelete: (accountId, body) => API.post(API._acct('/api/analytics/delete', accountId), body),
   anClear: (accountId) => API.post(API._acct('/api/analytics/clear', accountId)),
+  anSubscriptions: (accountId) => API.get(API._acct('/api/analytics/subscriptions', accountId)),
 
   messages: (folder, opts = {}, accountId) => {
     const q = new URLSearchParams();

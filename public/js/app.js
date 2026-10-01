@@ -32,6 +32,9 @@ const state = {
   // Messages waiting to come back (server/snooze.js). Pointers, not mail: the
   // messages themselves are in the account's snooze folder on the server.
   snoozed: [],
+  // Follow-up reminders (server/followUps.js): the due ones, and how many are
+  // still waiting — the count that decides whether a poll needs to ask.
+  followUps: { due: [], waiting: 0 },
   // The row the keyboard is ON, which is not the same as the row that is OPEN
   // (openKey). A row key, not a uid — see makeRowKey. Only
   // public/js/shortcuts.js sets it; rowClassName draws it.
@@ -1122,6 +1125,7 @@ async function loadFolders() {
       ul.appendChild(li);
     }
     appendSavedSearchRows(ul);
+    appendFollowUpRow(ul);
     appendSnoozedRow(ul);
     appendScheduledRow(ul);
     appendOutboxRow(ul);
@@ -1179,6 +1183,7 @@ async function loadFolders() {
   // Last, below the real mailboxes: none of these is one. See
   // appendSavedSearchRows, appendScheduledRow and appendCalendarRow.
   appendSavedSearchRows(ul);
+  appendFollowUpRow(ul);
   appendSnoozedRow(ul);
   appendScheduledRow(ul);
   appendOutboxRow(ul);
@@ -2179,8 +2184,49 @@ function showMessageMenu(m, x, y) {
     ...draftMenuItems(m),
     ...refileMenuItems(m),
     ...snoozeMenuItems(m, x, y),
+    ...filterLikeThisItems(m, m.from),
     { label: 'Delete', danger: true, onClick: () => quickDelete(m) },
   ], x, y);
+}
+
+/* ---------- "Filter messages like this" ----------
+ * A filter built from the message that prompted it, instead of from a blank
+ * form with that message open in the other half of the screen.
+ */
+
+/** The menu entry, or nothing. Not on a shared-in account (its filters belong
+ *  to the owner), not on a pseudo-folder row (Snoozed, Scheduled, Follow up —
+ *  none of them is a mailbox a filter could watch), and not when there is no
+ *  sender address to match on. */
+function filterLikeThisItems(m, from) {
+  const accountId = m?.account?.id || (state.currentAccount !== 'all' ? state.currentAccount : null);
+  const account = state.accounts.find((a) => a.id === accountId);
+  const folder = m?.folder || state.currentFolder;
+  if (!account || account.shared || !from?.address || String(folder).startsWith('__')) return [];
+  // subjectOriginal when a subject rule shortened what the list shows: the
+  // filter runs against what the SERVER has, so it must match that text.
+  return [{ label: 'Filter messages like this…', onClick: () => askFilterLikeThis(account.id, from, m?.subjectOriginal || m?.subject || '') }];
+}
+
+/** Two choices, because the right one depends entirely on the sender: a shop's
+ *  every message is "from this sender", but a person's — or a service that
+ *  sends five different kinds of mail from one address — is "this sender,
+ *  about this". Guessing would build the wrong filter half the time. */
+async function askFilterLikeThis(accountId, from, subject) {
+  const choice = await Dialog.choose(I18n.t('Which messages should this filter catch?'), {
+    title: I18n.t('Filter messages like this'),
+    buttons: [
+      { label: I18n.t('Everything from this sender'), value: 'from', primary: true },
+      ...(subject ? [{ label: I18n.t('From this sender, with this subject'), value: 'subject' }] : []),
+    ],
+  });
+  if (!choice) return;
+  Settings.newFilterFrom({
+    accountId,
+    from: from.address,
+    name: from.name || from.address,
+    subject: choice === 'subject' ? subject : '',
+  });
 }
 
 /** Nothing at all when there is no unfinished answer to this message — which is
@@ -2201,6 +2247,137 @@ function draftMenuItems(m) {
  * the way on the phone and in every other client too, not only here.
  */
 const SNOOZED_FOLDER = '__SNOOZED__';
+
+/* ---------- follow-up reminders (server/followUps.js) ----------
+ * Sent messages that nobody has answered within the days chosen in the
+ * composer. A pseudo-folder like Snoozed, and for the same reason: these are
+ * pointers to mail that lives somewhere else (the account's Sent folder), and
+ * nothing here is written into the mailbox. The sidebar row exists only while
+ * something is due — a list that is usually empty should not take up a line.
+ */
+const FOLLOWUP_FOLDER = '__FOLLOWUP__';
+
+async function refreshFollowUps() {
+  state.followUps = await API.followUps().catch(() => state.followUps || { due: [], waiting: 0 });
+  paintFollowUpBadge();
+}
+
+function appendFollowUpRow(ul) {
+  const n = state.followUps?.due?.length || 0;
+  if (!n && state.currentFolder !== FOLLOWUP_FOLDER) return;
+  const li = document.createElement('li');
+  li.dataset.path = FOLLOWUP_FOLDER;
+  if (state.currentFolder === FOLLOWUP_FOLDER) li.classList.add('active');
+  li.innerHTML = `<span class="f-icon">⏰</span><span>${esc(I18n.t('Follow up'))}</span>`;
+  if (n) li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
+  li.addEventListener('click', () => openFolder(FOLLOWUP_FOLDER));
+  ul.appendChild(li);
+}
+
+/** Same rules as paintSnoozedBadge: the count follows the list, and the row
+ *  goes when the list empties — unless it is the list being looked at. */
+function paintFollowUpBadge() {
+  const ul = $('#folder-list');
+  const n = state.followUps?.due?.length || 0;
+  let li = $(`#folder-list li[data-path="${FOLLOWUP_FOLDER}"]`);
+  // A reminder that came due while the sidebar was already built has no row
+  // yet. Added in place, just above Snoozed, rather than waiting for the next
+  // full sidebar rebuild to notice.
+  if (!li && n && ul) {
+    const tmp = document.createElement('ul');
+    appendFollowUpRow(tmp);
+    li = tmp.firstElementChild;
+    if (li) ul.insertBefore(li, $(`#folder-list li[data-path="${SNOOZED_FOLDER}"]`) || $(`#folder-list li[data-path="__SCHEDULED__"]`) || null);
+    return;
+  }
+  if (!li) return;
+  const span = $('.f-count', li);
+  if (n) {
+    if (span) span.textContent = n;
+    else li.insertAdjacentHTML('beforeend', `<span class="f-count">${n}</span>`);
+    return;
+  }
+  span?.remove();
+  if (state.currentFolder !== FOLLOWUP_FOLDER) li.remove();
+}
+
+function paintFollowUps() {
+  const ul = $('#msg-list');
+  const list = state.followUps?.due || [];
+  state.total = list.length;
+  renderPager({ total: list.length, page: 1, pageSize: Math.max(list.length, 1) });
+  if (!list.length) {
+    ul.innerHTML = `<li class="msg-list-loading">${esc(I18n.t('Nothing to follow up. Choose ⏰ when you send a message, and it appears here if nobody replies in time.'))}</li>`;
+    return;
+  }
+  ul.innerHTML = '';
+  for (const item of list) ul.appendChild(followUpRow(item));
+}
+
+/** "3 days" without a reply — the thing worth reading off the row. */
+function waitedFor(sentAt) {
+  const days = Math.max(1, Math.floor((Date.now() - sentAt) / 864e5));
+  return I18n.t(days === 1 ? 'No reply for 1 day' : 'No reply for {n} days').replace('{n}', days);
+}
+
+function followUpRow(item) {
+  const li = document.createElement('li');
+  li.className = 'msg-row';
+  li.dataset.key = item.id;
+  const a = state.accounts.find((x) => x.id === item.accountId);
+  const chip = a
+    ? `<span class="acct-chip acct-chip-static" style="--chip:${escAttr(a.color)}" title="${escAttr(a.label)}">${esc(acctInitials(a.label))}</span>`
+    : '';
+  li.innerHTML = `
+    ${chip}<span class="m-from">${esc(I18n.t('To:'))} ${esc(item.to || '—')}</span>
+    <span class="m-subject" data-no-i18n>${esc(item.subject || '(no subject)')}</span>
+    <span class="m-date" title="${escAttr(fmtDate(item.sentAt, { long: true }))}">${esc(waitedFor(item.sentAt))}</span>`;
+  const menu = (x, y) => openCtxMenu(followUpMenuItems(item), x, y);
+  li.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e.clientX, e.clientY); });
+  bindLongPress(li, menu);
+  li.addEventListener('click', () => openFollowUpMessage(item));
+  return li;
+}
+
+/** Remind me again in 1/2/3/5/7 days, or Done. The day labels are the
+ *  composer's own (one per choice, for Slovenian grammar — see compose.js). */
+function followUpMenuItems(item) {
+  const days = [[1, 'In 1 day'], [2, 'In 2 days'], [3, 'In 3 days'], [5, 'In 5 days'], [7, 'In 7 days']];
+  return [
+    { label: I18n.t('Open'), onClick: () => openFollowUpMessage(item) },
+    { label: I18n.t('Remind me again'), disabled: true },
+    ...days.map(([d, label]) => ({ label: `   ${I18n.t(label)}`, onClick: () => followUpAgain(item, d) })),
+    { label: `✓ ${I18n.t('Done')}`, onClick: () => followUpDone(item) },
+  ];
+}
+
+/** The sent message, read from wherever the account keeps it. The list route
+ *  resolves the folder and uid by Message-ID; until the Sent folder has synced
+ *  there is nothing to address a fetch with yet. */
+function openFollowUpMessage(item) {
+  if (!item.folder || item.uid == null) {
+    toast(I18n.t('That message has not reached the Sent folder here yet — try again in a moment'), 5000);
+    return;
+  }
+  openMessage({ uid: item.uid, folder: item.folder, account: { id: item.accountId }, seen: true, subject: item.subject });
+}
+
+async function followUpAgain(item, days) {
+  try {
+    await API.followUpAgain(item.id, days);
+    await refreshFollowUps();
+    if (state.currentFolder === FOLLOWUP_FOLDER) paintFollowUps();
+    toast(I18n.t('I will remind you again'));
+  } catch (e) { toast('Could not reschedule: ' + e.message, 6000); }
+}
+
+async function followUpDone(item) {
+  try {
+    await API.followUpDone(item.id);
+    await refreshFollowUps();
+    if (state.currentFolder === FOLLOWUP_FOLDER) paintFollowUps();
+  } catch (e) { toast('Action failed: ' + e.message, 6000); }
+}
 
 /** "Snooze", or "Un-snooze" when the row already is one. Nothing at all in the
  *  places where the idea makes no sense: a message already in Drafts or Trash,
@@ -2707,6 +2884,13 @@ async function openFolder(path, page = 1) {
   closeMessage();
   closeSidebarIfMobile();
   if (path === CALENDAR_FOLDER) { Calendar.open(); return; }
+  if (path === FOLLOWUP_FOLDER) {
+    Calendar.close();
+    await refreshFollowUps();
+    applyScheduledChrome(true); // nothing here is searchable or sortable either
+    paintFollowUps();
+    return;
+  }
   if (path === SNOOZED_FOLDER) {
     Calendar.close();
     await refreshSnoozed();
@@ -3610,6 +3794,12 @@ async function reconcileMessages() {
     await refreshSnoozed();
     return paintSnoozed();
   }
+  // And for the same reason, Follow up: a background poll here would otherwise
+  // fetch the unified inbox and paint it over the list.
+  if (state.currentFolder === FOLLOWUP_FOLDER) {
+    await refreshFollowUps();
+    return paintFollowUps();
+  }
   if (pendingMutations) { reconcileWants |= 1; return; }
   // Silent refreshes sit a live sweep out. Everything explicit — the refresh button,
   // re-running the search, navigating anywhere — still goes through loadMessages().
@@ -3660,6 +3850,14 @@ async function reconcileFolders() {
     const before = (state.snoozed || []).length;
     await refreshSnoozed();
     if (state.currentFolder === SNOOZED_FOLDER && (state.snoozed || []).length !== before) paintSnoozed();
+  }
+  // A reminder can come due at any moment, server-side, with nothing else
+  // changing. Asked on each poll only while one is waiting or due — with none,
+  // nothing can come due, and this runs on every background poll.
+  if (state.followUps?.waiting || state.followUps?.due?.length || state.currentFolder === FOLLOWUP_FOLDER) {
+    const before = state.followUps?.due?.length || 0;
+    await refreshFollowUps();
+    if (state.currentFolder === FOLLOWUP_FOLDER && (state.followUps?.due?.length || 0) !== before) paintFollowUps();
   }
   if (state.currentAccount === 'all') { refreshUnread(); return; }
   const seq = ++reconcileFoldersSeq;
@@ -4507,6 +4705,9 @@ if ('serviceWorker' in navigator) {
       // A tapped calendar reminder. The calendar is a view rather than a
       // folder, so this is a navigation and not a message open.
       openFolder(CALENDAR_FOLDER);
+    } else if (e.data?.type === 'hmelj-open-followup') {
+      // A tapped "No reply yet" (server/followUps.js) — straight to the list.
+      openFolder(FOLLOWUP_FOLDER);
     }
   });
 }
@@ -5096,6 +5297,7 @@ function renderList() {
   if (state.currentFolder === SCHEDULED_FOLDER) return paintScheduled();
   if (state.currentFolder === OUTBOX_FOLDER) return renderOutbox();
   if (state.currentFolder === SNOOZED_FOLDER) return paintSnoozed();
+  if (state.currentFolder === FOLLOWUP_FOLDER) return paintFollowUps();
   // The calendar draws itself into its own pane; renderList has nothing to do.
   if (inCalendar()) return;
   const ul = $('#msg-list');
@@ -6574,6 +6776,13 @@ function buildMessageCard(msg, listEntry, { collapsed = null, inThread = false }
       { label: listEntry?.seen ? 'Mark as unread' : 'Mark as read', onClick: mvToggleRead },
       { label: 'Move', onClick: () => showMoveDialog(msg, listEntry) },
       ...refileMenuItems(listEntry),
+      // The fetched message, not the list entry, for the sender and subject:
+      // it carries the original subject even where a subject rule shortened
+      // the one shown in the list (subjectOriginal).
+      ...filterLikeThisItems(listEntry, msg.from?.[0] || listEntry?.from)
+        .map((it) => ({ ...it, onClick: () => askFilterLikeThis(
+          listEntry?.account?.id || (state.currentAccount !== 'all' ? state.currentAccount : null),
+          msg.from?.[0] || listEntry?.from, listEntry?.subjectOriginal || msg.subject || '') })),
       // Same bar Ctrl+F opens — the menu entry exists because a phone has no
       // Ctrl key, and because a keyboard shortcut nobody is told about might
       // as well not be there. Scoped to THIS message's frame: in a conversation
@@ -7687,6 +7896,7 @@ async function boot() {
   state.contactGroups = await API.contactGroups().catch(() => []);
   Compose.setTemplates(await API.templates().catch(() => []));
   await refreshSnoozed();
+  await refreshFollowUps();
 
   state.accounts = await API.accounts();
   applyAccountGate();
@@ -7965,6 +8175,10 @@ if (new URLSearchParams(location.search).get('compose')) {
   // /?view=calendar when it found no tab to hand the event to instead.
   if (qs.get('view') === 'calendar') {
     addEventListener('load', () => setTimeout(() => openFolder(CALENDAR_FOLDER), 300));
+  }
+  // …and for a tapped follow-up reminder, opened as /?view=followup.
+  if (qs.get('view') === 'followup') {
+    addEventListener('load', () => setTimeout(() => openFolder(FOLLOWUP_FOLDER), 300));
   }
 }
 

@@ -2177,6 +2177,28 @@ one timestamp risks the message coming back subtly different from the one you ap
   </p>
 </div>
 
+<h2 id="compose-followup">Remind me if nobody replies</h2>
+<p>
+  The <strong>⏰</strong> button in the composer's footer, beside Receipt. Pick
+  <em>in 1, 2, 3, 5 or 7 days</em> and the button shows the number while it is set, so you
+  can see a reminder is armed before you press Send. If nobody has answered by then, the
+  message appears under <strong>Follow up</strong> in the sidebar and a notification says
+  so. Open it from there, choose <em>Remind me again</em>, or mark it <em>Done</em>.
+</p>
+<p>
+  An answer clears it on its own — you never have to come back and switch a reminder off
+  because the person replied. A reply counts if it is in the same conversation, arrived
+  after you sent, and is not from one of your own addresses; a second message you send in
+  the thread, or a draft, does not count. It works the same on Gmail, IMAP, Exchange and
+  Microsoft 365, and it starts when the message actually goes out: a scheduled message's
+  reminder counts from its send time, and one you took back with Undo leaves none.
+</p>
+<div class="callout">
+  Nothing is written into your mailbox. The reminder lives in Hmelj — the sidebar entry
+  appears only while something is due — so your mail looks exactly the same in Gmail,
+  Outlook and on your phone.
+</div>
+
 <h2 id="compose-templates">Templates</h2>
 <p>
   Text you send over and over — a standard reply, a set of directions to the office, a
@@ -2459,6 +2481,14 @@ messages</a>.
 <p>
   Settings → Filters. Each filter belongs to one account, has a name, can be enabled or
   disabled, and combines conditions with actions.
+</p>
+<p>
+  <strong>Faster: start from a message.</strong> Right-click a message in the list, or use
+  the ⋯ menu in the reading pane, and choose <strong>Filter messages like this…</strong>.
+  Hmelj asks whether you mean <em>everything from this sender</em> or <em>this sender with
+  this subject</em>, then opens the editor already filled in — the right account, the
+  sender, the subject if you chose it, and a move into the account's Archive folder where it
+  has one. Back without saving and nothing is left behind.
 </p>
 
 <figure>
@@ -3132,10 +3162,33 @@ share them — and they are included in the settings export.</li>
 <tr><td><strong>Overview</strong></td><td>Totals, size, and how the mailbox is distributed</td></tr>
 <tr><td><strong>Senders</strong></td><td>Who sends the most, by count and by the space they cost</td></tr>
 <tr><td><strong>Largest</strong></td><td>The biggest individual messages</td></tr>
+<tr><td><strong>Subscriptions</strong></td><td>Every sender who mails you in bulk, with what to do about each</td></tr>
 <tr><td><strong>Search &amp; clean up</strong></td><td>Find matching mail across the whole index and act on it in bulk</td></tr>
 </tbody>
 </table>
 </div>
+
+<h2 id="an-subscriptions">Subscriptions</h2>
+<p>
+  Every sender whose mail carries an unsubscribe header — newsletters, shops, notification
+  services — with how many messages they have sent, how many in a typical month lately, how
+  many of them you actually read, and when the last one came. Three things per row:
+</p>
+<ul>
+<li><strong>Unsubscribe</strong> — uses the sender's own unsubscribe mechanism, from their
+  newest message: a one-click request, or an e-mail sent for you. A sender who only offers a
+  web page gets an <em>Open unsubscribe page</em> link to click instead.</li>
+<li><strong>Auto-archive</strong> — creates an ordinary filter that moves their mail into
+  the Archive folder, opened in the filter editor so you can see and change it. It is a
+  normal filter afterwards, in Settings → Filters with the rest.</li>
+<li><strong>Clean up →</strong> — loads the sender into <em>Search &amp; clean up</em>, with
+  its count and confirmation before anything is deleted.</li>
+</ul>
+<p>
+  It reads from the same scan as the other tabs, so figures are as fresh as the last scan.
+  Exchange and Microsoft 365 scans cannot read the unsubscribe header without opening every
+  message one by one, so subscriptions are found on IMAP accounts — Gmail and any other.
+</p>
 
 <div class="callout">
 <strong>Gmail is counted honestly.</strong> On Gmail the same physical message appears
@@ -3444,6 +3497,23 @@ account's <strong>Search inside messages</strong> switch with its live index siz
   type a six-digit code, so those keep signing in with their own per-device password, which
   you can revoke individually. Two-step verification guards the web login.
 </div>
+
+<h2 id="set-storage">Storage</h2>
+<p>
+  What this Hmelj server keeps in its own cache, and where the space goes. An admin sees the
+  whole database broken down — cached message bodies, the analytics index, the message list,
+  the search index, calendars — with a bar for each. Everyone sees their own accounts: how
+  much each holds in cached bodies, analytics and the message list.
+</p>
+<p>
+  Two things can be cleared per account, and neither touches your mail on the server:
+  <strong>cached message bodies</strong>, which come back as you read and as the background
+  sync re-fetches the newest ones per folder, and the <strong>analytics index</strong>,
+  which comes back on the next scan. Clearing lowers what is used but does not shrink the
+  file — SQLite reuses the freed space rather than handing it back to the disk — and the
+  page shows that reusable space as <em>Reclaimable</em> so a prune never looks like it did
+  nothing.
+</p>
 
 <h2 id="set-log">Log</h2>
 <p>

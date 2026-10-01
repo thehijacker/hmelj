@@ -29,7 +29,7 @@
 import crypto from 'node:crypto';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { store } from './store.js';
-import { listOwnedAccounts } from './accounts.js';
+import { listOwnedAccounts, listOwnedAccountsFor } from './accounts.js';
 import { log } from './log.js';
 
 const clog = log.scope('contacts');
@@ -81,6 +81,16 @@ function myAddresses() {
   return new Set([
     ...listOwnedAccounts().map((a) => String(a.email || '').toLowerCase()),
     ...store.getIdentities().map((i) => String(i.email || '').toLowerCase()),
+  ].filter(Boolean));
+}
+
+/** The same set, for a caller outside any request — the follow-up runner
+ *  (server/followUps.js), which walks every user from a timer and has no ALS
+ *  context to read one from. Named the way store.js's `…For` variants are. */
+export function myAddressesFor(uKey) {
+  return new Set([
+    ...listOwnedAccountsFor(uKey).map((a) => String(a.email || '').toLowerCase()),
+    ...store.getIdentitiesFor(uKey).map((i) => String(i.email || '').toLowerCase()),
   ].filter(Boolean));
 }
 

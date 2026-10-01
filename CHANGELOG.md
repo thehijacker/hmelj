@@ -7,6 +7,16 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
+## Unreleased
+
+### Filter messages like this — a new filter prefilled from the message you right-clicked
+
+### Follow-up reminders: choose ⏰ when sending and Hmelj reminds you if nobody replies
+
+### Subscriptions in Mailbox analytics: every newsletter sender, with unsubscribe, auto-archive and clean up
+
+### Settings → Storage shows what the server's cache holds, per account, with prunes
+
 ## 1.1.4 — 2026-09-28
 
 ### Fixed: ten error messages, the quote tooltip and the analytics hint were stuck in English

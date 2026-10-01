@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20260928084';
+const VERSION = 'hmelj-20261001085';
 const SHELL = [
   '/',
   '/index.html',
@@ -420,6 +420,19 @@ async function handleCalendarClick(action, data) {
   return self.clients.openWindow('/?view=calendar');
 }
 
+/** A follow-up reminder (server/followUps.js): bring the app up on its Follow
+ *  up list. An open window is told rather than replaced, the same way the
+ *  calendar reminder above does it, so whatever the user was doing survives. */
+async function handleFollowUpClick() {
+  const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const target = clientsList[0];
+  if (target) {
+    target.postMessage({ type: 'hmelj-open-followup' });
+    return target.focus();
+  }
+  return self.clients.openWindow('/?view=followup');
+}
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const data = e.notification.data || {};
@@ -427,6 +440,7 @@ self.addEventListener('notificationclick', (e) => {
   const action = e.action; // '' for a plain tap; 'read'/'delete'/'snooze' for the action buttons above
   e.waitUntil((async () => {
     if (data.kind === 'calendar') return handleCalendarClick(action, data);
+    if (data.kind === 'followup') return handleFollowUpClick();
     if ((action === 'read' || action === 'delete') && folder && uid !== undefined) {
       try {
         // Only when we actually have one: '?account=undefined' is not the same

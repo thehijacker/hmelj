@@ -1413,6 +1413,10 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
    is a default that keeps asking to be looked at. */
 .prio-btn { font-size: calc(16px * var(--ui-scale)); line-height: 1; padding: 5px 8px; flex: 0 0 auto; }
 .prio-btn[data-priority="normal"] { color: var(--text-dim); }
+/* The follow-up reminder: dim while off, the accent colour with its day count
+   while armed, so it reads as a setting that is ON at a glance. */
+.followup-btn { font-size: calc(14px * var(--ui-scale)); line-height: 1; padding: 5px 8px; flex: 0 0 auto; color: var(--text-dim); white-space: nowrap; }
+.followup-btn.on { color: var(--accent); font-weight: 600; }
 .prio-btn[data-priority="high"] { color: var(--danger); }
 .prio-btn[data-priority="low"] { color: var(--ok, #0f9d58); }
 /* Shrinkable as a last resort, after the spacer has collapsed and the select has
@@ -2093,6 +2097,31 @@ label:has(> .set-help) .set-help { margin-left: auto; }
      give it a little more, still bounded by what a keyboard leaves standing
      (positionContactSuggest flips it above the field when that is roomier). */
   .contact-suggest { max-height: 40vh; }
+}
+
+/* Subscriptions (Analytics): up to three actions per row, which wrap rather
+   than forcing the table wider than the dialog. */
+.an-sub-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.an-sub-acts .btn-sm { text-decoration: none; }
+
+/* ---------- Settings › Storage ----------
+   One line per figure: label, an optional proportion bar, the number, and a
+   Clear button where there is something to clear. The bar shows share of the
+   USED file, so the categories add up to a full row between them. */
+.st-row {
+  display: grid; grid-template-columns: minmax(10em, 14em) 1fr auto auto;
+  align-items: center; gap: 10px; padding: 4px 0;
+}
+.st-label { color: var(--text); }
+.st-num { color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.st-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.st-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+/* Per-account rows have no bar: the label takes its column back. */
+.st-row:not(:has(.st-bar)) { grid-template-columns: minmax(10em, 1fr) auto auto; }
+@media (max-width: 600px) {
+  .st-row { grid-template-columns: 1fr auto; }
+  .st-row .st-bar { grid-column: 1 / -1; order: 3; }
+  .st-row .btn-sm { grid-column: 2; }
 }
 
 /* ---------- two-step verification (Settings › Security) ----------

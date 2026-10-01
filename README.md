@@ -120,13 +120,14 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Before it goes out** — three checks, each switchable: "you said it was attached, and nothing is", "you replied to one of nine", and "this one has no subject". The first reads English and Slovenian, including forms typed without šumniki, and reads only your own text — never the quoted original
 - **Attachments** by button, by drag-and-drop, or by pasting — a screenshot pasted into the body goes inline, sent as a real embedded part rather than a `data:` URL that most webmail would strip
 - **Draft autosave**, Cc/Bcc, read-receipt request, and a **priority** button whose arrow and colour say which of the three is set. The composer also remembers whether you keep it enlarged, and fills the screen on a phone
+- **Follow-up reminders** — choose ⏰ when sending, and if nobody has answered in 1–7 days the message turns up under *Follow up* with a notification. A reply clears it on its own; nothing is written into your mailbox
 - **A reply you started is marked in the list** — the ✎ against a message you began answering and left, with *Continue* or *Discard* on its menu, so an unfinished reply is not something you have to remember on your own
 - **Attachments stay in view** — the files on a message sit just above Send rather than under the quoted thread, so attaching one to a long reply is something you can see happened
 - **Spell checking** as you type — Slovenian and English, detected automatically
 - **Contact autocomplete**, learned from the mail you actually send
 
 ### Organising
-- **Filters** — subject/from/to/content/size/date conditions; move, copy, redirect, auto-reply, delete, mark, star — yours, on your server, not pushed to the provider as Sieve
+- **Filters** — subject/from/to/content/size/date conditions; move, copy, redirect, auto-reply, delete, mark, star — yours, on your server, not pushed to the provider as Sieve. **Filter messages like this…** on any message opens a new filter already filled in from it
 - **Filters survive downtime** — Hmelj remembers per folder how far its rules have got and works through whatever arrived while it was off, up to 30 days, without filing anything twice
 - **Spam and Archive** in one gesture, with the return trip remembered per message
 - **Select mode** (Ctrl+click a row, Shift+click for a whole run), swipe gestures, right-click menus, undo on destructive actions
@@ -137,6 +138,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Snooze** — the message really moves into a `Snoozed` folder and comes back when you asked, marked unread, optionally with a calendar reminder for the same moment. A missed wake-up still fires when the server is back
 - **Keyboard shortcuts** — Gmail's letters (`j`/`k`, `r`, `e`, `s`, `z`, `c`, `/`) and Outlook's <kbd>Del</kbd>, <kbd>Ctrl+Q</kbd> and <kbd>Ctrl+U</kbd>; press `?` for the list
 - **Mailbox analytics** — where the quota went, who sends the most, what is safe to delete (and it counts Gmail labels honestly)
+- **Subscriptions** — every newsletter sender in one list, with how often they write and how much of it you read; unsubscribe, auto-archive or clear out what has piled up, per row
 - **Subject rules** — shorten machine-generated subjects in the list and in notifications, without touching what is on the server
 - **Folders** — full tree, hide per folder, unread counters, and **create, rename, delete, empty, mute or mark-read straight from a folder's right-click menu** in the sidebar. A new subfolder is nested with that account's own separator, not an assumed one
 - **Archive by date** — *Archive before…* on any folder asks for a date, tells you how many messages that is, and then moves them. Or set **auto-archive** per account and mail older than N days leaves the Inbox once a day on its own, logged each time. Mail that arrived *on* the date you pick stays
@@ -163,6 +165,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Two-step verification**, optional and per user — a code from any authenticator app on top of your password, with ten one-time recovery codes. App passwords are deliberately exempt, so calendar and contacts clients keep working
 - **Admin panel** — users, sign-up control, OAuth clients, account presets, custom fonts
 - **Per-user error log** in plain language, separate from server debug noise
+- **Storage page** — what the server's own cache holds, by category and per account, with safe prunes for cached bodies and analytics
 - **Instant cross-device sync** over Server-Sent Events
 - **Export everything** — settings, identities, filters, saved searches, templates, contacts, contact groups and local calendars as one zip; mail as streamed mbox, one folder at a time, in the format Thunderbird imports
 - **Works offline** — the mail you have read stays readable with no connection, and anything you do to it queues in an Outbox and goes out when the connection is back

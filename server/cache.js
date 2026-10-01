@@ -1093,6 +1093,202 @@ export function unindexedContent(userKey, accountId, limit) {
 /** Drops an account's whole index — what turning `searchIndex` off does. The
  *  cached CONTENT is left alone: it is what makes opening a message fast, and
  *  it is governed by its own setting. Only the index goes. */
+/* ---------- follow-up reminders (server/followUps.js) ---------- */
+
+/**
+ * The conversation key the cache gave OUR sent copy, found by its Message-ID.
+ *
+ * This is what makes reply detection backend-neutral. The thread key is the
+ * conversation root's Message-ID on IMAP, but Exchange's and Graph's
+ * ConversationId — a value nobody can predict at send time. Reading it back off
+ * the sent copy means the key is computed by the same code, the same way, for
+ * our message and for any reply to it, whatever the account is.
+ *
+ * `messageId` must already be normalised (threading.js#normalizeId): that is
+ * the form all three clients store.
+ */
+export function findThreadKeyFor(userKey, accountId, messageId) {
+  if (!messageId) return null;
+  const r = db.prepare(
+    'SELECT thread_id FROM messages WHERE user_key=? AND account_id=? AND message_id=? AND thread_id IS NOT NULL LIMIT 1',
+  ).get(userKey, accountId, messageId);
+  return r?.thread_id || null;
+}
+
+/** Where our sent copy is, by Message-ID — so the Follow up list can open the
+ *  message itself. Its folder as well as its uid: the copy may sit in whatever
+ *  the account calls its Sent folder, and on Gmail it can also appear under a
+ *  label. The Sent copy is preferred when there is more than one. */
+export function locateByMessageId(userKey, accountId, messageId) {
+  if (!messageId) return null;
+  const r = db.prepare(`
+    SELECT folder, uid FROM messages
+     WHERE user_key=? AND account_id=? AND message_id=? AND deleted=0
+     ORDER BY CASE WHEN special_use = '\\Sent' THEN 0 ELSE 1 END, date DESC
+     LIMIT 1`).get(userKey, accountId, messageId);
+  return r ? { folder: r.folder, uid: uidOut(r.uid) } : null;
+}
+
+/**
+ * Has anyone answered? True when the conversation holds a message that arrived
+ * after `sinceMs`, is not from one of `ownAddresses`, and is not in one of
+ * `excludeFolders` (Sent and Drafts — a draft of your own reply, or a second
+ * message you sent yourself, is not an answer).
+ *
+ * One indexed lookup (idx_messages_thread), and nothing asked of the mail
+ * server: replies land in folders the sync already keeps current.
+ */
+export function hasReplyInThread(userKey, accountId, threadKey, sinceMs, { ownAddresses = [], excludeFolders = [] } = {}) {
+  if (!threadKey) return false;
+  const own = ownAddresses.map((a) => String(a).toLowerCase()).filter(Boolean);
+  const folders = excludeFolders.filter(Boolean);
+  const r = db.prepare(`
+    SELECT 1 FROM messages
+     WHERE user_key=? AND account_id=? AND thread_id=? AND deleted=0 AND date > ?
+       ${own.length ? `AND LOWER(COALESCE(from_addr, '')) NOT IN (${own.map(() => '?').join(',')})` : ''}
+       ${folders.length ? `AND folder NOT IN (${folders.map(() => '?').join(',')})` : ''}
+       AND COALESCE(special_use, '') NOT IN ('\\Sent', '\\Drafts')
+     LIMIT 1`).get(userKey, accountId, threadKey, sinceMs, ...own, ...folders);
+  return !!r;
+}
+
+/* ---------- storage report (Settings › Storage) ---------- */
+
+/**
+ * Which human category a table or index belongs to, by its SQLite name.
+ *
+ * dbstat reports every b-tree separately — tables, explicit indexes, and the
+ * `sqlite_autoindex_<table>_<n>` ones SQLite creates for a PRIMARY KEY or
+ * UNIQUE — and an index is part of what its table costs. So the autoindex
+ * prefix and suffix are stripped first, and then the name is matched most
+ * specific first: `message_content` and `message_fts` both start with
+ * `message`, and `messages` must not swallow either.
+ */
+export function storageCategoryOf(name) {
+  const n = String(name || '').replace(/^sqlite_autoindex_/, '').replace(/_\d+$/, '');
+  if (n === 'message_content' || n.startsWith('idx_content')) return 'bodies';
+  if (n.startsWith('message_fts') || n === 'search_words') return 'search';
+  if (n.startsWith('analytics_') || n.startsWith('idx_an_')) return 'analytics';
+  if (n === 'messages' || n.startsWith('idx_messages') || n === 'folders' || n === 'sync_state') return 'list';
+  if (n.startsWith('calendar_') || n.startsWith('idx_calendar') || n.startsWith('idx_reminders') || n.startsWith('idx_snoozes')) return 'calendars';
+  return 'other';
+}
+
+/**
+ * The whole file, by category. Instance-wide — every user's rows share one
+ * database — so the route only shows it to an admin.
+ *
+ * dbstat walks every page, and on an 800 MB file that is a measurable pause,
+ * so the answer is kept for a minute: the same reasoning, and the same shape,
+ * as indexBytes() above. It is a virtual table SQLite may be built without;
+ * this build has it, but a different one would fall back to the page count,
+ * which still gives the total and the free space, just not the breakdown.
+ */
+let storageCache = { at: 0, value: null };
+const STORAGE_TTL_MS = 60e3;
+function wholeFile() {
+  const now = Date.now();
+  if (storageCache.value && now - storageCache.at < STORAGE_TTL_MS) return storageCache.value;
+  const pageSize = db.pragma('page_size', { simple: true });
+  const pageCount = db.pragma('page_count', { simple: true });
+  const freePages = db.pragma('freelist_count', { simple: true });
+  const categories = { bodies: 0, analytics: 0, list: 0, search: 0, calendars: 0, other: 0 };
+  let breakdown = true;
+  try {
+    for (const r of db.prepare('SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name').all()) {
+      categories[storageCategoryOf(r.name)] += r.bytes;
+    }
+  } catch {
+    breakdown = false;
+  }
+  const file = path.join(config.cacheDir, 'cache.sqlite');
+  const sizeOf = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+  const value = {
+    fileBytes: sizeOf(file),
+    walBytes: sizeOf(file + '-wal'),
+    // Pages SQLite has freed and will hand out again before growing the file.
+    // Deleting rows lands here rather than shrinking anything, which is why the
+    // page has to say so — or a prune looks like it did nothing at all.
+    reclaimableBytes: freePages * pageSize,
+    usedBytes: (pageCount - freePages) * pageSize,
+    categories: breakdown ? categories : null,
+  };
+  storageCache = { at: now, value };
+  return value;
+}
+
+/** Forget the memoised whole-file numbers — for a write elsewhere (clearing
+ *  analytics) that the next Storage page view has to reflect rather than show
+ *  a figure from before it. */
+export function invalidateStorageReport() { storageCache.at = 0; }
+
+/** Rows per account for one table, as `{ accountId: n }`. A table that does not
+ *  exist (analytics' is created by analytics.js, on import) answers empty
+ *  rather than failing the whole report. */
+function countsByAccount(sql, userKey) {
+  try {
+    return Object.fromEntries(db.prepare(sql).all(userKey).map((r) => [r.account_id, r.n]));
+  } catch { return {}; }
+}
+
+/**
+ * What one user's own accounts take up.
+ *
+ * Bytes are exact only for cached bodies — message_content keeps each row's
+ * size. dbstat cannot split a table by account, so the message list and the
+ * analytics index are given as the account's share of that table's real size,
+ * by row count: rows of one table are much the same size, so the estimate is
+ * close, and it is labelled approximate in the page all the same.
+ *
+ * `accountIds` is the caller's OWN accounts. A shared-in account's rows live
+ * under its owner's key, so they belong in the owner's report and never here.
+ */
+export function storageReport(userKey, accountIds, { includeWholeFile = false } = {}) {
+  const whole = wholeFile();
+  const bodies = countsByAccount(
+    'SELECT account_id, SUM(size) AS n FROM message_content WHERE user_key=? AND content_json IS NOT NULL GROUP BY account_id', userKey);
+  const bodyCounts = countsByAccount(
+    'SELECT account_id, COUNT(*) AS n FROM message_content WHERE user_key=? AND content_json IS NOT NULL GROUP BY account_id', userKey);
+  const envelopes = countsByAccount('SELECT account_id, COUNT(*) AS n FROM messages WHERE user_key=? GROUP BY account_id', userKey);
+  const analytics = countsByAccount('SELECT account_id, COUNT(*) AS n FROM analytics_messages WHERE user_key=? GROUP BY account_id', userKey);
+  const indexed = countsByAccount(
+    'SELECT account_id, COUNT(*) AS n FROM message_content WHERE user_key=? AND indexed_at IS NOT NULL GROUP BY account_id', userKey);
+
+  // Whole-table row counts, for turning a row share into bytes.
+  const total = (sql) => { try { return db.prepare(sql).get().n || 0; } catch { return 0; } };
+  const allEnvelopes = total('SELECT COUNT(*) AS n FROM messages');
+  const allAnalytics = total('SELECT COUNT(*) AS n FROM analytics_messages');
+  const share = (part, all, bytes) => (all && bytes ? Math.round((part / all) * bytes) : 0);
+
+  const accounts = accountIds.map((id) => ({
+    accountId: id,
+    bodies: { bytes: bodies[id] || 0, count: bodyCounts[id] || 0 },
+    list: { count: envelopes[id] || 0, bytes: share(envelopes[id] || 0, allEnvelopes, whole.categories?.list) },
+    analytics: { count: analytics[id] || 0, bytes: share(analytics[id] || 0, allAnalytics, whole.categories?.analytics) },
+    indexed: indexed[id] || 0,
+  }));
+  return { accounts, whole: includeWholeFile ? whole : null };
+}
+
+/**
+ * Drop one account's cached bodies — what "Clear cached bodies" does.
+ *
+ * Search-index rows go FIRST, while the message_content rows that carry their
+ * rowids still exist: the other order orphans them in a contentless FTS table,
+ * where nothing can find them again to delete (the same ordering rule
+ * removeMessageContent follows). The envelopes are untouched, so the list is
+ * unchanged; the bodies come back as messages are opened, and the background
+ * backfill re-fills the newest contentCacheLimit per folder on its own.
+ */
+export function clearMessageContentFor(userKey, accountId) {
+  const sub = 'SELECT rowid FROM message_content WHERE user_key=? AND account_id=?';
+  db.prepare(`DELETE FROM message_fts WHERE rowid IN (${sub})`).run(userKey, accountId);
+  const n = db.prepare('DELETE FROM message_content WHERE user_key=? AND account_id=?').run(userKey, accountId).changes;
+  storageCache.at = 0;           // the next report has to see this
+  contentSizeCache.at = 0;
+  return n;
+}
+
 export function dropSearchIndex(userKey, accountId) {
   const sub = 'SELECT rowid FROM message_content WHERE user_key=? AND account_id=?';
   const n = db.prepare(`DELETE FROM message_fts WHERE rowid IN (${sub})`).run(userKey, accountId).changes;

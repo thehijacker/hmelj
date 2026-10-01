@@ -343,6 +343,70 @@ export function topSenders(uKey, accountId, { sort = 'bytes', dir = 'desc', limi
 }
 
 /**
+ * Every sender that mails you in bulk — a Subscriptions list.
+ *
+ * "Bulk" is the scan's `bulk` flag: the message carried a List-Unsubscribe
+ * header, which is the one signal a newsletter, a shop and a notification
+ * service all share and a person writing to you never sends. Exchange and Graph
+ * scans cannot read that header without fetching every message one by one, so
+ * they record bulk=0 and contribute nothing here — the page says so.
+ *
+ * TWO single-pass grouped queries, deliberately, and never a lookup per row
+ * (see largest() below for what one of those cost: fifteen seconds, with the
+ * whole process blocked behind it):
+ *
+ *   1. the figures, over the DEDUPED set, so a count here is the same count the
+ *      Senders tab shows for the same address;
+ *   2. where each sender's NEWEST message is, from the raw rows — exactly one
+ *      MAX() aggregate, so SQLite takes the bare folder/uid columns from the row
+ *      that produced it. That message is what Unsubscribe acts on: its
+ *      List-Unsubscribe is the sender's current one.
+ *
+ * Unbounded on purpose: the busiest real account has a few hundred bulk
+ * senders, and sorting and filtering that many in the browser is instant.
+ */
+const SUBSCRIPTION_WINDOW_MS = 90 * 24 * 3600e3;
+export function subscriptions(uKey, accountId, { unsubscribed = {} } = {}) {
+  const since = Date.now() - SUBSCRIPTION_WINDOW_MS;
+  // `since` is bound FIRST: positional parameters follow the text, and the
+  // CASE sits in the SELECT list ahead of DEDUPED's own two placeholders.
+  const figures = db.prepare(`
+    SELECT from_addr, MIN(from_name) AS from_name, COUNT(*) AS messages,
+           SUM(CASE WHEN date >= ? THEN 1 ELSE 0 END) AS recent,
+           MAX(date) AS lastDate, SUM(seen) AS seen, COALESCE(SUM(size), 0) AS bytes
+      FROM (${DEDUPED}) WHERE bulk = 1 AND from_addr <> ''
+     GROUP BY from_addr`).all(since, uKey, accountId);
+
+  const newest = new Map(db.prepare(`
+    SELECT from_addr, MAX(date) AS d, folder, uid
+      FROM analytics_messages
+     WHERE user_key=? AND account_id=? AND bulk = 1 AND from_addr <> ''
+     GROUP BY from_addr`).all(uKey, accountId).map((r) => [r.from_addr, r]));
+
+  const rows = figures.map((f) => {
+    const at = newest.get(f.from_addr);
+    const done = unsubscribed[String(f.from_addr).toLowerCase()];
+    return {
+      address: f.from_addr,
+      name: f.from_name || '',
+      messages: f.messages,
+      // Ninety days to a month: a newsletter's cadence, not its lifetime total,
+      // is what decides whether it is worth keeping.
+      perMonth: Math.round((f.recent / 3) * 10) / 10,
+      lastDate: f.lastDate,
+      readShare: f.messages ? Math.round((f.seen / f.messages) * 100) : 0,
+      bytes: f.bytes,
+      folder: at?.folder || null,
+      uid: at?.uid ?? null,
+      unsubscribedAt: done?.at || null,
+    };
+  });
+  // Busiest first; the page re-sorts on demand.
+  rows.sort((a, b) => b.messages - a.messages || a.address.localeCompare(b.address));
+  return { rows, total: rows.length };
+}
+
+/**
  * The heaviest messages, paged.
  *
  * ONE grouped query with bare `folder`/`uid` columns, rather than the deduped

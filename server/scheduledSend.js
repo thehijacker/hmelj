@@ -30,6 +30,7 @@ import { log } from './log.js';
 import { listUsers, runAsUser, userKey } from './session.js';
 import { sendMail } from './smtpClient.js';
 import { learnRecipients } from './contacts.js';
+import * as followUps from './followUps.js';
 import * as userLog from './userLog.js';
 import * as push from './push.js';
 
@@ -334,16 +335,24 @@ async function attemptSend(uKey, user, rec) {
   rec.attempts = (rec.attempts || 0) + 1;
   writeRecord(uKey, rec);
 
+  let sent;
   try {
     // runAsUser rebuilds the context a request would have had. It is also what
     // re-validates access for free: sendMail resolves through
     // resolveAccountForSending(), which re-checks that THIS user may still use
     // that account — so a share revoked between scheduling and sending fails
     // here rather than sending.
-    await runAsUser(user, () => sendMail(rec.payload));
+    sent = await runAsUser(user, () => sendMail(rec.payload));
   } catch (e) {
     return void onFailure(uKey, user, rec, e);
   }
+
+  // A follow-up starts from the moment the message really went out — for a
+  // scheduled one that is now, not when Send was pressed hours ago, and for an
+  // undo-send that was recalled, never. uKey is the queue owner, i.e. the
+  // person who pressed Send, whose list the reminder belongs in.
+  try { followUps.register(uKey, sent?.ownerKey, rec.payload, sent?.accountId); }
+  catch (e) { sslog.warn('Could not keep the follow-up reminder:', e.message); }
 
   // Same as an immediate send: everyone it went to becomes a contact, in the
   // SENDER's address book (runAsUser, not the mailbox owner's context) and only

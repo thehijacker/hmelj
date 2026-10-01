@@ -23,6 +23,7 @@ import { zipSync, safeEntryName } from './zip.js';
 import { runFilters } from './filters.js';
 import * as archive from './archive.js';
 import * as autoArchive from './autoArchive.js';
+import * as followUps from './followUps.js';
 import {
   requireAuth, createSession, destroySession, sessionFromRequest,
   setSessionCookie, clearSessionCookie, parseCookies, COOKIE_NAME,
@@ -3106,9 +3107,76 @@ app.post('/api/analytics/delete', wrap(async (req, res) => {
   res.json(result);
 }));
 
+// wrap()ped, unlike its older neighbours: a missing ?account= throws, and an
+// unwrapped handler hands that to Express's default error page — HTML, with a
+// stack trace and server file paths — instead of a JSON error the page can show.
+app.get('/api/analytics/subscriptions', wrap(async (req, res) => {
+  const acc = accounts.currentAccount();
+  res.json({
+    ...analytics.subscriptions(currentUser().userKey, acc.id, { unsubscribed: store.getUnsubscribes() }),
+    // Whether this account's scans can see List-Unsubscribe at all — Exchange
+    // and Graph cannot, and an empty table would otherwise read as "you have
+    // no subscriptions", which is not what is true.
+    detectable: !['ews', 'graph'].includes(acc.type),
+    archiveFolder: acc.archiveFolder || '',
+  });
+}));
+
 app.post('/api/analytics/clear', (req, res) => {
   analytics.clear(currentUser().userKey, accounts.currentAccount().id);
   res.json({ ok: true });
+});
+
+/* ---------- follow-up reminders (server/followUps.js) ----------
+ * The viewer's own list: the person who pressed Send, not a shared mailbox's
+ * owner — a reminder is personal. */
+app.get('/api/follow-ups', (req, res) => res.json(followUps.listFor(currentUser().viewerKey)));
+app.post('/api/follow-ups/:id/snooze', (req, res) => {
+  try { res.json(followUps.snooze(currentUser().viewerKey, followUps.assertId(req.params.id), req.body?.days)); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.delete('/api/follow-ups/:id', (req, res) => {
+  try { followUps.dismiss(currentUser().viewerKey, req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+/* ---------- Settings › Storage (cache.js#storageReport) ----------
+ *
+ * Your own accounts for everyone; the whole-file breakdown only for an admin,
+ * because cache.sqlite holds every user's rows and its totals describe them all.
+ * Owned accounts only (listOwnedAccounts): a shared-in account's rows live under
+ * its owner's key and are the owner's to see and to clear.
+ */
+app.get('/api/storage', (req, res) => {
+  if (!config.cacheEnabled) return res.json({ disabled: true, accounts: [], whole: null });
+  const owned = accounts.listOwnedAccounts();
+  const report = cache.storageReport(currentUser().userKey, owned.map((a) => a.id), {
+    includeWholeFile: isAdminUser(currentUser().username),
+  });
+  // Labels and limits travel with the numbers so the page needs no second
+  // request to say what each row is and why it will grow back.
+  const byId = Object.fromEntries(owned.map((a) => [a.id, a]));
+  report.accounts = report.accounts.map((r) => ({
+    ...r, label: byId[r.accountId]?.label || r.accountId, color: byId[r.accountId]?.color || null,
+  }));
+  report.contentCacheLimit = store.getSettings().contentCacheLimit;
+  res.json(report);
+});
+
+/** Clear one of your accounts' cached bodies or analytics. Neither touches a
+ *  single message on the mail server — both are this server's own copies, and
+ *  both come back: bodies as mail is read and backfilled, analytics on the next
+ *  scan. */
+app.post('/api/storage/:accountId/clear', (req, res) => {
+  const accountId = String(req.params.accountId || '');
+  const uKey = currentUser().userKey;
+  if (!accounts.listOwnedAccounts().some((a) => a.id === accountId)) {
+    return res.status(404).json({ error: 'No such account' });
+  }
+  const what = req.body?.what;
+  if (what === 'bodies') return res.json({ ok: true, removed: cache.clearMessageContentFor(uKey, accountId) });
+  if (what === 'analytics') { analytics.clear(uKey, accountId); cache.invalidateStorageReport(); return res.json({ ok: true }); }
+  return res.status(400).json({ error: 'Nothing to clear' });
 });
 
 // On-demand full reconciliation of one folder — the list pane's refresh
@@ -4947,12 +5015,25 @@ app.post('/api/send', wrap(async (req, res) => {
     return res.status(400).json({ error: e.message });
   }
   if (!payload?.to) return res.status(400).json({ error: 'Add at least one recipient' });
-  let acc, ownerUser;
+  let acc, ownerUser, identity;
   try {
-    ({ acc, ownerUser } = resolveIdentityAndAccount(payload));
+    ({ acc, ownerUser, identity } = resolveIdentityAndAccount(payload));
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
+  // The Message-ID, minted now — before the message is held back, queued or
+  // sent — so that whichever of the three exits below it takes, the id rides
+  // along in the payload and is the one that goes out. Always minted here,
+  // never taken from the request: a message recalled by undo-send and sent
+  // again is a NEW message and must not reuse the old one's id. What it is for
+  // is server/followUps.js, which finds the reply to it.
+  {
+    const from = String(identity?.email || acc.email || '');
+    const domain = from.includes('@') ? from.split('@').pop().replace(/[^A-Za-z0-9.-]/g, '') : '';
+    payload.messageId = `<${crypto.randomUUID()}@${domain || 'hmelj.local'}>`;
+  }
+  // Only the values the composer offers; anything else means no reminder.
+  if (!followUps.ALLOWED_DAYS.includes(Number(payload.followUpDays))) delete payload.followUpDays;
   // Resolved here, while the request's own ALS context is still the caller's —
   // resolveAccountForSending checks access against currentUser().
   const originalTarget = resolveOriginalTarget(payload.original);
@@ -5013,7 +5094,12 @@ app.post('/api/send', wrap(async (req, res) => {
   const senderKey = currentUser().userKey;
   const ownerKey = userKey(ownerUser.username);
   try {
-    await sendMail(payload);
+    const sent = await sendMail(payload);
+    // The reminder starts now that the message has really gone — and only
+    // then: a send that failed leaves nothing to follow up on. Never allowed to
+    // fail the send itself.
+    try { followUps.register(currentUser().viewerKey, sent?.ownerKey, payload, sent?.accountId || acc.id); }
+    catch (e) { log.warn('Could not keep the follow-up reminder:', e.message); }
     // Everyone it went to becomes a contact (opt-out: settings.autoAddContacts).
     // After the send, not before — a message that bounced at the handshake is no
     // evidence the address was typed right. See server/contacts.js.
@@ -5100,6 +5186,9 @@ contactSyncRunner.start();
 // account with autoArchiveDays 0 — every account, until somebody sets one —
 // costs it a comparison a day.
 autoArchive.start();
+// Follow-up reminders: reads the cache, so it does nothing useful without one,
+// but it costs nothing either — with no records there is nothing to check.
+followUps.start();
 // Calendars DO live in cache.sqlite, so this one genuinely needs it.
 if (config.cacheEnabled) {
   calendarSync.start();

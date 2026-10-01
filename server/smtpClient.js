@@ -171,6 +171,12 @@ export async function sendMail(payload) {
     replyTo: from.replyTo || undefined,
     inReplyTo: payload.inReplyTo || undefined,
     references: payload.references || undefined,
+    // Minted by /api/send (index.js) rather than left to nodemailer, so the id
+    // is known BEFORE the message goes out — and the same on all three
+    // backends, since EWS and Graph build their MIME from this same object
+    // (buildRaw) yet hand back an item id, not a Message-ID. A follow-up
+    // reminder (server/followUps.js) finds the reply by it.
+    messageId: payload.messageId || undefined,
     headers: {},
     attachments: (payload.attachments || []).map((a) => ({
       filename: a.filename,
@@ -204,8 +210,12 @@ export async function sendMail(payload) {
     mail.headers['Return-Receipt-To'] = from.email;
   }
 
-  if (acc.type === 'ews') return sendMailEws(acc, mail, payload, ownerUser);
-  if (acc.type === 'graph') return sendMailGraph(acc, mail, payload, ownerUser);
+  // Every exit says whose CACHE the sent copy lands in: for a shared account
+  // that is the owner's, not the sender's, and a follow-up reminder has to look
+  // for the reply there (server/followUps.js).
+  const tag = (r) => ({ ...r, ownerKey: userKey(ownerUser.username) });
+  if (acc.type === 'ews') return tag(await sendMailEws(acc, mail, payload, ownerUser));
+  if (acc.type === 'graph') return tag(await sendMailGraph(acc, mail, payload, ownerUser));
 
   const t = await transporter(acc, ownerUser);
   const info = await t.sendMail(mail);
@@ -236,7 +246,7 @@ export async function sendMail(payload) {
   // calls, which is exactly the case refreshSentFolder's retries exist for.
   await refreshSentFolder(ownerUser, acc);
 
-  return { messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, accountId: acc.id };
+  return tag({ messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, accountId: acc.id });
 }
 
 /**

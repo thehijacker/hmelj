@@ -28,7 +28,15 @@ const Analytics = (() => {
     senders: { key: 'bytes', dir: 'desc' },
     largest: { key: 'size', dir: 'desc' },
     cleanup: { key: 'size', dir: 'desc' },
+    // Sorted HERE, like the overview tables: every bulk sender comes back in one
+    // answer (a few hundred at most), so a click re-orders what is loaded
+    // rather than asking the server again.
+    subs: { key: 'messages', dir: 'desc' },
   };
+  // The Subscriptions tab's rows, for the account they were fetched for. Kept
+  // so a re-sort or an unsubscribe repaints without a round trip; dropped when
+  // the account changes or the index is rescanned or cleared.
+  let subsData = null;
   // Which way a column should sort the FIRST time it's clicked: biggest/newest
   // first for quantities, A-Z for names. Clicking the active column flips it.
   const ASC_FIRST = new Set(['sender', 'subject', 'folder', 'name']);
@@ -219,6 +227,9 @@ const Analytics = (() => {
 
   async function reload() {
     if (!accountId) return;
+    // A reload follows a finished scan, a cleared index or an account switch —
+    // each of which changes who the bulk senders are.
+    subsData = null;
     try {
       summaryData = await API.anSummary(accountId);
     } catch (e) {
@@ -261,6 +272,115 @@ const Analytics = (() => {
     if (tab === 'senders') return renderSenders();
     if (tab === 'largest') return renderLargest();
     if (tab === 'cleanup') return renderCleanup();
+    if (tab === 'subs') return renderSubscriptions();
+  }
+
+  /* ---------- Subscriptions ----------
+   * Every sender that mails you in bulk (a List-Unsubscribe header), with the
+   * three things worth doing about one: leave, keep but out of the Inbox, or
+   * clear out what has piled up. Each reuses something that already exists —
+   * the message's own unsubscribe route, Settings' filter editor, and the
+   * Search & clean up tab — so none of them is a second implementation.
+   */
+  const SUB_SORTS = {
+    sender: (r) => (r.name || r.address).toLowerCase(),
+    messages: (r) => r.messages,
+    perMonth: (r) => r.perMonth,
+    read: (r) => r.readShare,
+    latest: (r) => r.lastDate || 0,
+  };
+
+  async function renderSubscriptions() {
+    if (!summaryData.messages) { body().innerHTML = needsScan(); return; }
+    if (!subsData || subsData.accountId !== accountId) {
+      body().innerHTML = `<div class="an-empty">${esc(I18n.t('Loading…'))}</div>`;
+      try {
+        subsData = { accountId, ...(await API.anSubscriptions(accountId)) };
+      } catch (e) { body().innerHTML = `<div class="an-empty">${esc(e.message)}</div>`; return; }
+    }
+    if (!subsData.detectable) {
+      body().innerHTML = `<div class="an-empty">${esc(I18n.t('Newsletters are recognised by their List-Unsubscribe header, which an Exchange or Microsoft 365 scan cannot read without opening every message one by one. Subscriptions are found on IMAP accounts — Gmail, and any other.'))}</div>`;
+      return;
+    }
+    if (!subsData.rows.length) {
+      body().innerHTML = `<div class="an-empty">${esc(I18n.t('No newsletters in the last scan of this account.'))}</div>`;
+      return;
+    }
+    const st = sorts.subs;
+    const key = SUB_SORTS[st.key] || SUB_SORTS.messages;
+    const rows = subsData.rows.slice().sort((a, b) => {
+      const x = key(a), y = key(b);
+      return (x < y ? -1 : x > y ? 1 : 0) * (st.dir === 'asc' ? 1 : -1);
+    });
+    const canArchive = !!subsData.archiveFolder;
+
+    body().innerHTML = `
+      <p class="set-hint">${esc(I18n.t('Everyone who mails you in bulk. "Per month" is the last 90 days, so a sender who has gone quiet shows 0 — and counts are only as fresh as the last scan.'))}</p>
+      ${sortBar('subs', [['messages', I18n.t('Messages')], ['perMonth', I18n.t('Per month')], ['read', I18n.t('Read')], ['latest', I18n.t('Latest')], ['sender', I18n.t('Sender')]])}
+      <div class="an-table-wrap"><table class="an-table">
+        <thead><tr>${th('subs', 'sender', I18n.t('Sender'))}${th('subs', 'messages', I18n.t('Messages'), { num: true })}${th('subs', 'perMonth', I18n.t('Per month'), { num: true })}${th('subs', 'read', I18n.t('Read'), { num: true })}${th('subs', 'latest', I18n.t('Latest'), { num: true })}<th></th></tr></thead>
+        <tbody>${rows.map((r, i) => `<tr data-i="${subsData.rows.indexOf(r)}">
+          <td class="an-c-sender" title="${escAttr(r.address)}">${esc(r.name || r.address)}${r.name ? `<div class="set-hint" style="margin:0">${esc(r.address)}</div>` : ''}</td>
+          <td class="num" data-label="${I18n.t('Messages')}">${fmtNum(r.messages)}</td>
+          <td class="num" data-label="${I18n.t('Per month')}">${r.perMonth ? r.perMonth.toLocaleString() : '0'}</td>
+          <td class="num" data-label="${I18n.t('Read')}">${r.readShare}%</td>
+          <td class="num" data-label="${I18n.t('Latest')}">${fmtWhen(r.lastDate)}</td>
+          <td class="an-c-act an-sub-acts">
+            ${r.unsubscribedAt
+              ? `<span class="set-hint" style="margin:0">✓ ${esc(I18n.t('Unsubscribed'))} ${fmtWhen(r.unsubscribedAt)}</span>`
+              : (r.folder && r.uid != null ? `<button class="btn-sm an-unsub">${esc(I18n.t('Unsubscribe'))}</button>` : '')}
+            ${canArchive ? `<button class="btn-sm an-autoarch" title="${escAttr(I18n.t('Create a filter that moves this sender\'s mail to the Archive'))}">${esc(I18n.t('Auto-archive'))}</button>` : ''}
+            <button class="link-btn an-sub-clean">${esc(I18n.t('Clean up →'))}</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+
+    wireSort(renderSubscriptions);
+    const rowOf = (el) => subsData.rows[Number(el.closest('tr').dataset.i)];
+
+    body().querySelectorAll('.an-unsub').forEach((b) => b.addEventListener('click', async () => {
+      const r = rowOf(b);
+      b.disabled = true;
+      try {
+        const res = await API.unsubscribe(r.folder, r.uid, accountId);
+        if (res.method === 'open' && res.url) {
+          // The sender only offers a web page. A popup cannot be opened now —
+          // a browser allows that only inside the click itself, and this is
+          // after a round trip — so it becomes a real link to click.
+          const a = document.createElement('a');
+          a.href = res.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.className = 'btn-sm';
+          a.textContent = I18n.t('Open unsubscribe page');
+          b.replaceWith(a);
+          return;
+        }
+        r.unsubscribedAt = res.at || Date.now();
+        toast(I18n.t('Unsubscribed'));
+        renderSubscriptions();
+      } catch (e) {
+        b.disabled = false;
+        toast('Unsubscribe failed: ' + e.message, 6000);
+      }
+    }));
+
+    body().querySelectorAll('.an-autoarch').forEach((b) => b.addEventListener('click', () => {
+      const r = rowOf(b);
+      // Closed first: Settings is a modal of its own, and the filter editor is
+      // where the user's attention goes next.
+      close();
+      Settings.newFilterFrom({ accountId, from: r.address, name: r.name || r.address, moveTo: subsData.archiveFolder });
+    }));
+
+    body().querySelectorAll('.an-sub-clean').forEach((b) => b.addEventListener('click', () => {
+      // Exactly what the Senders tab's "Clean up →" does: the sender goes into
+      // Search & clean up, with its own count and confirmation before anything
+      // is deleted.
+      queryText = rowOf(b).address;
+      tab = 'cleanup';
+      resetSelection();
+      render();
+      runQuery();
+    }));
   }
 
   /** Shown on every tab that needs the index, when there isn't one yet. The
@@ -628,6 +748,7 @@ const Analytics = (() => {
     document.getElementById('an-account').addEventListener('change', async (e) => {
       accountId = e.target.value;
       lastQuery = null;
+      subsData = null;
       resetSelection();
       resetPaging();
       await reload();
