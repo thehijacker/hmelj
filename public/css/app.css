@@ -2101,8 +2101,36 @@ label:has(> .set-help) .set-help { margin-left: auto; }
 
 /* Subscriptions (Analytics): up to three actions per row, which wrap rather
    than forcing the table wider than the dialog. */
-.an-sub-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+/* Not a table: in a dialog this narrow, at a large UI font, five columns plus
+   buttons left the sender — the one thing you read the row by — a few letters
+   wide. Each sender is a small card instead, at every width: name and address
+   across the whole first line, the numbers and the buttons on the second. */
+.an-sortbar.an-sortbar-always { display: flex; max-width: 28em; }
+.an-sub-list { border: 1px solid var(--border); border-radius: 8px; }
+.an-sub-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  padding: 8px 12px;
+}
+.an-sub-row + .an-sub-row { border-top: 1px solid var(--border); }
+.an-sub-who { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-sub-name { font-weight: 600; }
+.an-sub-addr { color: var(--text-dim); margin-left: 8px; font-size: calc(12px * var(--ui-scale)); }
+.an-sub-meta {
+  flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 2px 14px;
+  color: var(--text-dim); font-size: calc(12px * var(--ui-scale));
+}
+.an-sub-meta b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.an-sub-acts { flex: 0 0 auto; margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
 .an-sub-acts .btn-sm { text-decoration: none; }
+.an-sub-acts .an-icon-btn { padding: 2px 6px; min-width: 0; line-height: 1.2; }
+/* A phone has no room for name and address side by side: stack them, each
+   trimmed on its own so the address is never the part that disappears. */
+@media (max-width: 600px) {
+  .an-sub-who { white-space: normal; }
+  .an-sub-name, .an-sub-addr { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .an-sub-addr { margin-left: 0; }
+  .an-sortbar.an-sortbar-always { max-width: none; }
+}
 
 /* ---------- Settings › Storage ----------
    One line per figure: label, an optional proportion bar, the number, and a

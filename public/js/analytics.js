@@ -316,27 +316,28 @@ const Analytics = (() => {
 
     body().innerHTML = `
       <p class="set-hint">${esc(I18n.t('Everyone who mails you in bulk. "Per month" is the last 90 days, so a sender who has gone quiet shows 0 — and counts are only as fresh as the last scan.'))}</p>
-      ${sortBar('subs', [['messages', I18n.t('Messages')], ['perMonth', I18n.t('Per month')], ['read', I18n.t('Read')], ['latest', I18n.t('Latest')], ['sender', I18n.t('Sender')]])}
-      <div class="an-table-wrap"><table class="an-table">
-        <thead><tr>${th('subs', 'sender', I18n.t('Sender'))}${th('subs', 'messages', I18n.t('Messages'), { num: true })}${th('subs', 'perMonth', I18n.t('Per month'), { num: true })}${th('subs', 'read', I18n.t('Read'), { num: true })}${th('subs', 'latest', I18n.t('Latest'), { num: true })}<th></th></tr></thead>
-        <tbody>${rows.map((r, i) => `<tr data-i="${subsData.rows.indexOf(r)}">
-          <td class="an-c-sender" title="${escAttr(r.address)}">${esc(r.name || r.address)}${r.name ? `<div class="set-hint" style="margin:0">${esc(r.address)}</div>` : ''}</td>
-          <td class="num" data-label="${I18n.t('Messages')}">${fmtNum(r.messages)}</td>
-          <td class="num" data-label="${I18n.t('Per month')}">${r.perMonth ? r.perMonth.toLocaleString() : '0'}</td>
-          <td class="num" data-label="${I18n.t('Read')}">${r.readShare}%</td>
-          <td class="num" data-label="${I18n.t('Latest')}">${fmtWhen(r.lastDate)}</td>
-          <td class="an-c-act an-sub-acts">
-            ${r.unsubscribedAt
-              ? `<span class="set-hint" style="margin:0">✓ ${esc(I18n.t('Unsubscribed'))} ${fmtWhen(r.unsubscribedAt)}</span>`
-              : (r.folder && r.uid != null ? `<button class="btn-sm an-unsub">${esc(I18n.t('Unsubscribe'))}</button>` : '')}
-            ${canArchive ? `<button class="btn-sm an-autoarch" title="${escAttr(I18n.t('Create a filter that moves this sender\'s mail to the Archive'))}">${esc(I18n.t('Auto-archive'))}</button>` : ''}
-            <button class="link-btn an-sub-clean">${esc(I18n.t('Clean up →'))}</button>
-          </td>
-        </tr>`).join('')}</tbody>
-      </table></div>`;
+      ${sortBar('subs', [['messages', I18n.t('Messages')], ['perMonth', I18n.t('Per month')], ['read', I18n.t('Read')], ['latest', I18n.t('Latest')], ['sender', I18n.t('Sender')]]).replace('an-sortbar', 'an-sortbar an-sortbar-always')}
+      <div class="an-sub-list">${rows.map((r) => `<div class="an-sub-row" data-i="${subsData.rows.indexOf(r)}">
+        <div class="an-sub-who" title="${escAttr(r.name ? `${r.name} <${r.address}>` : r.address)}">
+          <span class="an-sub-name">${esc(r.name || r.address)}</span>${r.name ? `<span class="an-sub-addr">${esc(r.address)}</span>` : ''}
+        </div>
+        <div class="an-sub-meta">
+          <span>${esc(I18n.t('Messages'))} <b>${fmtNum(r.messages)}</b></span>
+          <span>${esc(I18n.t('Per month'))} <b>${r.perMonth ? r.perMonth.toLocaleString() : '0'}</b></span>
+          <span>${esc(I18n.t('Read'))} <b>${r.readShare}%</b></span>
+          <span>${esc(I18n.t('Latest'))} <b>${fmtWhen(r.lastDate)}</b></span>
+        </div>
+        <div class="an-sub-acts">
+          ${r.unsubscribedAt
+            ? `<span class="set-hint" style="margin:0">✓ ${esc(I18n.t('Unsubscribed'))} ${fmtWhen(r.unsubscribedAt)}</span>`
+            : (r.folder && r.uid != null ? `<button class="btn-sm an-unsub">${esc(I18n.t('Unsubscribe'))}</button>` : '')}
+          ${canArchive ? `<button class="btn-sm an-icon-btn an-autoarch" title="${escAttr(I18n.t('Auto-archive'))}" aria-label="${escAttr(I18n.t('Auto-archive'))}">🗄</button>` : ''}
+          <button class="btn-sm an-icon-btn an-sub-clean" title="${escAttr(I18n.t('Clean up →'))}" aria-label="${escAttr(I18n.t('Clean up →'))}">🧹</button>
+        </div>
+      </div>`).join('')}</div>`;
 
     wireSort(renderSubscriptions);
-    const rowOf = (el) => subsData.rows[Number(el.closest('tr').dataset.i)];
+    const rowOf = (el) => subsData.rows[Number(el.closest('.an-sub-row').dataset.i)];
 
     body().querySelectorAll('.an-unsub').forEach((b) => b.addEventListener('click', async () => {
       const r = rowOf(b);
