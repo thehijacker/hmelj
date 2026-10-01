@@ -17,6 +17,8 @@ set when the release is tagged — entries are never given one in advance.
 
 ### Settings → Storage shows what the server's cache holds, per account, with prunes
 
+### Android app 1.0.3: follow-up reminders get their own notification channel and open the Follow up list
+
 ## 1.1.4 — 2026-09-28
 
 ### Fixed: ten error messages, the quote tooltip and the analytics hint were stuck in English

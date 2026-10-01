@@ -68,6 +68,13 @@ object MailNotifications {
      */
     const val CHANNEL_CALENDAR = "hmelj_calendar"
 
+    /**
+     * "No reply yet" follow-up reminders (server/followUps.js). Separate from
+     * mail for the same reason as calendar: it is a reminder about mail, not
+     * new mail, and someone may well want one silent and not the other.
+     */
+    const val CHANNEL_FOLLOWUP = "hmelj_followup"
+
     /** One fixed id, so repeated updates replace rather than stack. */
     const val BADGE_NOTIFICATION_ID = -1000
 
@@ -121,6 +128,17 @@ object MailNotifications {
             enableVibration(true)
         }
         manager.createNotificationChannel(calendar)
+
+        val followUp = NotificationChannel(
+            CHANNEL_FOLLOWUP,
+            context.getString(R.string.followup_channel_name),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            // Not on the badge, same reasoning as the calendar channel.
+            setShowBadge(false)
+            enableVibration(true)
+        }
+        manager.createNotificationChannel(followUp)
     }
 
     /**

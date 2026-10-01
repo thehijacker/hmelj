@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20261001085';
+const VERSION = 'hmelj-20261001086';
 const SHELL = [
   '/',
   '/index.html',

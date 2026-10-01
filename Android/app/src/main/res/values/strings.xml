@@ -29,6 +29,8 @@
          silencing mail, or the other way round — which is the whole reason
          Android has channels. -->
     <string name="calendar_channel_name" translatable="false">Calendar reminders</string>
+    <!-- "No reply yet" reminders for sent mail (server/followUps.js). -->
+    <string name="followup_channel_name" translatable="false">Follow-up reminders</string>
     <!-- Attachment hand-off: the mail app downloads an attachment with the
          session cookie and offers it to another app (MainActivity#openAttachmentFromServer). -->
     <string name="attachment_downloading">Downloading…</string>

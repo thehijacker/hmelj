@@ -209,7 +209,10 @@ async function pass() {
         const body = newlyDue === 1
           ? `${lastDue.subject || tr(lang, '(no subject)')} — ${lastDue.to}`
           : tr(lang, 'Open Follow up to see them');
-        push.sendPushToUser(viewerKey, { title, body, icon: '/icons/icon-192.png', tag: 'hmelj-followup', data: { kind: 'followup' } })
+        // `kind` twice, as calendarReminders.js#payloadFor does: the Android
+        // shell reads it at the top level (to keep this off the mail channel and
+        // out of the unread badge), sw.js and the tap handler read it in `data`.
+        push.sendPushToUser(viewerKey, { title, body, icon: '/icons/icon-192.png', tag: 'hmelj-followup', kind: 'followup', data: { kind: 'followup' } })
           .catch((e) => flog.debug('Follow-up push failed:', e.message));
       }
     }

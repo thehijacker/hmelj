@@ -8065,6 +8065,7 @@ window.onCodexaPushTapped = (data) => {
   // A calendar reminder carries no folder at all, so the mail check below would
   // silently swallow it — the tap would do nothing and nothing would say why.
   if (d.kind === 'calendar') { openFolder(CALENDAR_FOLDER); return; }
+  if (d.kind === 'followup') { openFolder(FOLLOWUP_FOLDER); return; }
   if (!d.folder || d.uid === undefined) return;
   openMessageDeepLink(d.accountId, d.folder, d.uid);
 };

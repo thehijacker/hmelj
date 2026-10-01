@@ -114,10 +114,15 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
         // here could have worked it out. Applied BEFORE the enabled-check below: a badge
         // is not a notification, and it should track reality regardless.
         val isCalendar = kind == "calendar"
+        // A follow-up reminder ("No reply yet") is about mail but is not new
+        // mail: like a calendar reminder it stays off the mail channel, the
+        // badge and the badge group, and has no message for tray buttons to act on.
+        val isFollowUp = kind == "followup"
+        val isReminder = isCalendar || isFollowUp
         // A calendar reminder carries no unread count and must never move the
         // badge — that number is the unread MAIL total, and a reminder blanking
         // or inflating it would make it stop matching what the app shows.
-        if (!isCalendar && unreadTotal >= 0) MailNotifications.setBadge(this, unreadTotal)
+        if (!isReminder && unreadTotal >= 0) MailNotifications.setBadge(this, unreadTotal)
 
         // A badge-only push carries no title/body and exists purely to correct the
         // number above — sent when the total goes DOWN (mail read on another device),
@@ -152,7 +157,11 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
 
         val builder = NotificationCompat.Builder(
             this,
-            if (isCalendar) MailNotifications.CHANNEL_CALENDAR else MailNotifications.CHANNEL_MAIL,
+            when {
+                isCalendar -> MailNotifications.CHANNEL_CALENDAR
+                isFollowUp -> MailNotifications.CHANNEL_FOLLOWUP
+                else -> MailNotifications.CHANNEL_MAIL
+            },
         )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(finalTitle)
@@ -166,13 +175,19 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
             // reminder rather than a message, which is how a user who allows
             // "events" through DND but not "messages" gets what they asked for.
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(if (isCalendar) NotificationCompat.CATEGORY_EVENT else NotificationCompat.CATEGORY_MESSAGE)
+            .setCategory(
+                when {
+                    isCalendar -> NotificationCompat.CATEGORY_EVENT
+                    isFollowUp -> NotificationCompat.CATEGORY_REMINDER
+                    else -> NotificationCompat.CATEGORY_MESSAGE
+                }
+            )
 
         // Only mail joins the badge group. Without this, badge-summing launchers
         // add +1 for the notification ON TOP of the summary's setNumber(total) —
         // and a calendar reminder joining it would inflate the unread MAIL count
         // by one for as long as it sat in the tray.
-        if (!isCalendar) builder.setGroup(MailNotifications.GROUP)
+        if (!isReminder) builder.setGroup(MailNotifications.GROUP)
 
         val f = folder
         val u = uid
@@ -186,7 +201,7 @@ class HmeljFirebaseMessagingService : FirebaseMessagingService() {
             if (c != null && u != null && startAt != null) {
                 addSnoozeAction(builder, actions, id, c, u, startAt)
             }
-        } else if (f != null && u != null) {
+        } else if (!isFollowUp && f != null && u != null) {
             // "Mark as read" / "Delete" — see NotificationActionReceiver. Only
             // for a notification that stands for ONE message: the server's
             // "N more new messages" summary carries no uid, and there'd be
