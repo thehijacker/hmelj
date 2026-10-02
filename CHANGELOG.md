@@ -7,7 +7,7 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
-## Unreleased
+## 1.1.5 — 2026-10-02
 
 ### Filter messages like this — a new filter prefilled from the message you right-clicked
 
