@@ -842,7 +842,10 @@ export async function respondToMeeting(path, uid, { action, comment = '', sendRe
 export async function moveMessages(path, uids, target) {
   if (!uids.length) return { ok: true };
   const destinationId = await resolveFolderId(target);
-  const moved = await gbatch(uids.map((uid) => ({ method: 'POST', url: `/me/messages/${eid(uid)}/move`, body: { destinationId } })));
+  // 404 tolerated, as hardDelete does: a message already gone server-side (a
+  // recalled one, say) is already out of this folder — see ewsClient.js#
+  // checkResponseCodesAllowingGone.
+  const moved = await gbatch(uids.map((uid) => ({ method: 'POST', url: `/me/messages/${eid(uid)}/move`, body: { destinationId } })), { tolerate: [404] });
   // A move gives the message a NEW id in the destination folder, so anything
   // cached under the old (path, uid) is stale by definition.
   invalidateSources(path, uids);

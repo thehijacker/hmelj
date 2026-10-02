@@ -19,6 +19,10 @@ set when the release is tagged — entries are never given one in advance.
 
 ### Android app 1.0.3: follow-up reminders get their own notification channel and open the Follow up list
 
+### The selection count opens a menu — All, None, Read, Unread, With star, Without star — and can select the whole list across pages
+
+### Fixed: a recalled Exchange message could not be deleted until the next full sync removed it
+
 ## 1.1.4 — 2026-09-28
 
 ### Fixed: ten error messages, the quote tooltip and the analytics hint were stuck in English

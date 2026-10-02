@@ -309,6 +309,28 @@ function checkResponseCode(m, op) {
   }
 }
 
+/**
+ * checkResponseCode for a move or delete, where an item that no longer exists
+ * is not a failure: the point was to get it out of this folder, and it already
+ * is. The common case is a message Exchange removed by itself — a recalled
+ * message and the "Recall:" notice that withdrew it both vanish the moment
+ * Outlook processes the recall — still listed here until the next full sync
+ * prunes it. Failing the whole request left those rows impossible to delete;
+ * succeeding lets the caller drop them from the cache like any deleted message.
+ * Any other error still throws.
+ */
+function checkResponseCodesAllowingGone(messages, op, uids) {
+  const gone = [];
+  messages.forEach((m, i) => {
+    try { checkResponseCode(m, op); } catch (e) {
+      if (!e.notFound) throw e;
+      gone.push(uids[i]);
+    }
+  });
+  if (gone.length) ilog.debug(`${op}: ${gone.length} item(s) already gone server-side — treated as done`);
+  return gone;
+}
+
 // ---------- folder tree + path resolution ----------
 
 const WELL_KNOWN = ['inbox', 'sentitems', 'drafts', 'deleteditems', 'junkemail'];
@@ -1664,7 +1686,7 @@ export async function moveMessages(path, uids, target) {
   </m:MoveItem>`);
   const parsed = xmlParser.parse(xml);
   const messages = asArray(parsed?.Envelope?.Body?.MoveItemResponse?.ResponseMessages?.MoveItemResponseMessage);
-  for (const m of messages) checkResponseCode(m, 'MoveItem');
+  checkResponseCodesAllowingGone(messages, 'MoveItem', uids);
   // A move mints a brand-new ItemId for the relocated copy — whatever was
   // cached for the old one is dead regardless of whether it's still there.
   for (const uid of uids) changeKeyCache.delete(`${cacheKey(acc)}:${path}:${uid}`);
@@ -1703,7 +1725,7 @@ export async function hardDelete(path, uids) {
   </m:DeleteItem>`);
   const parsed = xmlParser.parse(xml);
   const messages = asArray(parsed?.Envelope?.Body?.DeleteItemResponse?.ResponseMessages?.DeleteItemResponseMessage);
-  for (const m of messages) checkResponseCode(m, 'DeleteItem');
+  checkResponseCodesAllowingGone(messages, 'DeleteItem', uids);
   for (const uid of uids) changeKeyCache.delete(`${cacheKey(acc)}:${path}:${uid}`);
   return { ok: true };
 }

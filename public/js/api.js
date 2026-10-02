@@ -257,6 +257,8 @@ const API = {
   unified: (box, opts = {}) => {
     const q = new URLSearchParams();
     if (opts.page) q.set('page', opts.page);
+    // Only "select all in this list" asks for bigger pages (app.js#selectedKeys).
+    if (opts.pageSize) q.set('pageSize', opts.pageSize);
     if (opts.q) q.set('q', opts.q);
     if (opts.unread) q.set('unread', '1');
     if (opts.flagged) q.set('flagged', '1');
@@ -453,6 +455,7 @@ const API = {
   messages: (folder, opts = {}, accountId) => {
     const q = new URLSearchParams();
     if (opts.page) q.set('page', opts.page);
+    if (opts.pageSize) q.set('pageSize', opts.pageSize); // see API.unified
     if (opts.q) q.set('q', opts.q);
     if (opts.unread) q.set('unread', '1');
     // Starred-only also widens this to the folder's subtree, server-side — see

@@ -1348,7 +1348,8 @@ app.get('/api/unified/:box', wrap(async (req, res) => {
   const box = req.params.box; // inbox | sent
   const page = +(req.query.page || 1);
   const list = accounts.listAccounts().filter((a) => !a.disabled);
-  const pageSize = store.getSettings().messagesPerPage;
+  // ?pageSize= only from "select all in this list" (app.js#selectedKeys), capped.
+  const pageSize = Math.min(500, parseInt(req.query.pageSize, 10) || store.getSettings().messagesPerPage);
   // `is:starred` is a flag predicate, not text — split it off so everything below
   // (the cache SQL builder, the IMAP/EWS criteria builders, queryNeedsBodySearch) only
   // ever sees the text part of what was typed. See searchQuery.js#extractStarredTerm.
@@ -3234,7 +3235,7 @@ app.get('/api/messages/:folder', wrap(async (req, res) => {
   const folder = decodeURIComponent(req.params.folder);
   const settings = store.getSettings();
   const page = parseInt(req.query.page || '1', 10);
-  const pageSize = parseInt(req.query.pageSize || String(settings.messagesPerPage), 10);
+  const pageSize = Math.min(500, parseInt(req.query.pageSize, 10) || settings.messagesPerPage);
   // See /api/unified/:box above — the flag predicate is split off before anything
   // else looks at the query text.
   const { starred: starredSearch, rest: q } = extractStarredTerm(req.query.q || '');

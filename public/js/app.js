@@ -46,6 +46,12 @@ const state = {
   messages: [],
   selected: new Set(),
   selectMode: false,
+  // "Select all N in this list" (the banner under the select toolbar): set to
+  // the listSignature() it was chosen for, so a folder switch, a new search or
+  // another page quietly turns it off instead of acting on a list the user is
+  // no longer looking at. The keys themselves are collected only when an action
+  // is run (collectAllListKeys) — selecting costs nothing.
+  selectAllList: null,
   // The row showing in the reading pane, as a row key (makeRowKey). For the
   // Scheduled/Outbox/Snoozed pseudo-lists it is that item's own id, which is
   // already unique on its own.
@@ -4907,7 +4913,7 @@ function updateSortHeader() {
  * controls to act on it are hidden again. */
 function setSelectMode(on) {
   state.selectMode = on;
-  if (!on) state.selected.clear();
+  if (!on) { state.selected.clear(); state.selectAllList = null; }
   $('#msg-list-pane').classList.toggle('select-mode', on);
   $('#select-toolbar').hidden = !on;
   $('#btn-select-mode').classList.toggle('active', on);
@@ -4917,7 +4923,97 @@ function setSelectMode(on) {
 
 /** Keeps the "X selected" count current — called on every selection change. */
 function updateSelectToolbar() {
-  $('#select-count').textContent = `${state.selected.size} selected`;
+  const pageKeys = state.messages.flatMap(rowKeys);
+  const pageAll = pageKeys.length > 0 && pageKeys.every((k) => state.selected.has(k));
+  // Unticking a single row means it is no longer "everything in the list".
+  if (state.selectAllList && (!pageAll || state.selectAllList !== listSignature())) state.selectAllList = null;
+  const all = !!state.selectAllList;
+  $('#select-count').textContent = `${all ? state.total : state.selected.size} selected`;
+  paintSelectAllBanner(pageAll, all);
+}
+
+/** What "this list" is: the same view, filters and search. Page is left out
+ *  on purpose — the list-wide selection spans every page. */
+function listSignature() {
+  return JSON.stringify([state.currentAccount, state.currentFolder, state.query, state.searchScope,
+    !!state.unreadOnly, !!state.starredOnly, !!state.showMuted]);
+}
+
+/** Is there more of this list than the page on screen? */
+function listHasMorePages() {
+  return state.selectMode && Number(state.total) > state.messages.length;
+}
+
+/**
+ * Gmail's banner: once every row on the page is ticked and the list goes on
+ * past it, offer the whole list; once the whole list is chosen, say so and
+ * offer to go back to just this page.
+ */
+function paintSelectAllBanner(pageAll, all) {
+  const el = $('#select-all-banner');
+  if (!el) return;
+  if (!state.selectMode || !pageAll || !listHasMorePages()) { el.hidden = true; el.innerHTML = ''; return; }
+  const total = Number(state.total).toLocaleString();
+  el.innerHTML = all
+    ? `<span>${esc(I18n.t('All {n} in this list are selected.').replace('{n}', total))}</span>
+       <button class="link-btn" data-act="page">${esc(I18n.t('Select only this page'))}</button>`
+    : `<span>${esc(I18n.t('All {n} on this page are selected.').replace('{n}', state.messages.length.toLocaleString()))}</span>
+       <button class="link-btn" data-act="list">${esc(I18n.t('Select all {n} in this list').replace('{n}', total))}</button>`;
+  el.hidden = false;
+}
+
+/** Tick the rows on this page that `pick` accepts (all of them, with no
+ *  test), and nothing else — the selection menu's choices are each a fresh
+ *  selection, not an addition to the last one, the way Gmail's are. */
+function selectWhere(pick) {
+  state.selectAllList = null;
+  state.selected = new Set(state.messages.filter((m) => !pick || pick(m)).flatMap(rowKeys));
+  updateSelectToolbar(); renderList();
+}
+
+/** The "0 selected" button's menu. */
+function showSelectMenu(btn) {
+  const r = btn.getBoundingClientRect();
+  openCtxMenu([
+    { label: 'All', onClick: () => selectWhere(null) },
+    // "None" is already "Brez" (a settings choice) in Slovenian; a selection
+    // menu wants "Nič", so it has a key of its own that English never sees.
+    { label: I18n.lang() === 'en' ? 'None' : I18n.t('None (select)'), onClick: () => selectWhere(() => false) },
+    { label: 'Read', onClick: () => selectWhere((m) => !rowUnread(m)) },
+    { label: 'Unread', onClick: () => selectWhere((m) => rowUnread(m)) },
+    { label: 'With star', onClick: () => selectWhere((m) => rowStarred(m)) },
+    { label: 'Without star', onClick: () => selectWhere((m) => !rowStarred(m)) },
+  ], r.left, r.bottom + 2);
+}
+
+/**
+ * The keys an action should act on: what is ticked, or — when the whole list
+ * was chosen — every message of every page of it, fetched now with the same
+ * view, filters and search the list itself was loaded with. Null if fetching
+ * failed (already reported) so the caller does nothing rather than act on
+ * half a list.
+ */
+async function selectedKeys() {
+  if (!state.selectAllList || state.selectAllList !== listSignature()) return [...state.selected];
+  const pageSize = 200;
+  const total = Number(state.total) || 0;
+  const keys = new Set();
+  try {
+    for (let page = 1; page <= Math.ceil(total / pageSize); page++) {
+      toast(I18n.t('Collecting messages… {n} of {total}').replace('{n}', Math.min(page * pageSize, total).toLocaleString()).replace('{total}', total.toLocaleString()), 4000);
+      const opts = { page, pageSize, q: state.query, unread: state.unreadOnly, flagged: state.starredOnly, scope: searchScopeParam() };
+      const data = state.currentAccount === 'all'
+        ? await API.unified(state.currentFolder === '__SENT__' ? 'sent' : 'inbox', { ...opts, hideMuted: !state.showMuted })
+        : await API.messages(state.currentFolder, opts);
+      if (data._local) throw new Error(I18n.t('Not available offline'));
+      for (const m of data.messages || []) for (const k of rowKeys(m)) keys.add(k);
+      if (!(data.messages || []).length) break;
+    }
+  } catch (e) {
+    toast(I18n.t('Could not collect the messages: ') + e.message, 6000);
+    return null;
+  }
+  return [...keys];
 }
 
 /** Builds one message-list <li>, wired with its own listeners — shared by
@@ -7422,37 +7518,34 @@ async function runBatch(keys, fn, delta) {
 function bindToolbar() {
   $('#btn-select-mode').addEventListener('click', () => { if (requireAccount()) setSelectMode(!state.selectMode); });
   $('#sel-exit').addEventListener('click', () => setSelectMode(false));
-  // Clicking the count itself toggles select-all/none — the injected row
-  // has no dedicated "select all" control otherwise.
-  $('#select-count').addEventListener('click', () => {
-    // Compared against the total number of MESSAGES on the page, not rows — a
-    // conversation contributes all of its own (rowKeys), so "everything is
-    // selected" has to be counted the same way it was built.
-    const everything = state.messages.flatMap(rowKeys);
-    state.selected = state.selected.size === everything.length ? new Set() : new Set(everything);
-    updateSelectToolbar(); renderList();
+  // The count opens the selection menu (All / None / Read / Unread / starred).
+  $('#select-count').addEventListener('click', (e) => showSelectMenu(e.currentTarget));
+  $('#select-all-banner').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]'); if (!b) return;
+    state.selectAllList = b.dataset.act === 'list' ? listSignature() : null;
+    updateSelectToolbar();
   });
   $('#sel-delete').addEventListener('click', async () => {
-    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
     const msg = keys.length === 1 ? I18n.t('Delete this message?') : I18n.t('Delete {n} messages?').replace('{n}', keys.length);
     if (!await Dialog.confirm(msg, { title: I18n.t('Delete'), okLabel: I18n.t('Delete'), danger: true })) return;
     if (!await runBatch(keys, (folder, u, acct) => API.deleteMsgs(folder, u, acct), -1)) return;
     setSelectMode(false); closeMessage(); loadMessages(); scheduleReconcile(2);
   });
   $('#sel-read').addEventListener('click', async () => {
-    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
     if (!await runBatch(keys, (folder, u, acct) => API.flags(folder, u, ['\\Seen'], [], acct), -1)) return;
     setSelectMode(false); loadMessages(); scheduleReconcile(2);
   });
   $('#sel-unread').addEventListener('click', async () => {
-    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
     if (!await runBatch(keys, (folder, u, acct) => API.flags(folder, u, [], ['\\Seen'], acct), +1)) return;
     setSelectMode(false); loadMessages(); scheduleReconcile(2);
   });
   $('#sel-move-target').addEventListener('change', async (e) => {
     const target = e.target.value; e.target.value = '';
     if (!target) return;
-    const keys = [...state.selected]; if (!keys.length) return toast('Nothing selected');
+    const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
     await batchOp(keys, (folder, u, acct) => API.move(folder, u, target, acct));
     setSelectMode(false); closeMessage(); loadMessages(); loadFolders();
     toast('Moved to ' + target);

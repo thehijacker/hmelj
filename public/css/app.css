@@ -548,6 +548,15 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .select-toolbar #sel-delete:hover { color: var(--danger); }
 .select-count { font-size: calc(13px * var(--ui-scale)); font-weight: 600; padding: 5px 10px; border-radius: 14px; }
 .select-count:hover { background: var(--hover); }
+.select-count::after { content: ' ▾'; font-size: .8em; opacity: .7; }
+/* Gmail's "All 50 on this page are selected. Select all 1,234 in this list". */
+.select-all-banner {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 10px;
+  padding: 6px 12px; border-bottom: 1px solid var(--border);
+  background: var(--surface-2); font-size: calc(12.5px * var(--ui-scale)); text-align: center;
+}
+.select-all-banner[hidden] { display: none; }
+.select-all-banner .link-btn { font-weight: 600; }
 
 /* Layout button popover (Table/Small/Compact/Comfort/Wide) — same
    class-toggle transition pattern as the bottom sheet/sidebar, just a
