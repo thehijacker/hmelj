@@ -120,7 +120,8 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Before it goes out** — three checks, each switchable: "you said it was attached, and nothing is", "you replied to one of nine", and "this one has no subject". The first reads English and Slovenian, including forms typed without šumniki, and reads only your own text — never the quoted original
 - **Attachments** by button, by drag-and-drop, or by pasting — a screenshot pasted into the body goes inline, sent as a real embedded part rather than a `data:` URL that most webmail would strip
 - **Draft autosave**, Cc/Bcc, read-receipt request, and a **priority** button whose arrow and colour say which of the three is set. The composer also remembers whether you keep it enlarged, and fills the screen on a phone
-- **Follow-up reminders** — choose ⏰ when sending, and if nobody has answered in 1–7 days the message turns up under *Follow up* with a notification. A reply clears it on its own; nothing is written into your mailbox
+- **Out of office** — per account, with dates. Exchange accounts use Exchange's own automatic replies (they keep going out while Hmelj is down); Gmail, IMAP and Microsoft 365 accounts are answered by Hmelj, once per sender, never to mailing lists or other robots
+- **Follow-up reminders** — choose ⏰ when sending, and if nobody has answered in 1–7 days the message turns up under *Follow up* with a notification. Reminders still waiting are listed there too, and can be moved or cancelled. A reply clears it on its own; nothing is written into your mailbox
 - **A reply you started is marked in the list** — the ✎ against a message you began answering and left, with *Continue* or *Discard* on its menu, so an unfinished reply is not something you have to remember on your own
 - **Attachments stay in view** — the files on a message sit just above Send rather than under the quoted thread, so attaching one to a long reply is something you can see happened
 - **Spell checking** as you type — Slovenian and English, detected automatically
@@ -130,7 +131,10 @@ over this connection, and installing it as a PWA requires HTTPS.
 - **Filters** — subject/from/to/content/size/date conditions; move, copy, redirect, auto-reply, delete, mark, star — yours, on your server, not pushed to the provider as Sieve. **Filter messages like this…** on any message opens a new filter already filled in from it
 - **Filters survive downtime** — Hmelj remembers per folder how far its rules have got and works through whatever arrived while it was off, up to 30 days, without filing anything twice
 - **Spam and Archive** in one gesture, with the return trip remembered per message
-- **Select mode** (Ctrl+click a row, Shift+click for a whole run), swipe gestures, right-click menus, undo on destructive actions
+- **☀ Today** — one page with today's events, follow-ups that came due, snoozed mail coming back and the unread mail since midnight
+- **📎 Attachments** — every attachment of the mail Hmelj has downloaded, by type (PDF, documents, spreadsheets, images…), sortable and searchable as you type, opening in the same viewer as the reading pane
+- **Add to calendar** from any message — the event editor opens with the date and time the message mentions (English and Slovenian), its people as attendees, and a note of where it came from
+- **Select mode** (Ctrl+click a row, Shift+click for a whole run, or select by read/unread/star, a page or the whole list), swipe gestures, right-click menus, undo on destructive actions — including deleting or moving a whole selection
 - **Attachments** — preview overlay for images/PDF/audio/video and Word/Excel documents, or *Download all* as one zip
 - **Search** with Gmail-style syntax — `from:`, `-word`, `"phrase"`, `is:starred`, `has:attachment` and `filetype:pdf` — cached-first with a one-click *Search everywhere*
 - **Search inside messages** — an optional local full-text index, per account, that answers `body:` in milliseconds; accented and unaccented spellings match each other

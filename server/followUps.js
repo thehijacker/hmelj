@@ -223,17 +223,21 @@ async function pass() {
 
 /* ---------- what the routes need ---------- */
 
-/** Due ones, newest first — what the sidebar lists. Waiting ones are counted
- *  too, so the composer's ⏰ can be confirmed as having taken. */
+/** Due ones, newest first — what the list leads with — and the ones still
+ *  waiting, soonest first, listed under them so a reminder can be seen (and
+ *  changed or cancelled) before it fires. `waiting` stays a count as well,
+ *  which is what the client's polling decision reads. */
 export function listFor(viewerKey) {
   const all = listRecords(viewerKey);
+  // Where the sent message is now, so the row can open it. Looked up per
+  // request rather than stored: the copy's uid is only known once the Sent
+  // folder has synced, which is after the record was made.
+  const located = (r) => ({ ...r, ...(cache.locateByMessageId(r.ownerKey || viewerKey, r.accountId, r.messageId) || {}) });
   const due = all.filter((r) => r.state === 'due')
     .sort((a, b) => (b.dueSince || b.dueAt) - (a.dueSince || a.dueAt))
-    // Where the sent message is now, so the row can open it. Looked up per
-    // request rather than stored: the copy's uid is only known once the Sent
-    // folder has synced, which is after the record was made.
-    .map((r) => ({ ...r, ...(cache.locateByMessageId(r.ownerKey || viewerKey, r.accountId, r.messageId) || {}) }));
-  return { due, waiting: all.filter((r) => r.state === 'waiting').length };
+    .map(located);
+  const upcoming = all.filter((r) => r.state === 'waiting').sort((a, b) => a.dueAt - b.dueAt).map(located);
+  return { due, upcoming, waiting: upcoming.length };
 }
 
 /** "Remind me again": back to waiting, due again in `days`. */

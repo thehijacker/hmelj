@@ -155,6 +155,9 @@ const Compose = (() => {
   function noteFollowUpArmed(p) {
     if (!p.followUpDays || !state.followUps) return;
     state.followUps.waiting = (state.followUps.waiting || 0) + 1;
+    // The sidebar row now shows for a waiting reminder too, so put it there at
+    // once; the list itself fills in from the next poll.
+    if (typeof paintFollowUpBadge === 'function') paintFollowUpBadge();
   }
 
   // Whether the composer opens enlarged on THIS machine. A dedicated key rather

@@ -18,6 +18,7 @@ import * as imap from './mailClient.js';
 import * as cache from './cache.js';
 import { store } from './store.js';
 import { runFilters, claimFiled } from './filters.js';
+import * as outOfOffice from './outOfOffice.js';
 import { learnSenderNames } from './contacts.js';
 import * as userLog from './userLog.js';
 import * as push from './push.js';
@@ -619,6 +620,15 @@ export async function pollFolder(uKey, account, folder, { force = false, limit =
         await contentCache.cacheMessages(uKey, account.id, path, fresh);
       } catch (e) {
         slog.warn(`Content cache warm-up failed for ${account.label}/${path}:`, e.message);
+      }
+      // Out of office (server/outOfOffice.js): IMAP and Graph INBOX only, a
+      // no-op unless the account has one switched on. Before the filters, so a
+      // filter that files the message elsewhere does not also hide it from
+      // the reply; never fatal to the sync.
+      try {
+        await outOfOffice.maybeReply(uKey, account, path, filterable);
+      } catch (e) {
+        slog.warn(`Out-of-office check failed for ${account.label}/${path}:`, e.message);
       }
       try {
         // `once` makes the run idempotent (cache.js#claimFilterApplied): a

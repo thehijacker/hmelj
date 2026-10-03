@@ -314,6 +314,17 @@ const API = {
   // per-account prunes. Neither touches the mail server.
   // Follow-up reminders (server/followUps.js) — the viewer's own list.
   followUps: () => API.get('/api/follow-ups'),
+  // The Attachments page (server/index.js /api/attachments). `accountId` 'all'
+  // reads every account you own.
+  attachments: (accountId, opts = {}) => {
+    const q = new URLSearchParams();
+    for (const k of ['type', 'q', 'sort', 'page']) if (opts[k]) q.set(k, opts[k]);
+    if (accountId === 'all') { q.set('all', '1'); return API.get('/api/attachments?' + q); }
+    return API.get(API._acct('/api/attachments?' + q, accountId));
+  },
+  // Out-of-office reply for one account (server/outOfOffice.js).
+  outOfOffice: (accountId) => API.get(API._acct('/api/out-of-office', accountId)),
+  saveOutOfOffice: (accountId, body) => API.put(API._acct('/api/out-of-office', accountId), body),
   followUpAgain: (id, days) => API.post('/api/follow-ups/' + encodeURIComponent(id) + '/snooze', { days }),
   followUpDone: (id) => API.del('/api/follow-ups/' + encodeURIComponent(id)),
   storage: () => API.get('/api/storage'),

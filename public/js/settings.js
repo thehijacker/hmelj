@@ -651,6 +651,7 @@ const Settings = (() => {
         ${isOwner ? `<button class="btn-sm ac-edit">${I18n.t('Edit')}</button>` : ''}
         <button class="btn-sm ac-identities">${I18n.t('Identities')}</button>
         <button class="btn-sm ac-folders">${I18n.t('Folders')}</button>
+        ${isOwner && !a.disabled ? `<button class="btn-sm ac-ooo">${I18n.t('Out of office')}</button>` : ''}
         <span class="spacer"></span>
         ${isOwner ? `<button class="btn-sm ac-share">${I18n.t('Share')}</button>` : ''}
         ${isOwner ? `<button class="btn-sm ac-toggle">${a.disabled ? I18n.t('Enable') : I18n.t('Disable')}</button>` : ''}
@@ -801,6 +802,54 @@ const Settings = (() => {
     return accountsView === 'wizard' ? renderAccountWizard() : renderAccountsList();
   }
 
+  /**
+   * The out-of-office form for one account. Exchange accounts store it on
+   * Exchange (which then answers by itself, even while Hmelj is down); every
+   * other account is answered by Hmelj's own sync loop — the hint says which,
+   * because "will this still work if the server is off?" has a different
+   * answer for each. See server/outOfOffice.js.
+   */
+  async function editOutOfOffice(accountId) {
+    let cur;
+    try { cur = await API.outOfOffice(accountId); } catch (e) { toast(e.message, 5000); return; }
+    const pad = (n) => String(n).padStart(2, '0');
+    const local = (ms) => {
+      if (!ms) return '';
+      const d = new Date(ms);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    const fld = (label, html, hint = '') => `<label class="set-field"><span class="set-label">${esc(label)}</span>${html}${hint ? `<span class="set-hint">${esc(hint)}</span>` : ''}</label>`;
+    const how = cur.via === 'exchange'
+      ? I18n.t('Saved on Exchange, which sends the replies itself — they keep going out even when Hmelj is not running, and Outlook shows the same setting.')
+      : I18n.t('Hmelj sends the replies as new mail arrives, so they go out only while Hmelj is running. Each sender gets one reply; mailing lists, newsletters and other automatic mail never do.');
+    const bodyHtml = `
+      <label class="set-field" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ooo-on" ${cur.enabled ? 'checked' : ''}> ${esc(I18n.t('Send an out-of-office reply'))}</label>
+      ${fld(I18n.t('From'), `<input type="datetime-local" id="ooo-start" value="${escAttr(local(cur.start))}">`, I18n.t('Leave empty to start now.'))}
+      ${fld(I18n.t('Until'), `<input type="datetime-local" id="ooo-end" value="${escAttr(local(cur.end))}">`, I18n.t('Leave empty to keep it on until you turn it off.'))}
+      ${cur.via === 'exchange' ? '' : fld(I18n.t('Subject'), `<input id="ooo-subject" value="${escAttr(cur.subject || '')}" placeholder="${escAttr(I18n.t('Re: the original subject'))}">`)}
+      ${fld(I18n.t('Reply text'), `<textarea id="ooo-message" rows="6">${esc(cur.message || '')}</textarea>`)}
+      <p class="set-hint">${esc(how)}${cur.replied ? ' ' + esc(I18n.t('Answered so far: {n}').replace('{n}', cur.replied)) : ''}</p>`;
+    const toMs = (v) => (v ? new Date(v).getTime() : null);
+    const vals = await Dialog.form(I18n.t('Out of office'), bodyHtml, {
+      okLabel: I18n.t('Save'),
+      wide: true,
+      getValue: () => ({
+        enabled: document.getElementById('ooo-on').checked,
+        start: toMs(document.getElementById('ooo-start').value),
+        end: toMs(document.getElementById('ooo-end').value),
+        subject: document.getElementById('ooo-subject')?.value || '',
+        message: document.getElementById('ooo-message').value,
+      }),
+    });
+    if (!vals || vals === 'cancel') return;
+    try {
+      const saved = await API.saveOutOfOffice(accountId, vals);
+      toast(saved.enabled ? (saved.active ? I18n.t('Out-of-office reply is on') : I18n.t('Out-of-office reply is scheduled')) : I18n.t('Out-of-office reply is off'));
+    } catch (e) {
+      toast(I18n.t('Could not save the out-of-office reply: ') + e.message, 6000);
+    }
+  }
+
   async function renderAccountsList() {
     // Needed by accountCard() to decide whether a password account could sign in
     // instead. Fetched once per Settings session and cached in the module — the
@@ -882,6 +931,9 @@ const Settings = (() => {
       identities.forEach((idy, i) => { if (idy.accountId === id) expandedIdentities.add(i); });
       switchTab('identities');
       document.getElementById(`idgrp-${id}`)?.scrollIntoView({ block: 'start' });
+    }));
+    body().querySelectorAll('.ac-ooo').forEach((b) => b.addEventListener('click', () => {
+      editOutOfOffice(b.closest('[data-acct]').dataset.acct);
     }));
     body().querySelectorAll('.ac-folders').forEach((b) => b.addEventListener('click', () => {
       foldersAccountId = b.closest('[data-acct]').dataset.acct;

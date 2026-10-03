@@ -101,6 +101,8 @@
 <li><a data-scroll="list-swipe" data-section="list" href="#list-swipe">Swipe gestures</a></li>
 <li><a data-scroll="list-spam" data-section="list" href="#list-spam">Spam and Archive</a></li>
 <li><a data-scroll="list-snooze" data-section="list" href="#list-snooze">Snooze</a></li>
+<li><a data-scroll="list-today" data-section="list" href="#list-today">Today</a></li>
+<li><a data-scroll="list-attach" data-section="list" href="#list-attach">Attachments</a></li>
 </ul>
 </li>
 <li>
@@ -129,6 +131,8 @@
 <li><a data-scroll="compose-schedule" data-section="compose" href="#compose-schedule">Scheduled sending</a></li>
 <li><a data-scroll="compose-undo" data-section="compose" href="#compose-undo">Undo send</a></li>
 <li><a data-scroll="compose-guards" data-section="compose" href="#compose-guards">Before it goes out</a></li>
+<li><a data-scroll="compose-followup" data-section="compose" href="#compose-followup">Follow-up reminders</a></li>
+<li><a data-scroll="compose-ooo" data-section="compose" href="#compose-ooo">Out of office</a></li>
 <li><a data-scroll="compose-templates" data-section="compose" href="#compose-templates">Templates</a></li>
 <li><a data-scroll="compose-spell" data-section="compose" href="#compose-spell">Spell checking</a></li>
 </ul>
@@ -402,6 +406,8 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Scheduled sending</strong> — queued on the server, retried with backoff, reschedulable</li>
 <li><strong>Undo send</strong> — a window you choose, held on the server, so closing the tab still honours it</li>
 <li><strong>Templates</strong> — reusable snippets, inserted where the caret is</li>
+<li><strong>Follow-up reminders</strong> — ⏰ when sending; it comes back if nobody answers, and a reply clears it on its own</li>
+<li><strong>Out of office</strong> — per account, with dates; Exchange's own automatic replies on Exchange, once per sender everywhere else</li>
 <li><strong>Before it goes out</strong> — "you said it was attached", and "you replied to one of nine"</li>
 <li><strong>Spell checking</strong> as you type — Slovenian and English, detected automatically</li>
 <li><strong>Contact autocomplete</strong>, learned from the mail you actually send</li>
@@ -416,11 +422,13 @@ Stalwart — and then Hmelj can read it.
 <li><strong>Full folder tree</strong> — create, rename, delete, empty, hide, per-folder unread counts</li>
 <li><strong>Filters</strong> — conditions on subject/from/to/content/size/date; move, copy, redirect, auto-reply, delete, mark read/unread, star</li>
 <li><strong>Spam and Archive</strong> — one gesture each way, with the return trip remembered</li>
-<li><strong>Select mode</strong> — Ctrl+click, Shift+click for a whole run, or the checkbox, then act on everything at once</li>
+<li><strong>Select mode</strong> — Ctrl+click, Shift+click for a whole run, or pick All / Read / Unread / starred, a page or the whole list — then act on everything at once, with Undo</li>
 <li><strong>Swipe gestures</strong> on mobile, with a configurable direction</li>
 <li><strong>Search</strong> — Gmail-style syntax, cached-first with a one-click "search everywhere"</li>
 <li><strong>Search inside messages</strong> — a local full-text index, opt-in per account, with a size ceiling</li>
 <li><strong>Saved searches</strong> — pinned in the sidebar with their own unread count, re-run live every time you open one</li>
+<li><strong>☀ Today</strong> — today's events, due follow-ups, snoozed mail coming back and unread mail since midnight, on one page</li>
+<li><strong>📎 Attachments</strong> — every downloaded attachment, filtered by type and searchable</li>
 <li><strong>Snooze</strong> — the message really moves out and comes back when you asked, with an optional calendar reminder</li>
 <li><strong>Keyboard shortcuts</strong> — Gmail's letters and Outlook's <kbd>Del</kbd> / <kbd>Ctrl+Q</kbd> / <kbd>Ctrl+U</kbd>, <kbd>?</kbd> for the list</li>
 <li><strong>Mailbox analytics</strong> — where the quota went, who sends the most, what is safe to delete</li>
@@ -1457,6 +1465,27 @@ locked off rather than offered as a false choice.
   the run rather than re-cutting it, so a mis-aimed click cannot quietly unpick messages you
   had already chosen.
 </p>
+<p>
+  The <strong>"0 selected"</strong> count at the left of the select bar is a menu, the way
+  Gmail's is: <em>All</em>, <em>None</em>, <em>Read</em>, <em>Unread</em>, <em>With star</em>,
+  <em>Without star</em>. Each choice is a fresh selection of the rows on the page — not an
+  addition to the last one — and a conversation counts as unread or starred if any message
+  in it is.
+</p>
+<p>
+  When every row on the page is ticked and the list goes on past it, a strip under the bar
+  offers <strong>Select all N in this list</strong>, every page of it, with the same folder,
+  search and filters. Choosing it fetches nothing yet; the messages are collected only when
+  you press an action, with a running count, and if any page cannot be fetched nothing is
+  touched at all rather than acting on half the list. Unticking one row, or changing folder,
+  search or page, drops back to an ordinary selection.
+</p>
+<p>
+  <strong>Delete</strong> and <strong>Move</strong> on a selection can be taken back: the
+  toast that follows has an <em>Undo</em>, which puts every message back where it came
+  from — also after a whole-list action. A delete that cannot be undone (deleting inside
+  Trash, or with <em>Delete permanently</em> set) still asks first and offers no Undo.
+</p>
 
 <h2 id="list-escape">Escape</h2>
 <p>
@@ -1532,6 +1561,42 @@ locked off rather than offered as a false choice.
   starts. Useful when the deadline is the point and the mail is only the record of it —
   a reply due in two months lands as a calendar entry you will see coming, not just a
   message reappearing on the day. Snoozed messages carrying one are marked 📅 in the list.
+</div>
+
+<h2 id="list-today">☀ Today</h2>
+<p>
+  The first row of the sidebar. One page for the day, whichever account the sidebar is
+  showing: today's <strong>calendar</strong>, the <strong>follow-ups</strong> that came due,
+  <strong>snoozed mail</strong> coming back today, and the <strong>unread mail</strong> that
+  arrived since midnight. Tap anything to open it — an event opens the calendar on that day.
+</p>
+<p>
+  It gathers what the other views already show, from the same places, so it cannot disagree
+  with them, and it repaints itself as new mail arrives. A part that cannot be loaded (a
+  calendar server that is down, say) says so on its own, without taking the rest with it.
+</p>
+
+<h2 id="list-attach">📎 Attachments</h2>
+<p>
+  Next to Calendar in the sidebar: every attachment in the account the sidebar is showing,
+  or in all of them under <em>All inboxes</em>, newest first. The chips filter by kind —
+  <em>PDF</em>, <em>Documents</em>, <em>Spreadsheets</em>, <em>Presentations</em>,
+  <em>Images</em>, <em>Archives</em>, <em>Other</em> — beside them are the sort order
+  (newest, largest, by name) and a search box that matches file name, sender and subject as
+  you type. Tap a file to open it in the same viewer as the reading pane, with Download and
+  Open with… there; right-click or long-press it for <em>Open message</em>.
+</p>
+<p>
+  Only real files are listed. The images a message draws in its own body, logos and
+  signature pictures, the data behind a calendar invitation, a bounce's report and Gmail's
+  alternative copy of the body are all left out. A file with no name of its own is shown
+  only when its type says what it is, and then named for it — an attached email as
+  <code>message.eml</code>, a picture as <code>image.png</code>.
+</p>
+<div class="callout">
+  It covers the mail Hmelj has downloaded — the newest messages of every synced folder, and
+  anything you have opened — not the whole mailbox history. A file stays listed after its
+  message drops out of the downloaded window; opening it then fetches it from the server.
 </div>
 
 <h2 id="list-sort">Sorting and filtering</h2>
@@ -2186,6 +2251,14 @@ one timestamp risks the message coming back subtly different from the one you ap
   so. Open it from there, choose <em>Remind me again</em>, or mark it <em>Done</em>.
 </p>
 <p>
+  Reminders that have not come due yet are listed too, under <strong>Waiting for a
+  reply</strong> below the due ones, soonest first, each with the time it will remind you.
+  Right-click or long-press one to open the message, move the reminder
+  (<em>Remind me instead</em> in 1–7 days, counted from now) or <em>Cancel reminder</em>.
+  The Follow up entry is in the sidebar whenever there is a reminder of either kind; the
+  number on it counts only the due ones.
+</p>
+<p>
   An answer clears it on its own — you never have to come back and switch a reminder off
   because the person replied. A reply counts if it is in the same conversation, arrived
   after you sent, and is not from one of your own addresses; a second message you send in
@@ -2194,10 +2267,25 @@ one timestamp risks the message coming back subtly different from the one you ap
   reminder counts from its send time, and one you took back with Undo leaves none.
 </p>
 <div class="callout">
-  Nothing is written into your mailbox. The reminder lives in Hmelj — the sidebar entry
-  appears only while something is due — so your mail looks exactly the same in Gmail,
-  Outlook and on your phone.
+  Nothing is written into your mailbox. The reminder lives in Hmelj, so your mail looks
+  exactly the same in Gmail, Outlook and on your phone.
 </div>
+
+<h2 id="compose-ooo">Out of office</h2>
+<p>
+  <strong>Settings → Accounts → Out of office</strong>, per account: switch it on, give it a
+  start and an end (or leave either empty), and write the reply. On an <strong>Exchange</strong>
+  account the setting is saved on Exchange, which then answers by itself — also while Hmelj
+  is not running, and Outlook shows the same setting. On <strong>Gmail, IMAP and Microsoft
+  365</strong> accounts Hmelj sends the replies as new mail arrives, so they go out only while
+  it is running.
+</p>
+<p>
+  Each sender gets one reply per out-of-office period (saving the form starts a new one).
+  Nobody is answered who should not be: not you, not a mailing list or newsletter, not a
+  bounce, and never another automatic reply — the replies carry
+  <code>Auto-Submitted: auto-replied</code> so the other side's robot leaves them alone too.
+</p>
 
 <h2 id="compose-templates">Templates</h2>
 <p>
@@ -2947,8 +3035,18 @@ share them — and they are included in the settings export.</li>
 <h2 id="cal-editing">Creating and editing</h2>
 <p>
   <code>＋</code> in the calendar toolbar, or <b>Add to calendar</b> in a message's
-  <code>⋯</code> menu, which fills in the subject and offers everyone the message was
-  addressed to as attendees.
+  <code>⋯</code> menu or on its right-click / long-press menu in the list. That fills in the
+  subject, offers the sender and everyone the message was addressed to as attendees, and
+  ends the notes with a line saying which message it came from.
+</p>
+<p>
+  If the message names a day, the event starts on it: <em>5. 10.</em>, <em>12.10.2026</em>,
+  <em>9. oktobra</em>, <em>October 7</em>, <em>jutri</em>, <em>tomorrow</em>, <em>v sredo</em>,
+  <em>Thursday</em> — and at the time it names, if any: <em>ob 10h</em>, <em>ob 14.30</em>,
+  <em>14:00</em>, <em>2:30 pm</em>; without a time it becomes an all-day event. Dates before
+  the message was sent, and dates in the quoted part of a reply, are passed over. It is a
+  guess shown in the editor for you to correct, never anything saved on its own; when the
+  message names no day, the editor opens at the next half hour as usual.
 </p>
 <p>
   Anyone you list as an attendee is emailed an invitation when you save — <em>unless</em>
@@ -3463,8 +3561,9 @@ of Hmelj</a>.</p>
 
 <h2 id="set-accounts">Accounts</h2>
 <p>See <a data-section="accounts" href="#accounts">Accounts</a>. This tab also carries
-<strong>Share</strong>, the entry into the Folders tab for a given account, and each
-account's <strong>Search inside messages</strong> switch with its live index size.</p>
+<strong>Share</strong>, the entry into the Folders tab for a given account, each
+account's <strong>Out of office</strong> reply (see <a data-section="compose" data-scroll="compose-ooo" href="#compose-ooo">Out of office</a>),
+and its <strong>Search inside messages</strong> switch with its live index size.</p>
 
 <h2 id="set-login">Login</h2>
 <p>

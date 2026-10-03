@@ -1136,6 +1136,8 @@ async function loadFolders() {
     appendScheduledRow(ul);
     appendOutboxRow(ul);
     appendCalendarRow(ul);
+    appendAttachmentsRow(ul);
+    appendTodayRow(ul, { first: true });
     // total unread badge per account is refreshed alongside
     refreshUnread();
     return;
@@ -1194,6 +1196,8 @@ async function loadFolders() {
   appendScheduledRow(ul);
   appendOutboxRow(ul);
   appendCalendarRow(ul);
+  appendAttachmentsRow(ul);
+  appendTodayRow(ul, { first: true });
   updateSilenceMarkers();
 }
 
@@ -2191,8 +2195,20 @@ function showMessageMenu(m, x, y) {
     ...refileMenuItems(m),
     ...snoozeMenuItems(m, x, y),
     ...filterLikeThisItems(m, m.from),
+    ...(hasWritableCalendar() && !String(msgCtx(m).folder || '').startsWith('__')
+      ? [{ label: 'Add to calendar', onClick: () => eventFromRow(m) }] : []),
     { label: 'Delete', danger: true, onClick: () => quickDelete(m) },
   ], x, y);
+}
+
+/** Add to calendar from a list row: the row has no body, so fetch it first. */
+async function eventFromRow(m) {
+  try {
+    const msg = await withMsgCtx(m, (folder, acct) => API.message(folder, m.uid, false, acct));
+    eventFromMessage(msg);
+  } catch (e) {
+    toast('Could not open the message: ' + e.message, 5000);
+  }
 }
 
 /* ---------- "Filter messages like this" ----------
@@ -2264,13 +2280,17 @@ const SNOOZED_FOLDER = '__SNOOZED__';
 const FOLLOWUP_FOLDER = '__FOLLOWUP__';
 
 async function refreshFollowUps() {
-  state.followUps = await API.followUps().catch(() => state.followUps || { due: [], waiting: 0 });
+  state.followUps = await API.followUps().catch(() => state.followUps || { due: [], upcoming: [], waiting: 0 });
   paintFollowUpBadge();
 }
 
+/** Any reminder at all, due or still waiting — what keeps the sidebar row
+ *  there. The number on it counts only the due ones. */
+const anyFollowUps = () => !!(state.followUps?.due?.length || state.followUps?.upcoming?.length || state.followUps?.waiting);
+
 function appendFollowUpRow(ul) {
   const n = state.followUps?.due?.length || 0;
-  if (!n && state.currentFolder !== FOLLOWUP_FOLDER) return;
+  if (!anyFollowUps() && state.currentFolder !== FOLLOWUP_FOLDER) return;
   const li = document.createElement('li');
   li.dataset.path = FOLLOWUP_FOLDER;
   if (state.currentFolder === FOLLOWUP_FOLDER) li.classList.add('active');
@@ -2289,7 +2309,7 @@ function paintFollowUpBadge() {
   // A reminder that came due while the sidebar was already built has no row
   // yet. Added in place, just above Snoozed, rather than waiting for the next
   // full sidebar rebuild to notice.
-  if (!li && n && ul) {
+  if (!li && anyFollowUps() && ul) {
     const tmp = document.createElement('ul');
     appendFollowUpRow(tmp);
     li = tmp.firstElementChild;
@@ -2304,20 +2324,27 @@ function paintFollowUpBadge() {
     return;
   }
   span?.remove();
-  if (state.currentFolder !== FOLLOWUP_FOLDER) li.remove();
+  if (!anyFollowUps() && state.currentFolder !== FOLLOWUP_FOLDER) li.remove();
 }
 
 function paintFollowUps() {
   const ul = $('#msg-list');
   const list = state.followUps?.due || [];
+  const upcoming = state.followUps?.upcoming || [];
   state.total = list.length;
   renderPager({ total: list.length, page: 1, pageSize: Math.max(list.length, 1) });
-  if (!list.length) {
+  if (!list.length && !upcoming.length) {
     ul.innerHTML = `<li class="msg-list-loading">${esc(I18n.t('Nothing to follow up. Choose ⏰ when you send a message, and it appears here if nobody replies in time.'))}</li>`;
     return;
   }
   ul.innerHTML = '';
   for (const item of list) ul.appendChild(followUpRow(item));
+  // Still waiting: the reminders that have not come due, soonest first, so
+  // one can be seen — and changed or cancelled — before it fires.
+  if (upcoming.length) {
+    ul.insertAdjacentHTML('beforeend', `<li class="today-head">⏳ ${esc(I18n.t('Waiting for a reply'))} <span class="f-count">${upcoming.length}</span></li>`);
+    for (const item of upcoming) ul.appendChild(followUpRow(item, { waiting: true }));
+  }
 }
 
 /** "3 days" without a reply — the thing worth reading off the row. */
@@ -2326,9 +2353,9 @@ function waitedFor(sentAt) {
   return I18n.t(days === 1 ? 'No reply for 1 day' : 'No reply for {n} days').replace('{n}', days);
 }
 
-function followUpRow(item) {
+function followUpRow(item, { waiting = false } = {}) {
   const li = document.createElement('li');
-  li.className = 'msg-row';
+  li.className = 'msg-row' + (waiting ? ' fu-waiting' : '');
   li.dataset.key = item.id;
   const a = state.accounts.find((x) => x.id === item.accountId);
   const chip = a
@@ -2337,8 +2364,10 @@ function followUpRow(item) {
   li.innerHTML = `
     ${chip}<span class="m-from">${esc(I18n.t('To:'))} ${esc(item.to || '—')}</span>
     <span class="m-subject" data-no-i18n>${esc(item.subject || '(no subject)')}</span>
-    <span class="m-date" title="${escAttr(fmtDate(item.sentAt, { long: true }))}">${esc(waitedFor(item.sentAt))}</span>`;
-  const menu = (x, y) => openCtxMenu(followUpMenuItems(item), x, y);
+    <span class="m-date" title="${escAttr(fmtDate(waiting ? item.dueAt : item.sentAt, { long: true }))}">${esc(waiting
+      ? I18n.t('Reminds you {when}').replace('{when}', fmtDate(item.dueAt, { long: true }))
+      : waitedFor(item.sentAt))}</span>`;
+  const menu = (x, y) => openCtxMenu(followUpMenuItems(item, { waiting }), x, y);
   li.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e.clientX, e.clientY); });
   bindLongPress(li, menu);
   li.addEventListener('click', () => openFollowUpMessage(item));
@@ -2347,13 +2376,16 @@ function followUpRow(item) {
 
 /** Remind me again in 1/2/3/5/7 days, or Done. The day labels are the
  *  composer's own (one per choice, for Slovenian grammar — see compose.js). */
-function followUpMenuItems(item) {
+function followUpMenuItems(item, { waiting = false } = {}) {
   const days = [[1, 'In 1 day'], [2, 'In 2 days'], [3, 'In 3 days'], [5, 'In 5 days'], [7, 'In 7 days']];
   return [
     { label: I18n.t('Open'), onClick: () => openFollowUpMessage(item) },
-    { label: I18n.t('Remind me again'), disabled: true },
+    // A waiting one is moved, counted from now — the same route as "again".
+    { label: I18n.t(waiting ? 'Remind me instead' : 'Remind me again'), disabled: true },
     ...days.map(([d, label]) => ({ label: `   ${I18n.t(label)}`, onClick: () => followUpAgain(item, d) })),
-    { label: `✓ ${I18n.t('Done')}`, onClick: () => followUpDone(item) },
+    waiting
+      ? { label: I18n.t('Cancel reminder'), danger: true, onClick: () => followUpDone(item) }
+      : { label: `✓ ${I18n.t('Done')}`, onClick: () => followUpDone(item) },
   ];
 }
 
@@ -2383,6 +2415,210 @@ async function followUpDone(item) {
     await refreshFollowUps();
     if (state.currentFolder === FOLLOWUP_FOLDER) paintFollowUps();
   } catch (e) { toast('Action failed: ' + e.message, 6000); }
+}
+
+/* ---------- ☀ Today ----------
+ * One page for the day: what is on the calendar, the follow-ups that came due,
+ * snoozed mail coming back, and the unread mail that arrived since midnight.
+ * All of it already exists elsewhere — this only gathers it, read-only, from
+ * the same routes those views use, so nothing here can disagree with them.
+ * Always every account, whichever one the sidebar is showing: a day is not
+ * per mailbox.
+ */
+const TODAY_FOLDER = '__TODAY__';
+
+function appendTodayRow(ul, { first = false } = {}) {
+  const li = document.createElement('li');
+  li.dataset.path = TODAY_FOLDER;
+  if (state.currentFolder === TODAY_FOLDER) li.classList.add('active');
+  li.innerHTML = `<span class="f-icon">☀️</span><span>${esc(I18n.t('Today'))}</span>`;
+  li.addEventListener('click', () => openFolder(TODAY_FOLDER));
+  if (first) ul.prepend(li); else ul.appendChild(li);
+}
+
+let todaySeq = 0;
+async function paintToday({ quiet = false } = {}) {
+  const ul = $('#msg-list');
+  const seq = ++todaySeq;
+  state.total = 0;
+  renderPager({ total: 0, page: 1, pageSize: 1 });
+  if (!quiet) ul.innerHTML = `<li class="msg-list-loading">${esc(I18n.t('Loading…'))}</li>`;
+  const scroller = ul; // .msg-list is its own scroll container
+  const keepScroll = quiet ? scroller?.scrollTop || 0 : 0;
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const from = d0.getTime(), to = from + 864e5;
+  // Each source on its own: a calendar that cannot be read must not take the
+  // unread mail down with it.
+  const [events, snoozed, unread] = await Promise.all([
+    API.calendarEvents(from, to).then((r) => r.events || []).catch(() => null),
+    API.snoozed().catch(() => null),
+    API.unified('inbox', { unread: true, hideMuted: true }).then((r) => r.messages || []).catch(() => null),
+    refreshFollowUps().catch(() => {}),
+  ]);
+  if (seq !== todaySeq || state.currentFolder !== TODAY_FOLDER) return;
+  const due = state.followUps?.due || [];
+  const back = (snoozed || []).filter((s) => s.wakeAt < to).sort((a, b) => a.wakeAt - b.wakeAt);
+  const fresh = (unread || []).filter((m) => new Date(m.date).getTime() >= from);
+  const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  ul.innerHTML = '';
+  const head = d0.toLocaleDateString(I18n.lang() === 'sl' ? 'sl-SI' : undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  ul.insertAdjacentHTML('beforeend', `<li class="today-title">${esc(head)}</li>`);
+  const section = (icon, title, items, empty, row) => {
+    ul.insertAdjacentHTML('beforeend', `<li class="today-head">${icon} ${esc(I18n.t(title))}${items?.length ? ` <span class="f-count">${items.length}</span>` : ''}</li>`);
+    if (items == null) { ul.insertAdjacentHTML('beforeend', `<li class="today-empty">${esc(I18n.t('Could not be loaded'))}</li>`); return; }
+    if (!items.length) { ul.insertAdjacentHTML('beforeend', `<li class="today-empty">${esc(I18n.t(empty))}</li>`); return; }
+    for (const it of items) ul.appendChild(row(it));
+  };
+  const line = (left, subject, right, onClick, title = '') => {
+    const li = document.createElement('li');
+    li.className = 'msg-row today-row';
+    li.innerHTML = `<span class="m-from">${left}</span><span class="m-subject" data-no-i18n>${subject}</span><span class="m-date"${title ? ` title="${escAttr(title)}"` : ''}>${right}</span>`;
+    li.addEventListener('click', onClick);
+    return li;
+  };
+  const chip = (accountId) => {
+    const a = state.accounts.find((x) => x.id === accountId);
+    return a ? `<span class="acct-chip acct-chip-static" style="--chip:${escAttr(a.color)}" title="${escAttr(a.label)}">${esc(acctInitials(a.label))}</span>` : '';
+  };
+
+  section('📅', 'Calendar', events?.sort((a, b) => a.start - b.start), 'Nothing on the calendar today', (ev) => line(
+    `<span class="today-dot" style="background:${escAttr(ev.color || 'var(--accent)')}"></span>${esc(ev.allDay ? I18n.t('All day') : `${timeOf(ev.start)}–${timeOf(ev.end)}`)}`,
+    esc(ev.summary || I18n.t('(no title)')) + (ev.location ? ` <span class="today-dim">· ${esc(ev.location)}</span>` : ''),
+    '', () => Calendar.showDay(ev.start)));
+  section('⏰', 'Follow up', due, 'No follow-ups due', (it) => line(
+    `${chip(it.accountId)}${esc(I18n.t('To:'))} ${esc(it.to || '—')}`, esc(it.subject || I18n.t('(no subject)')),
+    esc(waitedFor(it.sentAt)), () => openFollowUpMessage(it)));
+  section('🕰️', 'Coming back from snooze', back, 'Nothing snoozed until today', (it) => line(
+    `${chip(it.accountId)}${esc(it.fromName || it.fromAddr || '—')}`, esc(it.subject || I18n.t('(no subject)')),
+    esc(it.wakeAt < Date.now() ? I18n.t('Coming back…') : timeOf(it.wakeAt)), () => openFolder(SNOOZED_FOLDER)));
+  section('✉️', 'Unread since midnight', fresh, 'No new unread mail today', (m) => line(
+    `${chip(m.account?.id)}${esc(m.from?.name || m.from?.address || '—')}`, esc(m.subject || I18n.t('(no subject)')),
+    esc(timeOf(new Date(m.date).getTime())),
+    () => openMessage({ ...m, folder: m.folder || 'INBOX', account: m.account })));
+  if (quiet && scroller) scroller.scrollTop = keepScroll;
+}
+
+/* ---------- 📎 Attachments ----------
+ * Every attachment of the mail Hmelj has downloaded, newest first, across the
+ * account in the sidebar (or all of them in All inboxes) — cache.js#
+ * listAttachments. Opening one uses the same viewer and the same download
+ * route as the reading pane; nothing about fetching a file is new here.
+ * The list's own search box searches it (file name, sender, subject).
+ */
+const ATTACH_FOLDER = '__ATTACH__';
+const ATTACH_TYPES = [['', 'All'], ['pdf', 'PDF'], ['documents', 'Documents'], ['spreadsheets', 'Spreadsheets'],
+  ['presentations', 'Presentations'], ['images', 'Images'], ['archives', 'Archives'], ['other', 'Other']];
+const attachView = { type: '', sort: 'date', q: '' };
+
+function appendAttachmentsRow(ul) {
+  const li = document.createElement('li');
+  li.dataset.path = ATTACH_FOLDER;
+  if (state.currentFolder === ATTACH_FOLDER) li.classList.add('active');
+  li.innerHTML = `<span class="f-icon">📎</span><span>${esc(I18n.t('Attachments'))}</span>`;
+  li.addEventListener('click', () => openFolder(ATTACH_FOLDER));
+  ul.appendChild(li);
+}
+
+function fmtBytes(n) {
+  if (!n) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function attachIcon(name = '') {
+  const ext = String(name).toLowerCase().split('.').pop();
+  if (ext === 'pdf') return '📕';
+  if (/^(jpe?g|png|gif|webp|heic|heif|bmp|svg|tiff?)$/.test(ext)) return '🖼️';
+  if (/^(xlsx?|xlsm|ods|csv|numbers)$/.test(ext)) return '📊';
+  if (/^(pptx?|odp|key)$/.test(ext)) return '📽️';
+  if (/^(zip|rar|7z|gz|tgz|tar|bz2|xz)$/.test(ext)) return '🗜️';
+  if (ext === 'ics') return '📅';
+  return '📄';
+}
+
+let attachSeq = 0;
+async function paintAttachments({ quiet = false } = {}) {
+  const ul = $('#msg-list');
+  const seq = ++attachSeq;
+  const scroller = ul; // .msg-list is its own scroll container
+  const keepScroll = quiet ? scroller?.scrollTop || 0 : 0;
+  const who = state.currentAccount === 'all' ? 'all' : state.currentAccount;
+  let data;
+  try {
+    data = await API.attachments(who, { type: attachView.type, sort: attachView.sort, q: attachView.q, page: state.page });
+  } catch (e) {
+    if (seq === attachSeq) ul.innerHTML = `<li style="padding:20px;color:var(--danger)">${esc(e.message)}</li>`;
+    return;
+  }
+  if (seq !== attachSeq || state.currentFolder !== ATTACH_FOLDER) return;
+  state.total = data.total;
+  renderPager({ total: data.total, page: state.page, pageSize: 50 });
+  // The bar is built once and then left alone, only the rows under it are
+  // replaced: rebuilding it on every keystroke would take the search box (and,
+  // on a phone, the keyboard) away from the person typing in it.
+  let bar = ul.firstElementChild?.classList.contains('att-bar') ? ul.firstElementChild : null;
+  if (!bar) {
+    ul.innerHTML = `<li class="att-bar">
+      <div class="att-types">${ATTACH_TYPES.map(([k, label]) =>
+        `<button class="att-type" data-type="${k}">${esc(I18n.t(label))}</button>`).join('')}</div>
+      <div class="att-tools">
+        <select class="att-sort">
+          <option value="date">${esc(I18n.t('Newest first'))}</option>
+          <option value="size">${esc(I18n.t('Largest first'))}</option>
+          <option value="name">${esc(I18n.t('By name'))}</option>
+        </select>
+        <input class="att-search" type="search" enterkeyhint="search" autocomplete="off" placeholder="${escAttr(I18n.t('Search attachments'))}">
+      </div>
+    </li>`;
+    bar = ul.firstElementChild;
+    $('.att-types', bar).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-type]'); if (!b) return;
+      attachView.type = b.dataset.type; state.page = 1; paintAttachments();
+    });
+    $('.att-sort', bar).addEventListener('change', (e) => { attachView.sort = e.target.value; state.page = 1; paintAttachments(); });
+    let t = null;
+    $('.att-search', bar).addEventListener('input', (e) => {
+      clearTimeout(t);
+      t = setTimeout(() => { attachView.q = e.target.value.trim(); state.page = 1; paintAttachments(); }, 250);
+    });
+    $('.att-search', bar).value = attachView.q;
+  }
+  bar.querySelectorAll('.att-type').forEach((b) => b.classList.toggle('active', b.dataset.type === attachView.type));
+  $('.att-sort', bar).value = attachView.sort;
+  while (bar.nextSibling) bar.nextSibling.remove();
+  if (!data.items.length) {
+    ul.insertAdjacentHTML('beforeend', `<li class="msg-list-loading">${esc(I18n.t(attachView.q || attachView.type
+      ? 'No attachments match.'
+      : 'No attachments yet. They appear here as Hmelj downloads your mail — the newest messages of every synced folder, and anything you open.'))}</li>`);
+    return;
+  }
+  for (const it of data.items) ul.appendChild(attachmentRow(it));
+  ul.insertAdjacentHTML('beforeend', `<li class="today-empty">${esc(I18n.t('Covers the mail Hmelj has downloaded: the newest messages of every synced folder, and anything you have opened.'))}</li>`);
+  if (quiet && scroller) scroller.scrollTop = keepScroll;
+}
+
+function attachmentRow(it) {
+  const li = document.createElement('li');
+  li.className = 'msg-row att-row';
+  const a = state.accounts.find((x) => x.id === it.accountId);
+  const chip = a && state.currentAccount === 'all'
+    ? `<span class="acct-chip acct-chip-static" style="--chip:${escAttr(a.color)}" title="${escAttr(a.label)}">${esc(acctInitials(a.label))}</span>` : '';
+  li.innerHTML = `${chip}<span class="m-from" data-no-i18n>${attachIcon(it.filename)} ${esc(it.filename)}</span>
+    <span class="m-subject" data-no-i18n>${esc(it.from.name || it.from.address || '—')} <span class="today-dim">· ${esc(it.subject || I18n.t('(no subject)'))}</span></span>
+    <span class="m-date" title="${escAttr(it.date ? fmtDate(it.date, { long: true }) : '')}">${esc(fmtBytes(it.size))}${it.date ? ' · ' + esc(fmtDate(it.date)) : ''}</span>`;
+  const url = API.attachmentUrl(it.folder, it.uid, it.index, it.accountId);
+  const view = () => AttachmentViewer.open({ url, filename: it.filename, contentType: it.contentType || '' });
+  const msg = () => openMessage({ uid: it.uid, folder: it.folder, account: { id: it.accountId }, seen: true, subject: it.subject });
+  const menu = (x, y) => openCtxMenu([
+    { label: 'Open', onClick: view },
+    { label: 'Open message', onClick: msg },
+  ], x, y);
+  li.addEventListener('click', view);
+  li.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e.clientX, e.clientY); });
+  bindLongPress(li, menu);
+  return li;
 }
 
 /** "Snooze", or "Un-snooze" when the row already is one. Nothing at all in the
@@ -2890,6 +3126,11 @@ async function openFolder(path, page = 1) {
   closeMessage();
   closeSidebarIfMobile();
   if (path === CALENDAR_FOLDER) { Calendar.open(); return; }
+  if (path === TODAY_FOLDER || path === ATTACH_FOLDER) {
+    Calendar.close();
+    applyScheduledChrome(true); // nothing to select, sort or filter by flag
+    return path === TODAY_FOLDER ? paintToday() : paintAttachments();
+  }
   if (path === FOLLOWUP_FOLDER) {
     Calendar.close();
     await refreshFollowUps();
@@ -3608,6 +3849,12 @@ async function loadMessages() {
     clearTimeout(loadingTimer);
     return renderScheduled();
   }
+  // The pager, the search box and the refresh button all land here.
+  if (state.currentFolder === TODAY_FOLDER || state.currentFolder === ATTACH_FOLDER) {
+    clearTimeout(loadingTimer);
+    applyScheduledChrome(true);
+    return state.currentFolder === TODAY_FOLDER ? paintToday() : paintAttachments();
+  }
   // Same shape as Scheduled above: a local queue, not a mailbox, and every one
   // of its rows is already in memory — there is nothing to fetch.
   if (state.currentFolder === OUTBOX_FOLDER) {
@@ -3800,6 +4047,11 @@ async function reconcileMessages() {
     await refreshSnoozed();
     return paintSnoozed();
   }
+  // Today and Attachments repaint themselves, quietly — no "Loading…", and the
+  // scroll position kept — so new mail turns up there the way it does in the
+  // inbox, without a background poll painting the inbox over them.
+  if (state.currentFolder === TODAY_FOLDER) return paintToday({ quiet: true });
+  if (state.currentFolder === ATTACH_FOLDER) return paintAttachments({ quiet: true });
   // And for the same reason, Follow up: a background poll here would otherwise
   // fetch the unified inbox and paint it over the list.
   if (state.currentFolder === FOLLOWUP_FOLDER) {
@@ -3861,9 +4113,10 @@ async function reconcileFolders() {
   // changing. Asked on each poll only while one is waiting or due — with none,
   // nothing can come due, and this runs on every background poll.
   if (state.followUps?.waiting || state.followUps?.due?.length || state.currentFolder === FOLLOWUP_FOLDER) {
-    const before = state.followUps?.due?.length || 0;
+    const sig = () => `${state.followUps?.due?.length || 0}/${state.followUps?.upcoming?.length || 0}`;
+    const before = sig();
     await refreshFollowUps();
-    if (state.currentFolder === FOLLOWUP_FOLDER && (state.followUps?.due?.length || 0) !== before) paintFollowUps();
+    if (state.currentFolder === FOLLOWUP_FOLDER && sig() !== before) paintFollowUps();
   }
   if (state.currentAccount === 'all') { refreshUnread(); return; }
   const seq = ++reconcileFoldersSeq;
@@ -5394,6 +5647,9 @@ function renderList() {
   if (state.currentFolder === OUTBOX_FOLDER) return renderOutbox();
   if (state.currentFolder === SNOOZED_FOLDER) return paintSnoozed();
   if (state.currentFolder === FOLLOWUP_FOLDER) return paintFollowUps();
+  // Their own lists, already on screen — repainting would refetch them every
+  // time a message is opened or closed from them.
+  if (state.currentFolder === TODAY_FOLDER || state.currentFolder === ATTACH_FOLDER) return;
   // The calendar draws itself into its own pane; renderList has nothing to do.
   if (inCalendar()) return;
   const ul = $('#msg-list');
@@ -6344,17 +6600,27 @@ window.__hmeljSetWritableCalendars = (n) => { writableCalendarCount = n; };
  */
 function eventFromMessage(msg) {
   const text = String(msg.text || '').replace(/\r/g, '').trim();
-  const people = [
-    ...(msg.from ? [msg.from] : []),
-    ...(msg.to || []),
-  ].map((p) => ({ name: p.name || '', address: p.address || '' }))
+  // `from` is a list on a fetched message (mailparser's shape); wrapping it in
+  // another array used to drop the sender from the attendees every time.
+  const fromList = Array.isArray(msg.from) ? msg.from : (msg.from ? [msg.from] : []);
+  const people = [...fromList, ...(msg.to || [])]
+    .map((p) => ({ name: p.name || '', address: p.address || '' }))
     .filter((p) => p.address && !isOwnAddress(p.address));
+  // Where it came from, as the last line of the notes — the message is how
+  // anyone looking at the event later finds out what it was about.
+  const sender = fromList[0] ? (fromList[0].name || fromList[0].address) : '';
+  const when = msg.date ? new Date(msg.date).toLocaleString() : '';
+  const origin = `${I18n.t('Message')}: ${msg.subject || I18n.t('(no subject)')}${sender ? ' — ' + sender : ''}${when ? ', ' + when : ''}`;
+  // 2000 characters is a long note and a short email. Past that it is being
+  // stored rather than read.
+  const body = text.length > 2000 ? text.slice(0, 2000) + '…' : text;
   Calendar.createFrom({
     summary: msg.subject || '',
-    // 2000 characters is a long note and a short email. Past that it is being
-    // stored rather than read.
-    description: text.length > 2000 ? text.slice(0, 2000) + '…' : text,
+    description: `${body}${body ? '\n\n' : ''}${origin}`,
     attendees: people,
+    // The day (and time) the message talks about, when it names one — see
+    // public/js/eventTime.js. Otherwise the editor's own default.
+    ...(window.EventTime?.find(msg) || {}),
   });
 }
 
@@ -7474,9 +7740,13 @@ async function batchOpInner(keys, fn) {
     if (!byCtx.has(ctx)) byCtx.set(ctx, { account, folder: box, uids: [] });
     byCtx.get(ctx).uids.push(keyUid(key));
   }
+  // Each mailbox's answer is handed back with it: a delete or move names the
+  // uids its messages landed under, which is what offerUndoSelection needs.
+  const results = [];
   for (const g of byCtx.values()) {
-    await fn(g.folder, g.uids, g.account);
+    results.push({ ...g, res: await fn(g.folder, g.uids, g.account) });
   }
+  return results;
 }
 
 /**
@@ -7502,8 +7772,9 @@ async function runBatch(keys, fn, delta) {
   };
   const wanted = new Set(keys);
   const moved = state.messages.filter((m) => wanted.has(rowKey(m)));
+  let results;
   try {
-    await batchOp(keys, fn);
+    results = await batchOp(keys, fn);
   } catch (e) {
     toast('Action failed: ' + e.message, 4000);
     return false;
@@ -7512,7 +7783,34 @@ async function runBatch(keys, fn, delta) {
     const n = affected(m);
     if (n) adjustUnreadCounts(m, delta * n);
   }
-  return true;
+  return results || [];
+}
+
+/**
+ * "Deleted 240 messages · Undo" for the select toolbar — the bulk twin of
+ * offerUndoDelete. Each mailbox's response names where its messages went
+ * (`destination`) and the uid each one landed under (`uidMap`); undo moves
+ * them back by those uids. A group with no map (an expunge, a delete inside
+ * Trash, a server without UIDPLUS, a write queued offline) cannot be put back,
+ * and if no group can, there is no Undo button at all rather than one that
+ * might not work. Unread marks are not restored — for a bulk delete the list
+ * does not know which of hundreds of messages were unread; the reconcile shows
+ * the truth.
+ */
+function offerUndoSelection(results, doneText) {
+  const groups = (results || []).filter((g) => g.res?.destination && g.res?.uidMap)
+    .map((g) => ({ ...g, landed: g.uids.map((u) => g.res.uidMap[u]).filter((u) => u !== undefined) }))
+    .filter((g) => g.landed.length);
+  if (!groups.length) { toast(doneText); return; }
+  toast(doneText, UNDO_MS * 1.5, async () => {
+    let failed = 0, back = 0, lastError = '';
+    for (const g of groups) {
+      try { await trackMutation(API.move(g.res.destination, g.landed, g.folder, g.account)); back += g.landed.length; } catch (e) { failed++; lastError = e.message; }
+    }
+    loadMessages(); loadFolders(); scheduleReconcile(2);
+    if (!failed) toast(`${I18n.t('Messages restored')} (${back})`);
+    else toast('Restore failed: ' + lastError, 5000);
+  }, I18n.t('Undo'));
 }
 
 function bindToolbar() {
@@ -7529,8 +7827,10 @@ function bindToolbar() {
     const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
     const msg = keys.length === 1 ? I18n.t('Delete this message?') : I18n.t('Delete {n} messages?').replace('{n}', keys.length);
     if (!await Dialog.confirm(msg, { title: I18n.t('Delete'), okLabel: I18n.t('Delete'), danger: true })) return;
-    if (!await runBatch(keys, (folder, u, acct) => API.deleteMsgs(folder, u, acct), -1)) return;
+    const results = await runBatch(keys, (folder, u, acct) => API.deleteMsgs(folder, u, acct), -1);
+    if (!results) return;
     setSelectMode(false); closeMessage(); loadMessages(); scheduleReconcile(2);
+    offerUndoSelection(results, keys.length === 1 ? I18n.t('Message deleted') : `${I18n.t('Messages deleted')} (${keys.length})`);
   });
   $('#sel-read').addEventListener('click', async () => {
     const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
@@ -7546,9 +7846,12 @@ function bindToolbar() {
     const target = e.target.value; e.target.value = '';
     if (!target) return;
     const keys = await selectedKeys(); if (!keys) return; if (!keys.length) return toast('Nothing selected');
-    await batchOp(keys, (folder, u, acct) => API.move(folder, u, target, acct));
+    let results;
+    try { results = await batchOp(keys, (folder, u, acct) => API.move(folder, u, target, acct)); } catch (e) { return toast('Action failed: ' + e.message, 4000); }
     setSelectMode(false); closeMessage(); loadMessages(); loadFolders();
-    toast('Moved to ' + target);
+    // The move route answers {destination, uidMap} like a delete into Trash
+    // does, so the same undo works for it.
+    offerUndoSelection((results || []).map((g) => ({ ...g, res: g.res && { ...g.res, destination: g.res.destination || target } })), 'Moved to ' + target);
   });
   // Checked/unchecked icon buttons, not native checkboxes — toggling one flips
   // .active (see .icon-btn.active in app.css) and aria-pressed together so the

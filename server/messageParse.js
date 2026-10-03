@@ -102,6 +102,14 @@ export async function parseMessage(source, flags, { authservId = '' } = {}) {
       // is the entire basis for trusting one of them — the receiving server
       // writes its verdict on top of whatever the sender already put there.
       auth: readAuthResults(parsed.headerLines, { authservId }),
+      // What an auto-responder must check before answering (RFC 3834) — read
+      // by server/outOfOffice.js#mayAnswer, never shown.
+      autoSubmitted: rawHeaderValue(parsed.headerLines, 'auto-submitted') || null,
+      precedence: rawHeaderValue(parsed.headerLines, 'precedence') || null,
+      listId: rawHeaderValue(parsed.headerLines, 'list-id') || null,
+      listUnsubscribeRaw: rawHeaderValue(parsed.headerLines, 'list-unsubscribe') || null,
+      xAutoResponseSuppress: rawHeaderValue(parsed.headerLines, 'x-auto-response-suppress') || null,
+      returnPathEmpty: /^\s*<\s*>\s*$/.test(rawHeaderValue(parsed.headerLines, 'return-path') || ''),
     },
     attachments,
     flags: [...(flags || [])],

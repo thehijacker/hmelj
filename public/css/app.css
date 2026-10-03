@@ -3467,3 +3467,56 @@ body.no-accounts #folder-list li:not([data-path="__CALENDAR__"]) { display: none
   .cal-row-opts { padding-left: 20px; gap: 4px 8px; }
   .cal-row-opts select { max-width: 100%; }
 }
+
+/* ---------- ☀ Today (app.js#paintToday) ----------
+   A list of sections drawn into the message list itself, so it sits where mail
+   does and scrolls the same way. Rows are ordinary .msg-row rows. */
+#msg-list .today-title {
+  list-style: none; padding: 14px 14px 4px; font-size: calc(17px * var(--ui-scale)); font-weight: 700;
+}
+#msg-list .today-head {
+  list-style: none; display: flex; align-items: center; gap: 6px;
+  padding: 14px 14px 6px; font-weight: 600; color: var(--text-dim);
+  font-size: calc(12.5px * var(--ui-scale)); text-transform: uppercase; letter-spacing: .03em;
+  border-bottom: 1px solid var(--border);
+}
+#msg-list .today-empty { list-style: none; padding: 8px 14px; color: var(--text-dim); font-size: calc(12.5px * var(--ui-scale)); }
+.today-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.today-dim { color: var(--text-dim); }
+
+/* ---------- 📎 Attachments (app.js#paintAttachments) ---------- */
+#msg-list .att-bar {
+  list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;
+  background: var(--surface);
+}
+.att-types { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto; min-width: 0; }
+.att-type {
+  border: 1px solid var(--border); background: transparent; color: var(--text);
+  border-radius: 999px; padding: 3px 10px; font-size: calc(12px * var(--ui-scale)); cursor: pointer;
+}
+.att-type:hover { background: var(--hover); }
+.att-type.active { background: var(--accent-soft); border-color: var(--accent); }
+/* Sort and search travel together, to the right of the type chips on a wide
+   screen. The search box gives way first: it shrinks to a minimum before the
+   pair wraps under the chips. */
+.att-tools { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; margin-left: auto; }
+.att-sort { flex: 0 0 auto; }
+.att-search { flex: 1 1 180px; width: 180px; min-width: 110px; }
+/* A phone: the chips are one sideways-scrolling strip across the top, and
+   sort + search share the line under it, the search box taking whatever the
+   dropdown leaves. 16px font so iOS does not zoom in on focus. */
+@media (max-width: 600px) {
+  .att-types {
+    flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    /* No visible scrollbar: the strip is swiped, and a bar under a row of
+       chips reads as part of the page rather than as a hint. The chip cut off
+       at the edge already says there is more. */
+    scrollbar-width: none;
+  }
+  .att-types::-webkit-scrollbar { display: none; }
+  .att-type { flex: 0 0 auto; }
+  .att-tools { flex: 1 1 100%; margin-left: 0; }
+  .att-search { width: auto; min-width: 0; font-size: 16px; }
+  .att-sort { max-width: 45%; }
+}

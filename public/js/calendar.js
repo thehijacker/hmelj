@@ -1040,6 +1040,13 @@ const Calendar = (() => {
     setTimeout(run, opened ? 0 : 300);
   }
 
+  /** The Today page's "open this event": the calendar, on that day. */
+  function showDay(ms) {
+    const wasOpen = opened;
+    if (!opened) openFolder(CALENDAR_FOLDER);
+    setTimeout(() => { anchor = new Date(ms); setView('day'); }, wasOpen ? 0 : 300);
+  }
+
   const isOpen = () => opened;
 
   function open() {
@@ -1122,5 +1129,5 @@ const Calendar = (() => {
     });
   }
 
-  return { init, open, close, refresh, isOpen, renderSidebar, setView, createFrom, newEvent: newEventHere };
+  return { init, open, close, refresh, isOpen, renderSidebar, setView, createFrom, showDay, newEvent: newEventHere };
 })();

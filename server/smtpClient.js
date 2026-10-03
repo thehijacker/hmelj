@@ -199,6 +199,12 @@ export async function sendMail(payload) {
   }
 
   if (from.organization) mail.headers['Organization'] = from.organization;
+  // An out-of-office reply (server/outOfOffice.js) says what it is, so the
+  // other side's auto-responder does not answer it back (RFC 3834).
+  if (payload.autoReply) {
+    mail.headers['Auto-Submitted'] = 'auto-replied';
+    mail.headers['X-Auto-Response-Suppress'] = 'All';
+  }
 
   const prio = payload.priority || 'normal';
   if (prio !== 'normal') {

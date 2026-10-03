@@ -7,6 +7,20 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
+## Unreleased
+
+### Deleting or moving a selection can be undone
+
+### Add to calendar picks up the date and time the message mentions, keeps the sender as an attendee, and is on the list's right-click menu too
+
+### Out of office per account — Exchange's own automatic replies, or Hmelj's for Gmail, IMAP and Microsoft 365
+
+### 📎 Attachments: every downloaded attachment in one list, by type and searchable
+
+### ☀ Today: the day's events, due follow-ups, snoozed mail coming back and unread mail on one page
+
+### Follow up lists reminders still waiting for a reply, which can be moved or cancelled before they fire
+
 ## 1.1.5 — 2026-10-02
 
 ### Filter messages like this — a new filter prefilled from the message you right-clicked

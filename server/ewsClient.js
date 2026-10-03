@@ -2099,3 +2099,61 @@ export async function emptyFolder(path) {
   checkResponseCode(msg, 'EmptyFolder');
   return { deleted: total };
 }
+
+// ---------- automatic replies (out of office) ----------
+//
+// Exchange's own, so they keep going out while Hmelj is down and match what
+// Outlook shows — see server/outOfOffice.js for why EWS accounts use these and
+// the others do not. The same text goes to people inside and outside the
+// organisation, to everyone outside (ExternalAudience All): that is the one
+// message the form asks for.
+
+function oofHtml(text) {
+  return escXml(`<html><body>${String(text || '').split('\n').map((l) => escXml(l)).join('<br>')}</body></html>`);
+}
+
+/** Exchange's current setting — it may have been changed in Outlook. */
+export async function getOof() {
+  const acc = currentAccount();
+  const xml = await soapRequest(acc.ews, 'GetUserOofSettings', `<m:GetUserOofSettingsRequest>
+    <t:Mailbox><t:Address>${escXml(acc.email)}</t:Address></t:Mailbox>
+  </m:GetUserOofSettingsRequest>`);
+  const r = xmlParser.parse(xml)?.Envelope?.Body?.GetUserOofSettingsResponse;
+  checkResponseCode(r?.ResponseMessage, 'GetUserOofSettings');
+  const s = r?.OofSettings || {};
+  const state = String(s.OofState || 'Disabled');
+  const toText = (m) => String(m?.Message ?? m ?? '')
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .trim();
+  return {
+    enabled: state !== 'Disabled',
+    start: state === 'Scheduled' && s.Duration?.StartTime ? Date.parse(s.Duration.StartTime) : null,
+    end: state === 'Scheduled' && s.Duration?.EndTime ? Date.parse(s.Duration.EndTime) : null,
+    message: toText(s.ExternalReply) || toText(s.InternalReply),
+  };
+}
+
+/** Write the form to Exchange. Open-ended (no end) is "Enabled"; with dates,
+ *  "Scheduled" — Exchange then switches itself on and off. */
+export async function setOof({ enabled, start, end, message }) {
+  const acc = currentAccount();
+  const scheduled = enabled && end;
+  const state = !enabled ? 'Disabled' : scheduled ? 'Scheduled' : 'Enabled';
+  const from = new Date(start || Date.now()).toISOString();
+  const to = new Date(end || Date.now() + 86400e3).toISOString();
+  const html = oofHtml(message);
+  const xml = await soapRequest(acc.ews, 'SetUserOofSettings', `<m:SetUserOofSettingsRequest>
+    <t:Mailbox><t:Address>${escXml(acc.email)}</t:Address></t:Mailbox>
+    <t:UserOofSettings>
+      <t:OofState>${state}</t:OofState>
+      <t:ExternalAudience>All</t:ExternalAudience>
+      <t:Duration><t:StartTime>${from}</t:StartTime><t:EndTime>${to}</t:EndTime></t:Duration>
+      <t:InternalReply><t:Message>${html}</t:Message></t:InternalReply>
+      <t:ExternalReply><t:Message>${html}</t:Message></t:ExternalReply>
+    </t:UserOofSettings>
+  </m:SetUserOofSettingsRequest>`);
+  const r = xmlParser.parse(xml)?.Envelope?.Body?.SetUserOofSettingsResponse;
+  checkResponseCode(r?.ResponseMessage, 'SetUserOofSettings');
+  return { ok: true, state };
+}

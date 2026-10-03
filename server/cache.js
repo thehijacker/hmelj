@@ -981,6 +981,9 @@ export function getMessageContent(userKey, accountId, folder, uid) {
  *  is free. `indexed_at` is reset on every write: the body just changed, so
  *  whatever is in the index for it is now stale. */
 export function saveMessageContent(userKey, accountId, folder, uid, msg, size) {
+  if (msg) {
+    try { indexAttachments(userKey, accountId, folder, uid, msg.attachments); } catch { /* the page is a convenience — never fail a cache write for it */ }
+  }
   const row = db.prepare(`
     INSERT INTO message_content (user_key, account_id, folder, uid, content_json, size, cached_at, indexed_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
@@ -1164,10 +1167,189 @@ export function hasReplyInThread(userKey, accountId, threadKey, sinceMs, { ownAd
  * specific first: `message_content` and `message_fts` both start with
  * `message`, and `messages` must not swallow either.
  */
+/* ---------------- the Attachments page ----------------
+ *
+ * One row per real attachment (not an image the body draws inline) of every
+ * message whose body has been cached. Written by saveMessageContent from the
+ * parsed message it is already holding, so it costs no extra fetch, and filled
+ * once for bodies cached before this existed (backfillAttachmentIndex).
+ *
+ * Deliberately NOT removed when a cached body ages out of the newest-N window
+ * (pruneMessageContent): the attachment is still in the mailbox, and opening it
+ * fetches it live, so the page keeps covering more than the body cache does.
+ * What hides a row is its message being gone — every read joins `messages`, so
+ * a moved or deleted message drops out at once, and pruneAttachmentIndex tidies
+ * the leftovers.
+ */
+db.exec(`
+CREATE TABLE IF NOT EXISTS attachment_index (
+  user_key TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  folder TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  idx INTEGER NOT NULL,
+  filename TEXT,
+  content_type TEXT,
+  size INTEGER,
+  PRIMARY KEY (user_key, account_id, folder, uid, idx)
+);
+CREATE TABLE IF NOT EXISTS cache_flags (name TEXT PRIMARY KEY, value TEXT);
+`);
+
+const insAttachment = db.prepare(`INSERT OR REPLACE INTO attachment_index
+  (user_key, account_id, folder, uid, idx, filename, content_type, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+
+// Parts a mail client hands over as "attachments" that nobody would call a
+// file: the invitation an invite is drawn from, Gmail's AMP copy of the body,
+// a bounce's machine-readable report.
+const NOT_A_FILE = /^(text\/calendar|text\/x-amp-html|text\/html|text\/plain|message\/(global-)?(headers|delivery-status|disposition-notification)|message\/global-delivery-status|text\/rfc822-headers)$/i;
+// What messageParse.js calls a part that has no name of its own.
+const UNNAMED = /^attachment-\d+$/;
+// A nameless part is listed only when its type says what it is — and then
+// under a name that says so. Anything else nameless (above all
+// application/octet-stream, "some bytes") is dropped: bolha.com notifications
+// carry a handful of 4 KB parts named just "." that no one could open as
+// anything, and a row called "file" says nothing more.
+const NAME_FOR_TYPE = {
+  'message/rfc822': 'message.eml', 'image/png': 'image.png', 'image/jpeg': 'image.jpg', 'image/gif': 'image.gif',
+  'image/webp': 'image.webp', 'image/heic': 'image.heic', 'application/pdf': 'document.pdf',
+  'application/zip': 'archive.zip', 'text/csv': 'table.csv',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'document.docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'spreadsheet.xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'presentation.pptx',
+  'application/msword': 'document.doc', 'application/vnd.ms-excel': 'spreadsheet.xls',
+};
+
+/**
+ * Whether a part belongs on the Attachments page, and the name to show it by —
+ * or null. Exported for the tests.
+ *
+ * Left out: images the body draws (inlineUsed), and the ones it was MEANT to
+ * draw — a small image carrying a Content-ID is a logo or a signature picture
+ * even when the HTML never got round to referencing it (Exchange forwards and
+ * marketplace notifications are full of them, named "img-<uuid>" or just ".").
+ * An unnamed part is kept only if it is a real kind of file, and then given a
+ * name that says what it is instead of "attachment-0".
+ */
+export function attachmentEntry(a) {
+  if (!a || a.inlineUsed || a.index == null) return null;
+  const type = String(a.contentType || '').toLowerCase();
+  const name = String(a.filename || '').trim();
+  const unnamed = !name || UNNAMED.test(name) || !/[\p{L}\p{N}]/u.test(name);
+  const size = Number(a.size) || 0;
+  if (unnamed && NOT_A_FILE.test(type)) return null;
+  if (NOT_A_FILE.test(type) && /^text\/(calendar|x-amp-html)$/i.test(type)) return null;
+  const decoration = a.cid && (type.startsWith('image/') || type === 'application/octet-stream') && size < 100 * 1024;
+  if (decoration && (a.inline || unnamed || /^img-[0-9a-f-]+$/i.test(name))) return null;
+  if (unnamed && !NAME_FOR_TYPE[type]) return null;
+  return { filename: unnamed ? NAME_FOR_TYPE[type] : name, contentType: type || null, size: size || null };
+}
+
+function indexAttachments(userKey, accountId, folder, uid, list) {
+  const key = uidKey(uid);
+  db.prepare('DELETE FROM attachment_index WHERE user_key=? AND account_id=? AND folder=? AND uid=?').run(userKey, accountId, folder, key);
+  for (const a of list || []) {
+    const e = attachmentEntry(a);
+    if (e) insAttachment.run(userKey, accountId, folder, key, Number(a.index), e.filename, e.contentType, e.size);
+  }
+}
+
+/** Filled in the background, a slice at a time, so a large existing cache does
+ *  not freeze the server (better-sqlite3 is synchronous). Runs once per
+ *  database; a restart part-way through simply starts again. */
+export function backfillAttachmentIndex() {
+  // v3: the rules for what counts as a file changed (attachmentEntry), so the
+  // index is rebuilt once from the cached bodies under the new ones. Bump the
+  // name whenever they change again.
+  if (db.prepare("SELECT value FROM cache_flags WHERE name='attachment_index_v3'").get()) return;
+  db.prepare('DELETE FROM attachment_index').run();
+  let after = 0;
+  const step = db.prepare(`SELECT rowid AS r, user_key, account_id, folder, uid, json_extract(content_json, '$.attachments') AS a
+    FROM message_content WHERE rowid > ? ORDER BY rowid LIMIT 150`);
+  const tick = () => {
+    let rows;
+    try { rows = step.all(after); } catch { return; }
+    if (!rows.length) {
+      db.prepare("INSERT OR REPLACE INTO cache_flags (name, value) VALUES ('attachment_index_v3', ?)").run(String(Date.now()));
+      pruneAttachmentIndex();
+      return;
+    }
+    db.transaction(() => {
+      for (const r of rows) {
+        if (!r.a || r.a === '[]') continue;
+        try { indexAttachments(r.user_key, r.account_id, r.folder, r.uid, JSON.parse(r.a)); } catch { /* one odd row is not worth stopping for */ }
+      }
+    })();
+    after = rows[rows.length - 1].r;
+    setTimeout(tick, 40).unref?.();
+  };
+  setTimeout(tick, 15e3).unref?.();
+}
+
+/** Rows whose message is no longer cached anywhere. */
+export function pruneAttachmentIndex() {
+  return db.prepare(`DELETE FROM attachment_index WHERE NOT EXISTS (SELECT 1 FROM messages m
+    WHERE m.user_key=attachment_index.user_key AND m.account_id=attachment_index.account_id
+      AND m.folder=attachment_index.folder AND m.uid=attachment_index.uid)`).run().changes;
+}
+
+const ATTACH_TYPES = {
+  pdf: ['pdf'],
+  documents: ['doc', 'docx', 'odt', 'rtf', 'txt', 'pages', 'md'],
+  spreadsheets: ['xls', 'xlsx', 'xlsm', 'ods', 'csv', 'numbers'],
+  presentations: ['ppt', 'pptx', 'odp', 'key'],
+  images: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'bmp', 'svg', 'tif', 'tiff'],
+  archives: ['zip', 'rar', '7z', 'gz', 'tgz', 'tar', 'bz2', 'xz'],
+};
+export const ATTACHMENT_TYPES = Object.keys(ATTACH_TYPES);
+
+function extClause(exts) {
+  return { sql: '(' + exts.map(() => "lower(a.filename) LIKE ? ESCAPE '\\'").join(' OR ') + ')', params: exts.map((e) => `%.${e}`) };
+}
+
+/**
+ * The page's list: newest (or largest) first, one row per attachment even when
+ * the same message is filed in several folders (Gmail labels), across the
+ * asking user's chosen accounts only.
+ */
+export function listAttachments(userKey, accountIds, { type = '', q = '', sort = 'date', page = 1, pageSize = 50 } = {}) {
+  if (!accountIds.length) return { total: 0, items: [] };
+  const where = [`a.user_key=?`, `a.account_id IN (${accountIds.map(() => '?').join(',')})`, 'm.deleted=0'];
+  const params = [userKey, ...accountIds];
+  if (type === 'other') {
+    const all = extClause(Object.values(ATTACH_TYPES).flat());
+    where.push(`NOT ${all.sql}`); params.push(...all.params);
+  } else if (ATTACH_TYPES[type]) {
+    const c = extClause(ATTACH_TYPES[type]); where.push(c.sql); params.push(...c.params);
+  }
+  if (q) {
+    const like = `%${likeEscape(String(q).toLowerCase())}%`;
+    where.push(`(lower(a.filename) LIKE ? ESCAPE '\\' OR lower(m.from_addr) LIKE ? ESCAPE '\\' OR lower(m.from_name) LIKE ? ESCAPE '\\' OR lower(m.subject) LIKE ? ESCAPE '\\')`);
+    params.push(like, like, like, like);
+  }
+  const base = `FROM attachment_index a JOIN messages m ON m.user_key=a.user_key AND m.account_id=a.account_id AND m.folder=a.folder AND m.uid=a.uid
+    WHERE ${where.join(' AND ')}
+    GROUP BY a.account_id, COALESCE(m.message_id, a.folder || char(0) || a.uid), a.idx`;
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 ${base})`).get(...params).n;
+  const order = sort === 'size' ? 'att_size DESC, att_date DESC' : sort === 'name' ? 'lower(att_name) ASC, att_date DESC' : 'att_date DESC';
+  const ps = Math.max(1, Math.min(200, Number(pageSize) || 50));
+  const rows = db.prepare(`SELECT a.account_id, a.folder, a.uid, a.idx, a.filename AS att_name, a.content_type, a.size AS att_size,
+      m.subject, m.from_name, m.from_addr, MAX(m.date) AS att_date ${base}
+    ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, ps, (Math.max(1, Number(page) || 1) - 1) * ps);
+  return {
+    total,
+    items: rows.map((r) => ({
+      accountId: r.account_id, folder: r.folder, uid: uidOut(r.uid), index: r.idx,
+      filename: r.att_name, contentType: r.content_type, size: r.att_size,
+      subject: r.subject, from: { name: r.from_name || '', address: r.from_addr || '' }, date: r.att_date,
+    })),
+  };
+}
+
 export function storageCategoryOf(name) {
   const n = String(name || '').replace(/^sqlite_autoindex_/, '').replace(/_\d+$/, '');
   if (n === 'message_content' || n.startsWith('idx_content')) return 'bodies';
-  if (n.startsWith('message_fts') || n === 'search_words') return 'search';
+  if (n.startsWith('message_fts') || n === 'search_words' || n.startsWith('attachment_index') || n.startsWith('idx_attach')) return 'search';
   if (n.startsWith('analytics_') || n.startsWith('idx_an_')) return 'analytics';
   if (n === 'messages' || n.startsWith('idx_messages') || n === 'folders' || n === 'sync_state') return 'list';
   if (n.startsWith('calendar_') || n.startsWith('idx_calendar') || n.startsWith('idx_reminders') || n.startsWith('idx_snoozes')) return 'calendars';
@@ -2246,6 +2428,7 @@ export function deleteAccountCache(userKey, accountId) {
   db.prepare('DELETE FROM messages WHERE user_key=? AND account_id=?').run(userKey, accountId);
   dropSearchIndex(userKey, accountId);
   db.prepare('DELETE FROM message_content WHERE user_key=? AND account_id=?').run(userKey, accountId);
+  db.prepare('DELETE FROM attachment_index WHERE user_key=? AND account_id=?').run(userKey, accountId);
   db.prepare('DELETE FROM folders WHERE user_key=? AND account_id=?').run(userKey, accountId);
   db.prepare('DELETE FROM sync_state WHERE user_key=? AND account_id=?').run(userKey, accountId);
 }

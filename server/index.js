@@ -24,6 +24,7 @@ import { runFilters } from './filters.js';
 import * as archive from './archive.js';
 import * as autoArchive from './autoArchive.js';
 import * as followUps from './followUps.js';
+import * as outOfOffice from './outOfOffice.js';
 import {
   requireAuth, createSession, destroySession, sessionFromRequest,
   setSessionCookie, clearSessionCookie, parseCookies, COOKIE_NAME,
@@ -3131,6 +3132,48 @@ app.post('/api/analytics/clear', (req, res) => {
 /* ---------- follow-up reminders (server/followUps.js) ----------
  * The viewer's own list: the person who pressed Send, not a shared mailbox's
  * owner — a reminder is personal. */
+/* ---------- the Attachments page (cache.js#listAttachments) ----------
+ * ?account=<id> reads that account (shared ones included, in the owner's
+ * cache, the way every account-scoped route does); ?all=1 reads every enabled
+ * account the user owns. Mail Hmelj has downloaded only — the page says so. */
+app.get('/api/attachments', wrap(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const opts = { type: String(req.query.type || ''), q: String(req.query.q || ''), sort: String(req.query.sort || 'date'),
+    page: Number(req.query.page) || 1, pageSize: Number(req.query.pageSize) || 50 };
+  if (req.query.all === '1') {
+    const uKey = currentUser().viewerKey;
+    const ids = accounts.listAccounts().filter((a) => !a.disabled && !a.shared).map((a) => a.id);
+    return res.json(cache.listAttachments(uKey, ids, opts));
+  }
+  const acc = accounts.currentAccount();
+  res.json(cache.listAttachments(currentUser().userKey, [acc.id], opts));
+}));
+
+/* ---------- out of office (server/outOfOffice.js) ----------
+ * Per account, by ?account=. An Exchange account's setting lives on Exchange
+ * (read back each time, since Outlook can change it); everyone else's in the
+ * JSON file the sync loop reads. Only the owner of a mailbox may change it —
+ * a shared mailbox's absence is its owner's to announce. */
+app.get('/api/out-of-office', wrap(async (req, res) => {
+  const acc = accounts.currentAccount();
+  const uKey = currentUser().userKey;
+  const saved = outOfOffice.load(uKey, acc.id);
+  const live = acc.ews ? await ewsClient.getOof().catch(() => null) : null;
+  const rec = live ? { ...saved, ...live, subject: saved.subject } : saved;
+  res.json({ ...rec, repliedTo: undefined, replied: (saved.repliedTo || []).length,
+    via: acc.ews ? 'exchange' : 'hmelj', active: outOfOffice.isActive(rec),
+    canEdit: currentUser().viewerKey === uKey });
+}));
+app.put('/api/out-of-office', wrap(async (req, res) => {
+  const acc = accounts.currentAccount();
+  const uKey = currentUser().userKey;
+  if (currentUser().viewerKey !== uKey) return res.status(403).json({ error: 'Only the owner of this mailbox can change its out-of-office reply' });
+  const rec = outOfOffice.clean(req.body);
+  if (acc.ews) await ewsClient.setOof(rec);
+  const saved = outOfOffice.save(uKey, acc.id, rec);
+  res.json({ ...saved, repliedTo: undefined, via: acc.ews ? 'exchange' : 'hmelj', active: outOfOffice.isActive(saved) });
+}));
+
 app.get('/api/follow-ups', (req, res) => res.json(followUps.listFor(currentUser().viewerKey)));
 app.post('/api/follow-ups/:id/snooze', (req, res) => {
   try { res.json(followUps.snooze(currentUser().viewerKey, followUps.assertId(req.params.id), req.body?.days)); }
@@ -5190,6 +5233,9 @@ autoArchive.start();
 // Follow-up reminders: reads the cache, so it does nothing useful without one,
 // but it costs nothing either — with no records there is nothing to check.
 followUps.start();
+// Fills the Attachments page's index from bodies cached before it existed —
+// once, a slice at a time, starting a little after boot.
+cache.backfillAttachmentIndex();
 // Calendars DO live in cache.sqlite, so this one genuinely needs it.
 if (config.cacheEnabled) {
   calendarSync.start();
