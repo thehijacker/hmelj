@@ -1427,7 +1427,14 @@ function showMuteMenu(accountId, path, x, y) {
   }));
   items.push({
     label: 'Until tomorrow morning',
-    onClick: () => setFolderMute(accountId, path, nextLocalTime(8, 0)),
+    // Tomorrow's date, always — not "the next 8:00", which before eight in the
+    // morning is today's and silenced the folder for two hours instead of a day.
+    onClick: () => {
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      t.setHours(8, 0, 0, 0);
+      setFolderMute(accountId, path, t.getTime());
+    },
   });
   items.push({
     label: 'Until a set time…',

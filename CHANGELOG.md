@@ -7,6 +7,10 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
+## Unreleased
+
+### Fixed: muting a folder "until tomorrow morning" before 8:00 muted it only until 8:00 the same day
+
 ## 1.1.6 — 2026-10-03
 
 ### Deleting or moving a selection can be undone
