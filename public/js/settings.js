@@ -1629,6 +1629,20 @@ const Settings = (() => {
    * the DOM — hiding it behind expand would let two different cards each
    * carry a stale/fresh `default: true` past collectIdentities() with
    * neither one's radio visible to reconcile against the other. */
+  /** The optional catch-all domain of an identity (server/catchAll.js). Only
+   *  on an account that will actually send from another address: Exchange and
+   *  Microsoft 365 decide that themselves and refuse, so the field is not
+   *  offered there at all. Empty for everyone who does not want it. */
+  function catchAllRow(id, i) {
+    const acc = allAccounts().find((a) => a.id === (id.accountId || allAccounts()[0]?.id));
+    if (acc && (acc.type === 'ews' || acc.type === 'graph')) return '';
+    return `<div class="row">
+        <div class="grow"><label>${esc(I18n.t('Catch-all domain'))}</label><br>${txt(`id-catchall-${i}`, id.catchAllDomain || '')}
+          <div class="set-hint" style="grid-column:auto">${esc(I18n.t('Optional, e.g. example.com. Replies then go out from whichever address at this domain the message was sent to, and the composer lets you type any address at it — all under this identity\'s name and signature. Only for a mail server that lets you send from any address at your domain; Gmail rewrites the sender to your own address.'))}</div>
+        </div>
+      </div>`;
+  }
+
   function identityCard(id, i, indented) {
     const expanded = expandedIdentities.has(i);
     return `<div class="card${indented ? ' id-alias' : ''}" data-i="${i}">
@@ -1647,6 +1661,7 @@ const Settings = (() => {
         <div><label>Signature used</label><br>${sel(`id-sigon-${i}`, [['new', 'On new messages'], ['new-reply', 'On new & replies'], ['always', 'Every time'], ['never', 'Never']], id.signatureOn || 'new-reply')}</div>
         <div><label>&nbsp;</label><br><label class="mini-toggle">${chk(`id-sigdelim-${i}`, id.signatureDelimiter !== false)} ${I18n.t('Include "-- " delimiter')}</label></div>
       </div>
+      ${catchAllRow(id, i)}
       <div>
         <label>${I18n.t('Signatures')}</label>
         ${sigsOf(id).map((sg, j) => signatureEditor(sg, i, j, sg.id === id.defaultSignatureId)).join('')}
@@ -1818,6 +1833,10 @@ const Settings = (() => {
         // collapsed they're simply not in the DOM, so keep whatever was
         // already stored instead of overwriting with nothing.
         organization: g('org')?.value ?? id.organization,
+        // Present only when the row is on screen (expanded, and an account
+        // that offers it); otherwise whatever the identity already had —
+        // including not having the field at all.
+        ...(g('catchall') ? { catchAllDomain: g('catchall').value.trim().toLowerCase().replace(/^@/, '') } : {}),
         ...collectSignatures(id, i),
         signatureOn: g('sigon')?.value ?? id.signatureOn,
         signatureDelimiter: g('sigdelim') ? g('sigdelim').checked : (id.signatureDelimiter ?? true),

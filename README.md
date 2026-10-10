@@ -113,6 +113,7 @@ over this connection, and installing it as a PWA requires HTTPS.
 
 ### Composing
 - **Rich HTML or plain text**, multiple **identities**, and **several signatures per identity** — pick which one a message uses while writing it
+- **Replies use the identity the message was sent to**, and an identity can optionally name a **catch-all domain**: replies then go out from whichever address at it the mail arrived on, and you can type any address at it for a new message — for mail servers that allow it (not Gmail, Exchange or Microsoft 365)
 - **Formatting** — font, size, text and highlight colour, bold/italic/underline/strikethrough, lists, links, quote, code block, indent, alignment, a horizontal rule, and an **emoji picker** that remembers what you use. The buttons light up for the formatting the cursor is inside
 - **Scheduled sending** — queued on the server, retried with backoff, reschedulable
 - **Undo send** — a window you choose (10 seconds by default). The wait is on the server, so closing the tab right after Send still honours it

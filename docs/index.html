@@ -1330,6 +1330,40 @@ new messages and replies, always, or never</li>
   thread.
 </p>
 
+<h2 id="identities-reply">Which identity a reply uses</h2>
+<p>
+  A reply or a forward is written as the identity the message was <em>sent to</em>: if one
+  of the addresses in its To or Cc is the address of an identity on that account, that
+  identity is chosen. Otherwise it is the account's default identity. A draft reopens under
+  the identity it was written with.
+</p>
+
+<h2 id="identities-catchall">Catch-all domains</h2>
+<p>
+  For a mailbox that receives everything sent to a domain — <code>shop@example.com</code>,
+  <code>bank@example.com</code>, an address per website — without an identity for each.
+  Expand an identity and fill in <strong>Catch-all domain</strong> (<code>example.com</code>).
+  Leave it empty and nothing about Hmelj changes; it is off unless you set it.
+</p>
+<ul>
+<li><strong>Replies</strong> go out from the address the message was sent to. Mail to
+<code>shop@example.com</code> is answered from <code>shop@example.com</code>, under that
+identity's name and signature. An identity with exactly that address still wins, so an alias
+you gave its own name and signature keeps them.</li>
+<li><strong>New messages</strong>: with that identity selected, the From row shows
+<em>Send as</em> <code>[&nbsp;&nbsp;&nbsp;]@example.com</code>. Type the part before the
+<code>@</code>; the domain is fixed, so it cannot be mistyped.</li>
+<li>Any address at the domain counts as <strong>yours</strong>: reply-all does not copy it,
+it is not offered as a contact, and a follow-up reminder does not take it for an answer.</li>
+</ul>
+<div class="callout">
+  This needs a mail server that lets you send from any address at your domain — your own
+  server, or a host such as MXroute. <strong>Gmail</strong> accepts the message and rewrites
+  the sender to your own address. <strong>Exchange</strong> and <strong>Microsoft 365</strong>
+  refuse, so the field is not offered on those accounts. Only addresses at exactly that
+  domain are accepted — not a sub-domain, and never another domain.
+</div>
+
 <a class="back-top" href="#about">↑ Top</a>
 </section>
 

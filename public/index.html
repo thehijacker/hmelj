@@ -331,6 +331,14 @@
       <div class="compose-row">
         <label>From</label>
         <select id="c-identity"></select>
+        <!-- Only for an identity with a catch-all domain (Settings → Identities):
+             the part before the @ of the address this message goes out from.
+             Hidden for every other identity — see compose.js#syncFromAlias. -->
+        <span class="c-from-alias" id="c-from-alias" hidden>
+          <span class="c-from-as">Send as</span>
+          <input id="c-from-local" type="text" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64">
+          <span class="c-from-domain" id="c-from-domain" data-no-i18n></span>
+        </span>
       </div>
       <div class="compose-row">
         <label>To</label>
@@ -544,6 +552,7 @@
 <script src="/js/composeGuards.js"></script>
 <script src="/js/compose.js"></script>
 <script src="/js/eventTime.js"></script>
+<script src="/js/fromAddress.js"></script>
 <script src="/js/calendar.js"></script>
 <script src="/js/shortcuts.js"></script>
 <script src="/js/app.js"></script>

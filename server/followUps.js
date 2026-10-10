@@ -160,6 +160,7 @@ function checkOne(viewerKey, rec, own) {
   const threadKey = cache.findThreadKeyFor(ownerKey, rec.accountId, rec.messageId) || rec.threadKey;
   const answered = cache.hasReplyInThread(ownerKey, rec.accountId, threadKey, rec.sentAt, {
     ownAddresses: [...own],
+    ownDomains: own.domains || [],
     excludeFolders: [account.sentFolder, account.draftsFolder],
   });
   if (answered) {

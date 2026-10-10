@@ -539,6 +539,12 @@
     "Reminds you {when}": "Opomnik {when}",
     "Remind me instead": "Opomni me raje",
     "Cancel reminder": "Prekliči opomnik",
+    "Send as": "Pošlji kot",
+    "Catch-all domain": "Zbirna domena",
+    "Optional, e.g. example.com. Replies then go out from whichever address at this domain the message was sent to, and the composer lets you type any address at it — all under this identity's name and signature. Only for a mail server that lets you send from any address at your domain; Gmail rewrites the sender to your own address.": "Neobvezno, npr. example.com. Odgovori nato odhajajo z naslova na tej domeni, na katerega je bilo sporočilo poslano, pri pisanju pa lahko vtipkate poljuben naslov na njej — vse z imenom in podpisom te identitete. Samo za poštni strežnik, ki dovoli pošiljanje s poljubnega naslova na vaši domeni; Gmail pošiljatelja prepiše v vaš lastni naslov.",
+    "That is not a valid sender address": "To ni veljaven naslov pošiljatelja",
+    "This identity cannot send from another address": "Ta identiteta ne more pošiljati z drugega naslova",
+    "This account cannot send from another address": "Ta račun ne more pošiljati z drugega naslova",
     "Attachments": "Priponke",
     "Open message": "Odpri sporočilo",
     "Largest first": "Najprej največje",
@@ -1590,6 +1596,10 @@
     [
       "Could not answer the invitation: ",
       "Na povabilo ni bilo mogoče odgovoriti: "
+    ],
+    [
+      "The sender must be an address at ",
+      "Pošiljatelj mora biti naslov na domeni "
     ],
     [
       "Could not check the selection: ",

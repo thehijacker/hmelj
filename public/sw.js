@@ -10,7 +10,7 @@
 //    exist. What this branch contributes is the SIGNAL — the X-Hmelj-Offline
 //    503 below is how api.js tells "nothing answered" from "the server said no",
 //    and it is what makes it reach for the offline store.
-const VERSION = 'hmelj-20261006097';
+const VERSION = 'hmelj-20261010098';
 const SHELL = [
   '/',
   '/index.html',
@@ -50,6 +50,7 @@ const SHELL = [
   // entry means the global is undefined offline and the whole app dies on that
   // line, not just the calendar.
   '/js/eventTime.js',
+  '/js/fromAddress.js',
   '/js/calendar.js',
   '/js/shortcuts.js',
   '/js/composeGuards.js',

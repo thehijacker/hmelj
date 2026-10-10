@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { config } from './config.js';
 import { currentUser } from './session.js';
 import { normalizeContactGroups } from './contactGroups.js';
+import { normalizeDomain } from './catchAll.js';
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 
@@ -305,6 +306,10 @@ export function normalizeIdentities(list) {
       const byId = new Set(signatures.map((s) => s.id));
       return {
         ...id,
+        // Catch-all sending (server/catchAll.js). Only touched when the
+        // identity carries the field at all, so an identity that never had one
+        // is written back exactly as it was read.
+        ...(id.catchAllDomain != null ? { catchAllDomain: normalizeDomain(id.catchAllDomain) } : {}),
         signatures,
         // Repaired rather than trusted: an id pointing at a signature that has
         // since been deleted would make the composer fall back silently and

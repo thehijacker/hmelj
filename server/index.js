@@ -25,6 +25,7 @@ import * as archive from './archive.js';
 import * as autoArchive from './autoArchive.js';
 import * as followUps from './followUps.js';
 import * as outOfOffice from './outOfOffice.js';
+import { OwnAddresses, domainsOf as catchAllDomainsOf, effectiveFrom, assertFrom } from './catchAll.js';
 import {
   requireAuth, createSession, destroySession, sessionFromRequest,
   setSessionCookie, clearSessionCookie, parseCookies, COOKIE_NAME,
@@ -1784,10 +1785,10 @@ app.get('/api/contacts/suggestions', (req, res) => {
       if (c.name.length > prev.name.length) prev.name = c.name;
     }
   }
-  const mine = new Set([
-    ...list.map((a) => String(a.email || '').toLowerCase()),
-    ...store.getIdentities().map((i) => String(i.email || '').toLowerCase()),
-  ].filter(Boolean));
+  const mine = new OwnAddresses([
+    ...list.map((a) => a.email),
+    ...store.getIdentities().map((i) => i.email),
+  ], catchAllDomainsOf(store.getIdentities()));
   // Synced contacts count as known too: offering to "add" somebody who is
   // already in the address book would create a second, local copy of them that
   // then never goes away.
@@ -4763,8 +4764,13 @@ app.post('/api/messages/:folder/delete', wrap(async (req, res) => {
 async function saveDraft(payload, acc, previousUid) {
   const identities = store.getIdentities();
   const identity = identities.find((i) => i.id === payload.identityId) || identities[0] || { email: acc.email };
+  // The alias a catch-all identity is writing as (server/catchAll.js), so the
+  // draft's own From line is what reopening it restores. Never an error here:
+  // a draft save is automatic, and an address that is not allowed simply falls
+  // back to the identity's own rather than losing what somebody wrote.
+  const fromEmail = effectiveFrom(identity, acc, payload.fromAddress);
   const raw = await buildRaw({
-    from: identity.name ? { name: identity.name, address: identity.email } : identity.email,
+    from: identity.name ? { name: identity.name, address: fromEmail } : fromEmail,
     to: payload.to || undefined,
     cc: payload.cc || undefined,
     bcc: payload.bcc || undefined,
@@ -5062,6 +5068,10 @@ app.post('/api/send', wrap(async (req, res) => {
   let acc, ownerUser, identity;
   try {
     ({ acc, ownerUser, identity } = resolveIdentityAndAccount(payload));
+    // A sender address this identity may not use is refused here, while there
+    // is still somebody to tell — sendMail itself would quietly fall back to
+    // the identity's own address (server/catchAll.js).
+    assertFrom(identity, acc, payload.fromAddress);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -5072,7 +5082,7 @@ app.post('/api/send', wrap(async (req, res) => {
   // again is a NEW message and must not reuse the old one's id. What it is for
   // is server/followUps.js, which finds the reply to it.
   {
-    const from = String(identity?.email || acc.email || '');
+    const from = String(effectiveFrom(identity, acc, payload.fromAddress) || '');
     const domain = from.includes('@') ? from.split('@').pop().replace(/[^A-Za-z0-9.-]/g, '') : '';
     payload.messageId = `<${crypto.randomUUID()}@${domain || 'hmelj.local'}>`;
   }

@@ -246,6 +246,76 @@ const Compose = (() => {
     return (forAcct || identities.find((i) => i.default) || identities[0])?.id;
   }
 
+  /* ---------- catch-all identities (public/js/fromAddress.js) ----------
+   * An identity that names a catch-all domain may send as any address at it.
+   * The From row then grows a small "Send as [local] @domain" box; for every
+   * other identity that box stays hidden, payload() carries no fromAddress,
+   * and nothing about the composer is different.
+   */
+
+  /** The catch-all domain of the identity in the From select, or ''. */
+  function fromAliasDomain() {
+    const id = currentIdentity();
+    return FromAddress.allows(id, state.accounts) ? FromAddress.domainOf(id) : '';
+  }
+
+  /** Show or hide the box for the selected identity and fill it in: with the
+   *  alias a reply or a reopened draft asked for, else the identity's own. */
+  function syncFromAlias(fromAddress = '') {
+    const box = document.getElementById('c-from-alias');
+    const domain = fromAliasDomain();
+    box.hidden = !domain;
+    if (!domain) return;
+    document.getElementById('c-from-domain').textContent = '@' + domain;
+    const own = FromAddress.atDomain(currentIdentity().email, domain) ? FromAddress.localPart(currentIdentity().email) : '';
+    document.getElementById('c-from-local').value =
+      FromAddress.atDomain(fromAddress, domain) ? FromAddress.localPart(fromAddress) : own;
+  }
+
+  /** What payload() sends as `fromAddress`: nothing unless the box is showing
+   *  a valid address that is not simply the identity's own. */
+  function fromAliasAddress() {
+    const domain = fromAliasDomain();
+    if (!domain) return undefined;
+    const local = document.getElementById('c-from-local').value.trim();
+    if (!FromAddress.validLocal(local)) return undefined;
+    const address = `${local}@${domain}`;
+    return address.toLowerCase() === String(currentIdentity().email || '').toLowerCase() ? undefined : address;
+  }
+
+  /** Before sending: a box that holds something which is not an address says
+   *  so, instead of the message quietly going out from the identity's own.
+   *  (An autosaved draft does fall back quietly — it must never be refused.) */
+  function fromAliasInvalid() {
+    if (!fromAliasDomain()) return false;
+    const local = document.getElementById('c-from-local').value.trim();
+    if (!local || FromAddress.validLocal(local)) return false;
+    toast(I18n.t('That is not a valid sender address'), 5000);
+    document.getElementById('c-from-local').focus();
+    return true;
+  }
+
+  /** Is this address at one of the user's catch-all domains? Added to the
+   *  exact "is it mine" tests, never replacing them. */
+  function atMyCatchAll(address) {
+    return identities.some((i) => FromAddress.allows(i, state.accounts) && FromAddress.atDomain(address, FromAddress.domainOf(i)));
+  }
+
+  /** Who a reply to / forward of `msg` is written as — the identity the
+   *  message was sent to when there is one (FromAddress.pickForMessage). */
+  function senderFor(msg) {
+    return FromAddress.pickForMessage({
+      identities, accounts: state.accounts, accountId: accountOf(msg),
+      addresses: [...(msg.to || []), ...(msg.cc || [])],
+    });
+  }
+
+  /** The account a message belongs to: its own tag in All inboxes, else the
+   *  account being viewed — the same one defaultIdentityId() would use. */
+  function accountOf(msg) {
+    return msg.__account || (state.currentAccount && state.currentAccount !== 'all' ? state.currentAccount : null);
+  }
+
   function isPlain() { return document.getElementById('c-plain').checked; }
 
   const RECIPIENT_FIELDS = ['c-to', 'c-cc', 'c-bcc'];
@@ -598,7 +668,7 @@ const Compose = (() => {
     ], x, y);
   }
 
-  function open({ to = '', cc = '', subject = '', bodyHtml = '', context = 'new', identityId = null } = {}) {
+  function open({ to = '', cc = '', subject = '', bodyHtml = '', context = 'new', identityId = null, fromAddress = '' } = {}) {
     const w = el();
     w.hidden = false;
     w.classList.remove('minimized');
@@ -624,6 +694,7 @@ const Compose = (() => {
     const idSel = document.getElementById('c-identity');
     const wantId = identityId || defaultIdentityId();
     if (wantId && idSel.querySelector(`option[value="${CSS.escape(wantId)}"]`)) idSel.value = wantId;
+    syncFromAlias(fromAddress);
     document.getElementById('c-to').value = to;
     document.getElementById('c-cc').value = cc;
     document.getElementById('c-bcc').value = '';
@@ -825,8 +896,11 @@ const Compose = (() => {
     // ownAddresses() rather than the identity list alone — it also covers the
     // account addresses, and a reply to a message addressed to one of those
     // would otherwise look like it had a stranger on it.
+    // An address at a catch-all domain is one of yours as well; with no such
+    // domain these two filters pass everything through.
+    const notAlias = (a) => !atMyCatchAll(a?.address);
     const others = ComposeGuards.replyAllWouldAdd({
-      to: msg.to, cc: msg.cc, replyingTo: from,
+      to: (msg.to || []).filter(notAlias), cc: (msg.cc || []).filter(notAlias), replyingTo: from,
       mine: ownAddresses().map((o) => o.email),
     });
     if (!all && others.length && state.settings.replyAllNudge !== false) {
@@ -846,14 +920,16 @@ const Compose = (() => {
     let cc = '';
     if (all) {
       const mine = new Set(identities.map((i) => i.email.toLowerCase()));
-      cc = [...msg.to, ...msg.cc].map((a) => a.address).filter((a) => a && !mine.has(a.toLowerCase()) && a !== to).join(', ');
+      cc = [...msg.to, ...msg.cc].map((a) => a.address).filter((a) => a && !mine.has(a.toLowerCase()) && !atMyCatchAll(a) && a !== to).join(', ');
     }
     open({
       to, cc,
       subject: /^re:/i.test(msg.subject) ? msg.subject : 'Re: ' + msg.subject,
       bodyHtml: withQuote(msg),
       context: 'reply',
-      identityId: identityForAccount(msg.__account)?.id,
+      // The identity the message was sent to, when there is one — otherwise
+      // the account's usual identity, as before.
+      ...senderFor(msg),
     });
     replyMeta = {
       inReplyTo: msg.messageId,
@@ -892,7 +968,7 @@ const Compose = (() => {
       // everything a signature decides treats the two the same, since the
       // per-identity rule only ever asks whether this is a NEW message.
       context: 'forward',
-      identityId: identityForAccount(msg.__account)?.id,
+      ...senderFor(msg),
     });
     // Only the `original` half, deliberately: a forward is a NEW thread, so it
     // must not carry In-Reply-To/References the way a reply does — but the
@@ -943,6 +1019,7 @@ const Compose = (() => {
       bodyHtml: p.html || (p.text ? `<div>${esc(p.text).replace(/\n/g, '<br>')}</div>` : ''),
       context: 'new',
       identityId: p.identityId || null,
+      fromAddress: p.fromAddress || '',
     });
     // Everything open() doesn't take as an argument, and the two fields it
     // deliberately resets (attachments, replyMeta) — restored after, not before.
@@ -992,6 +1069,10 @@ const Compose = (() => {
       subject: msg.subject === '(no subject)' ? '' : msg.subject,
       bodyHtml: msg.html || `<pre>${esc(msg.text || '')}</pre>`,
       context: 'new',
+      // Written as whoever the draft says it is from: the identity with that
+      // address, or a catch-all identity sending as it. A draft whose From
+      // matches neither opens under the usual identity, as it always did.
+      ...draftSender(msg),
     });
     draftUid = msg.uid;
     // After open(), which clears it — same ordering, and the same reason, as
@@ -1004,6 +1085,19 @@ const Compose = (() => {
       };
     }
     restoreDraftParts(msg);
+  }
+
+  /** The identity (and alias) a draft was written from, read off its own From
+   *  line. Nothing at all when that tells us nothing — open() then picks the
+   *  default exactly as before. */
+  function draftSender(msg) {
+    const from = (Array.isArray(msg.from) ? msg.from : [msg.from]).filter(Boolean);
+    const accountId = accountOf(msg);
+    if (!from.length || !accountId) return {};
+    const pick = FromAddress.pickForMessage({ identities, accounts: state.accounts, accountId, addresses: from });
+    const matched = pick.fromAddress || identities.some((i) => i.id === pick.identityId
+      && String(i.email || '').toLowerCase() === String(from[0].address || '').toLowerCase());
+    return matched ? pick : {};
   }
 
   /** A blob as the base64 the send payload carries. */
@@ -2233,6 +2327,9 @@ const Compose = (() => {
     const { html, text } = getBody();
     return {
       identityId: document.getElementById('c-identity').value,
+      // Only ever set for a catch-all identity sending as another address at
+      // its domain; undefined — and so absent from the request — otherwise.
+      fromAddress: fromAliasAddress(),
       to: document.getElementById('c-to').value.trim(),
       cc: document.getElementById('c-cc').value.trim() || undefined,
       bcc: document.getElementById('c-bcc').value.trim() || undefined,
@@ -2716,6 +2813,7 @@ const Compose = (() => {
   async function sendAt(at) {
     const p = payload();
     if (!p.to) return toast('Add at least one recipient');
+    if (fromAliasInvalid()) return;
     const btn = document.getElementById('btn-send-later');
     btn.disabled = true;
     try {
@@ -2797,6 +2895,7 @@ const Compose = (() => {
     document.getElementById('btn-send').addEventListener('click', async () => {
       const p = payload();
       if (!p.to) return toast('Add at least one recipient');
+      if (fromAliasInvalid()) return;
       if (!await attachmentCheck(p)) return;
       if (!await subjectCheck(p)) return;
       const btn = document.getElementById('btn-send');
@@ -2925,6 +3024,7 @@ const Compose = (() => {
     document.getElementById('btn-send-later').addEventListener('click', (e) => {
       const p = payload();
       if (!p.to) return toast('Add at least one recipient');
+      if (fromAliasInvalid()) return;
       const r = e.currentTarget.getBoundingClientRect();
       showSendLaterMenu(r.left, r.top);
     });
@@ -2956,6 +3056,9 @@ const Compose = (() => {
       // would otherwise make this look like "real content was just added"
       // even when literally nothing but the From identity was touched.
       const wasPristine = JSON.stringify(payload()) === pristinePayload;
+      // A different identity means a different (or no) catch-all domain: the
+      // "Send as" box follows, starting again from that identity's own address.
+      syncFromAlias();
       // Swaps the signature for the newly-selected identity — see
       // applySignatureForIdentity's own doc comment for exactly what
       // "swap" means when the previous one has since been edited/removed.

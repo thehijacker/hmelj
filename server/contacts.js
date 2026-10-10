@@ -31,6 +31,7 @@ import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { store } from './store.js';
 import { listOwnedAccounts, listOwnedAccountsFor } from './accounts.js';
 import { log } from './log.js';
+import { OwnAddresses, domainsOf } from './catchAll.js';
 
 const clog = log.scope('contacts');
 
@@ -77,21 +78,26 @@ export function addContacts(rows) {
  *  Both are viewerKey-scoped reads (the person's own, never a shared mailbox
  *  owner's), which is what makes "don't add me to my own address book" mean the
  *  right thing when sending from an account somebody shared in. */
-function myAddresses() {
-  return new Set([
-    ...listOwnedAccounts().map((a) => String(a.email || '').toLowerCase()),
-    ...store.getIdentities().map((i) => String(i.email || '').toLowerCase()),
-  ].filter(Boolean));
+export function myAddresses() {
+  const identities = store.getIdentities();
+  // An OwnAddresses rather than a bare Set: the same thing, plus "anything at
+  // a catch-all domain is mine too" (server/catchAll.js). No such domain, no
+  // difference.
+  return new OwnAddresses([
+    ...listOwnedAccounts().map((a) => a.email),
+    ...identities.map((i) => i.email),
+  ], domainsOf(identities));
 }
 
 /** The same set, for a caller outside any request — the follow-up runner
  *  (server/followUps.js), which walks every user from a timer and has no ALS
  *  context to read one from. Named the way store.js's `…For` variants are. */
 export function myAddressesFor(uKey) {
-  return new Set([
-    ...listOwnedAccountsFor(uKey).map((a) => String(a.email || '').toLowerCase()),
-    ...store.getIdentitiesFor(uKey).map((i) => String(i.email || '').toLowerCase()),
-  ].filter(Boolean));
+  const identities = store.getIdentitiesFor(uKey);
+  return new OwnAddresses([
+    ...listOwnedAccountsFor(uKey).map((a) => a.email),
+    ...identities.map((i) => i.email),
+  ], domainsOf(identities));
 }
 
 /**

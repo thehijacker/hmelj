@@ -1234,6 +1234,21 @@ body.is-offline .icon-btn[disabled] { opacity: .45; }
 .compose-body { padding: 4px 14px; overflow-y: auto; display: flex; flex-direction: column; }
 .compose-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 4px 0; }
 .compose-row label { width: 52px; flex: 0 0 auto; color: var(--text-dim); font-size: calc(13px * var(--ui-scale)); }
+/* "Send as [local] @domain", beside the From select for a catch-all identity
+   only (compose.js#syncFromAlias). It takes what it needs and no more, so the
+   select keeps the row; on a phone the pair drops to its own line. */
+.c-from-alias { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; color: var(--text-dim); font-size: calc(13px * var(--ui-scale)); }
+.c-from-alias[hidden] { display: none; }
+.compose-row .c-from-alias input {
+  flex: 0 1 12ch; width: 12ch; min-width: 6ch; text-align: right; color: var(--text);
+  border-bottom: 1px dashed var(--border);
+}
+.c-from-domain { white-space: nowrap; color: var(--text); }
+@media (max-width: 600px) {
+  .compose-row:has(.c-from-alias:not([hidden])) { flex-wrap: wrap; }
+  .c-from-alias { flex: 1 1 100%; padding-left: 60px; }
+  .compose-row .c-from-alias input { flex: 1 1 auto; width: auto; font-size: 16px; }
+}
 /* min-width:0 — a plain <input>/<select> has its own non-zero intrinsic
    minimum width regardless of flex:1, which was contributing to the row
    (and the whole compose window) overflowing on narrow screens. */

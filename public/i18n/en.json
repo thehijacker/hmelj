@@ -539,6 +539,12 @@
     "Reminds you {when}": "Reminds you {when}",
     "Remind me instead": "Remind me instead",
     "Cancel reminder": "Cancel reminder",
+    "Send as": "Send as",
+    "Catch-all domain": "Catch-all domain",
+    "Optional, e.g. example.com. Replies then go out from whichever address at this domain the message was sent to, and the composer lets you type any address at it — all under this identity's name and signature. Only for a mail server that lets you send from any address at your domain; Gmail rewrites the sender to your own address.": "Optional, e.g. example.com. Replies then go out from whichever address at this domain the message was sent to, and the composer lets you type any address at it — all under this identity's name and signature. Only for a mail server that lets you send from any address at your domain; Gmail rewrites the sender to your own address.",
+    "That is not a valid sender address": "That is not a valid sender address",
+    "This identity cannot send from another address": "This identity cannot send from another address",
+    "This account cannot send from another address": "This account cannot send from another address",
     "Attachments": "Attachments",
     "Open message": "Open message",
     "Largest first": "Largest first",
@@ -1590,6 +1596,10 @@
     [
       "Could not answer the invitation: ",
       "Could not answer the invitation: "
+    ],
+    [
+      "The sender must be an address at ",
+      "The sender must be an address at "
     ],
     [
       "Could not check the selection: ",

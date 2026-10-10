@@ -10,6 +10,7 @@ import { resolveAccountForSending, listAccounts } from './accounts.js';
 import * as sync from './sync.js';
 import * as cache from './cache.js';
 import * as events from './events.js';
+import { effectiveFrom } from './catchAll.js';
 // Only for an account that signs in instead of storing a password (Gmail).
 import * as oauth from './oauth.js';
 
@@ -160,7 +161,11 @@ export function resolveIdentityAndAccount(payload) {
  */
 export async function sendMail(payload) {
   const { identity, acc, ownerUser } = resolveIdentityAndAccount(payload);
-  const from = identity || { name: '', email: acc.email, replyTo: '', organization: '' };
+  const base = identity || { name: '', email: acc.email, replyTo: '', organization: '' };
+  // A catch-all identity may send as another address at its own domain
+  // (payload.fromAddress — see server/catchAll.js). For every other identity,
+  // and for an address that is not allowed, this is `base.email` unchanged.
+  const from = { ...base, email: effectiveFrom(base, acc, payload.fromAddress) };
 
   const mail = {
     from: from.name ? { name: from.name, address: from.email } : from.email,

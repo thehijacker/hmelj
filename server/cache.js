@@ -1141,17 +1141,22 @@ export function locateByMessageId(userKey, accountId, messageId) {
  * One indexed lookup (idx_messages_thread), and nothing asked of the mail
  * server: replies land in folders the sync already keeps current.
  */
-export function hasReplyInThread(userKey, accountId, threadKey, sinceMs, { ownAddresses = [], excludeFolders = [] } = {}) {
+export function hasReplyInThread(userKey, accountId, threadKey, sinceMs, { ownAddresses = [], ownDomains = [], excludeFolders = [] } = {}) {
   if (!threadKey) return false;
   const own = ownAddresses.map((a) => String(a).toLowerCase()).filter(Boolean);
+  // Catch-all domains (server/catchAll.js): a message from ANY address at one
+  // of them is the user's own, so it is not a reply either. Empty for everyone
+  // who has none, and then the query is the one it always was.
+  const domains = ownDomains.map((d) => String(d).toLowerCase()).filter(Boolean);
   const folders = excludeFolders.filter(Boolean);
   const r = db.prepare(`
     SELECT 1 FROM messages
      WHERE user_key=? AND account_id=? AND thread_id=? AND deleted=0 AND date > ?
        ${own.length ? `AND LOWER(COALESCE(from_addr, '')) NOT IN (${own.map(() => '?').join(',')})` : ''}
+       ${domains.map(() => `AND LOWER(COALESCE(from_addr, '')) NOT LIKE ? ESCAPE '\\'`).join(' ')}
        ${folders.length ? `AND folder NOT IN (${folders.map(() => '?').join(',')})` : ''}
        AND COALESCE(special_use, '') NOT IN ('\\Sent', '\\Drafts')
-     LIMIT 1`).get(userKey, accountId, threadKey, sinceMs, ...own, ...folders);
+     LIMIT 1`).get(userKey, accountId, threadKey, sinceMs, ...own, ...domains.map((d) => `%@${likeEscape(d)}`), ...folders);
   return !!r;
 }
 

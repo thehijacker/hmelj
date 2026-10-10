@@ -6636,7 +6636,10 @@ function eventFromMessage(msg) {
 function isOwnAddress(address) {
   const a = String(address).toLowerCase();
   return (state.identities || []).some((i) => String(i.email || '').toLowerCase() === a)
-    || (state.accounts || []).some((x) => String(x.email || '').toLowerCase() === a);
+    || (state.accounts || []).some((x) => String(x.email || '').toLowerCase() === a)
+    // …or anything at a catch-all domain (public/js/fromAddress.js). No such
+    // domain configured, no difference.
+    || (state.identities || []).some((i) => FromAddress.allows(i, state.accounts) && FromAddress.atDomain(a, FromAddress.domainOf(i)));
 }
 
 function showAddressMenu(el, x, y) {
