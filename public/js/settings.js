@@ -1638,7 +1638,7 @@ const Settings = (() => {
     if (acc && (acc.type === 'ews' || acc.type === 'graph')) return '';
     return `<div class="row">
         <div class="grow"><label>${esc(I18n.t('Catch-all domain'))}</label><br>${txt(`id-catchall-${i}`, id.catchAllDomain || '')}
-          <div class="set-hint" style="grid-column:auto">${esc(I18n.t('Optional, e.g. example.com. Replies then go out from whichever address at this domain the message was sent to, and the composer lets you type any address at it — all under this identity\'s name and signature. Only for a mail server that lets you send from any address at your domain; Gmail rewrites the sender to your own address.'))}</div>
+          <div class="set-hint" style="grid-column:auto;margin-top:6px">${esc(I18n.t('Optional, e.g. example.com. Replies then go out from whichever address at this domain the message was sent to, and the composer lets you type any address at it — all under this identity\'s name and signature. Only for a mail server that lets you send from any address at your domain; Gmail rewrites the sender to your own address.'))}</div>
         </div>
       </div>`;
   }
