@@ -7,13 +7,15 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
-## Unreleased
+## 1.1.7 — 2026-10-11
 
 ### A reply is written as the identity the message was sent to, and a draft reopens under the identity it was written with
 
 ### Catch-all domain on an identity (optional): reply from the address a message arrived on, or type any address at your domain
 
 ### Fixed: muting a folder "until tomorrow morning" before 8:00 muted it only until 8:00 the same day
+
+### Android app 1.0.4: back at the inbox sends the app to the background instead of offering to change the server URL
 
 ## 1.1.6 — 2026-10-03
 

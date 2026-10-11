@@ -68,7 +68,6 @@ class MainActivity : AppCompatActivity() {
     private var showingOfflinePage = false
 
     // Track back-press timing: second back press within 2 s opens server select
-    private var lastBackPressTime = 0L
 
     // Launcher for ServerSelectActivity — handles both first-run and change-server flows
     private val serverSelectLauncher = registerForActivityResult(
@@ -843,12 +842,15 @@ class MainActivity : AppCompatActivity() {
     //     Settings, the user-menu sheet, the sidebar drawer), then in-page navigation
     //     (close an open message → back to the list; leave a specific account → back to
     //     "All inbox"), all before this activity's own change-server flow ever sees the
-    //     press — so the hint toast below can't fire while anything is still open on
-    //     top of the list. A page that doesn't
+    //     press — so the app is never sent to the background while anything is still
+    //     open on top of the list. A page that doesn't
     //     define the hook just reports false/undefined
     //     here and falls straight through, unchanged from before this existed.
-    //   - Double-press once truly at the root: first press shows hint toast,
-    //     second press within 2 s opens server select screen.
+    //   - Once truly at the root: the app goes to the background, the way any
+    //     Android app's does. It used to take a second press as "change the
+    //     server URL", which nobody needs from the back key — and which was
+    //     easy to land on by accident. To point the app at another server,
+    //     clear its storage in Android's app settings and set it up again.
     //   WebView history is intentionally never navigated via the hardware back key,
     //   so the callback stays enabled at all times to consume the gesture.
     private val onBackCallback = object : OnBackPressedCallback(true) {
@@ -859,17 +861,7 @@ class MainActivity : AppCompatActivity() {
             }
             webView.evaluateJavascript(
                 "(function(){try{return !!(window.__hmeljHandleBack && window.__hmeljHandleBack());}catch(e){return false;}})();"
-            ) { result -> if (result != "true") runDoublePressExitFlow() }
-        }
-    }
-
-    private fun runDoublePressExitFlow() {
-        val now = System.currentTimeMillis()
-        if (now - lastBackPressTime < 2000) {
-            openServerSelect(cancellable = true)
-        } else {
-            lastBackPressTime = now
-            Toast.makeText(this@MainActivity, getString(R.string.back_press_hint), Toast.LENGTH_SHORT).show()
+            ) { result -> if (result != "true") moveTaskToBack(true) }
         }
     }
 

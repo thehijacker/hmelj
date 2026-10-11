@@ -6,8 +6,9 @@ while the app is closed, notification action buttons, a launcher unread badge, O
 sign-in in a real browser tab, and attachment hand-off to other apps.
 
 It is a **client**. It contains no mail code. On first launch it asks for a server URL,
-remembers it, and lets you change it later (press back twice on the main screen, or from
-the app's own menu).
+remembers it. To point it at another server, clear the app's storage in Android's app
+settings and set it up again. The back key walks back through whatever is open and, at the
+inbox, sends the app to the background.
 
 > Nothing here needs to be built to use Hmelj. The web app installs as a PWA on Android
 > too; the APK exists because a PWA on Android cannot receive push while it is closed.
