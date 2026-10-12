@@ -7,6 +7,10 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
+## Unreleased
+
+### Week starts on Monday or Sunday — a setting the calendar and every Mon…Sun row follow
+
 ## 1.1.7 — 2026-10-11
 
 ### A reply is written as the identity the message was sent to, and a draft reopens under the identity it was written with

@@ -219,6 +219,7 @@ const Settings = (() => {
       ${field('App font size', num('s-uifontsize', draft.uiFontSize, 11, 24))}
       ${field('App font weight', sel('s-uiweight', [[400, 'Normal'], [700, 'Bold']], migrateUiWeight(draft.uiFontWeight)))}
       ${field('Keep the screen on', chk('s-keepawake', draft.keepScreenOn !== false), 'Stops the screen dimming and locking while Hmelj is open. This device only, like the font settings above — and only on a phone or tablet, where it means something.')}
+      ${field('Week starts on', sel('s-weekstart', [['monday', 'Monday'], ['sunday', 'Sunday']], draft.weekStart || 'monday'))}
       ${field('Time format', sel('s-time', [['24', '24-hour (14:30)'], ['12', '12-hour (2:30 PM)']], draft.timeFormat))}
       ${field('Date format', sel('s-date', [['DD.MM.YYYY', '31.12.2026'], ['MM/DD/YYYY', '12/31/2026'], ['YYYY-MM-DD', '2026-12-31'], ['D MMM YYYY', '31 Dec 2026']], draft.dateFormat))}
       <hr class="set-divider">
@@ -3270,6 +3271,10 @@ const Settings = (() => {
   let schedulerHolidayList = [];
 
   const SCHED_DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+  /** A Monday-first list of seven, in the order the user's week runs
+   *  (Settings → General → Week starts on): Sunday moves to the front. The
+   *  draft first, so the row follows the setting before it has been saved. */
+  const weekOrdered = (days) => ((draft?.weekStart || state.settings?.weekStart) === 'sunday' ? [days[6], ...days.slice(0, 6)] : days);
 
   /** Pure HTML string for one schedule editor instance — reused inline (account-level,
    * see renderScheduler below) and inside a Dialog popup (per-folder override). Class-
@@ -3299,7 +3304,7 @@ const Settings = (() => {
             <button type="button" class="link-btn sched-preset" data-preset="none">${I18n.t('None')}</button>
           </div>
           <div class="card-list">
-            ${SCHED_DAYS.map(([key, label]) => {
+            ${weekOrdered(SCHED_DAYS).map(([key, label]) => {
               const d = days[key] || {};
               return `<div class="card"><div class="row">
                 <label class="mini-toggle" style="min-width:70px">
@@ -5514,7 +5519,7 @@ const Settings = (() => {
         }
         break;
       case 'general':
-        Object.assign(draft, { language: g('s-lang').value, uiFont: g('s-uifont').value, uiFontSize: +g('s-uifontsize').value, uiFontWeight: +g('s-uiweight').value, keepScreenOn: g('s-keepawake').checked, timeFormat: g('s-time').value, dateFormat: g('s-date').value, conversationView: g('s-convview').checked, conversationExpandAll: g('s-convexpand').checked, messagesPerPage: +g('s-perpage').value, syncBackfillLimit: +g('s-backfill').value, contentCacheLimit: +g('s-contentcache').value, searchAutocomplete: g('s-searchauto').checked, searchIndexMaxMb: +g('s-ftsmax').value, runFiltersOnLoad: g('s-runfilters').checked, deleteBehavior: g('s-delmode').value, markReadOnDelete: g('s-delread').checked, desktopNotifications: g('s-notify')?.checked ?? draft.desktopNotifications, swipeGestures: g('s-swipe').checked, swipeSwapDirection: g('s-swipedir').value === 'swapped' });
+        Object.assign(draft, { language: g('s-lang').value, uiFont: g('s-uifont').value, uiFontSize: +g('s-uifontsize').value, uiFontWeight: +g('s-uiweight').value, keepScreenOn: g('s-keepawake').checked, weekStart: g('s-weekstart').value, timeFormat: g('s-time').value, dateFormat: g('s-date').value, conversationView: g('s-convview').checked, conversationExpandAll: g('s-convexpand').checked, messagesPerPage: +g('s-perpage').value, syncBackfillLimit: +g('s-backfill').value, contentCacheLimit: +g('s-contentcache').value, searchAutocomplete: g('s-searchauto').checked, searchIndexMaxMb: +g('s-ftsmax').value, runFiltersOnLoad: g('s-runfilters').checked, deleteBehavior: g('s-delmode').value, markReadOnDelete: g('s-delread').checked, desktopNotifications: g('s-notify')?.checked ?? draft.desktopNotifications, swipeGestures: g('s-swipe').checked, swipeSwapDirection: g('s-swipedir').value === 'swapped' });
         break;
       case 'offline':
         Object.assign(draft, {
@@ -6332,7 +6337,11 @@ const Settings = (() => {
     saveDeviceSettings(devicePatch);
     const serverDraft = { ...draft };
     for (const k of DEVICE_SETTINGS_KEYS) delete serverDraft[k];
+    const weekStartWas = state.settings?.weekStart || 'monday';
     state.settings = await saveServerSettings(serverDraft);
+    // The calendar draws its grid from this setting; redraw it if it is the
+    // view on screen, rather than leaving last week's Monday in the first column.
+    if ((state.settings?.weekStart || 'monday') !== weekStartWas) Calendar.refresh();
     state.identities = await API.saveIdentities(identities);
     await API.saveFilters(filters);
     savedFiltersKey = filtersKey(filters);

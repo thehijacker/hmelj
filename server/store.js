@@ -98,6 +98,7 @@ export const DEFAULT_SETTINGS = {
   language: 'en',
   theme: 'system', // light | dark | system
   timeFormat: '24', // 24 | 12
+  weekStart: 'monday', // monday | sunday — the calendar's first column, and the order of every Mon…Sun row
   // The zone every time in the app is READ IN. Empty means "whatever this
   // device says", which is right for almost everybody and is what the browser
   // fills in on first load.

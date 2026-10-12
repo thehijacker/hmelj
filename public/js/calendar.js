@@ -48,11 +48,17 @@ const Calendar = (() => {
   /** How many day columns the week view draws — see the note in range(). */
   const weekDays = () => (isNarrow() ? 3 : 7);
 
-  /** The first day of the week containing `d`. Monday-first: Hmelj has no
-   *  week-start setting, and every locale it ships in starts on Monday. */
+  /** Settings → General → Week starts on. Monday unless the user says Sunday. */
+  const sundayFirst = () => state.settings?.weekStart === 'sunday';
+
+  /** A Monday-first list of seven (day names, BYDAY chips) in the order the
+   *  user's week runs: Sunday moves to the front. */
+  const weekOrdered = (days) => (sundayFirst() ? [days[6], ...days.slice(0, 6)] : days);
+
+  /** The first day of the week containing `d` — a Monday, or a Sunday. */
   function startOfWeek(d) {
     const t = startOfDay(d);
-    return addDays(t, -((t.getDay() + 6) % 7));
+    return addDays(t, -(sundayFirst() ? t.getDay() : (t.getDay() + 6) % 7));
   }
 
   /** The half-open range a view covers, plus the range to FETCH.
@@ -236,7 +242,7 @@ const Calendar = (() => {
     const groups = byDay(r.from, r.to);
     const today = dayKeyOf(new Date());
     const month = anchor.getMonth();
-    const dow = I18n.t('Mon Tue Wed Thu Fri Sat Sun').split(' ');
+    const dow = weekOrdered(I18n.t('Mon Tue Wed Thu Fri Sat Sun').split(' '));
     // On a phone the grid shows dots rather than titles: six rows of seven
     // cells leaves about 45px of width, and a truncated title in that space is
     // noise. Tapping a day opens it.
@@ -580,8 +586,8 @@ const Calendar = (() => {
   /** The units a custom repeat can count in — FREQ plus what to call it. */
   const CUSTOM_UNITS = [['DAILY', 'days'], ['WEEKLY', 'weeks'], ['MONTHLY', 'months'], ['YEARLY', 'years']];
 
-  /* iCalendar's two-letter days, Monday first — which is the week Slovenia (and
-   * most of Europe) starts on, and the order the month grid already draws.
+  /* iCalendar's two-letter days, Monday first here; drawn through weekOrdered()
+   * so the chips follow the user's own week, like the month grid.
    * The label is one letter, because seven of them have to fit on a phone. */
   const WEEKDAYS = [['MO', 'Mon'], ['TU', 'Tue'], ['WE', 'Wed'], ['TH', 'Thu'], ['FR', 'Fri'], ['SA', 'Sat'], ['SU', 'Sun']];
   /** The BYDAY code for the weekday an instant falls on. */
@@ -747,7 +753,7 @@ const Calendar = (() => {
           <select id="ce-unit">${opt(CUSTOM_UNITS, custom?.freq || 'DAILY')}</select>
         </div>
         <div id="ce-days" class="ce-days"${custom?.freq === 'WEEKLY' ? '' : ' hidden'}>
-          ${WEEKDAYS.map(([code, label]) => `<button type="button" class="ce-day${
+          ${weekOrdered(WEEKDAYS).map(([code, label]) => `<button type="button" class="ce-day${
             (custom?.byday?.length ? custom.byday.includes(code) : code === dayCodeOf(start)) ? ' on' : ''
           }" data-day="${escAttr(code)}">${esc(I18n.t(label))}</button>`).join('')}
         </div>
