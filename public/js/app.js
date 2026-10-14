@@ -6016,7 +6016,97 @@ function closeMessage() {
   if (hadOpen) renderList();
 }
 
-async function openMessage(m) {
+/* ---------- swipe between messages (phone) ----------
+ * With a message open full-screen, a sideways swipe on its header — the card
+ * with the subject, From and To — opens the next or previous one in the list:
+ * left for the row below, right for the row above, the way the list reads.
+ * It goes through openMessage like a tap would, so marking read follows the
+ * same setting, and a conversation row opens as the whole conversation.
+ * Only the header listens: the body is for reading, scrolling and zooming,
+ * and a sideways drag there means panning a wide newsletter.
+ */
+
+/** Open the row `delta` places from the one being read (+1 below, -1 above).
+ *  Within the page on screen — at either end it says so instead of guessing. */
+function stepMessage(delta) {
+  const rows = renderedRows();
+  let at = rows.findIndex((x) => rowKey(x) === state.openKey);
+  let known = at >= 0;
+  // The open row has gone from the list (read, with "unread only" on): what
+  // was below it has moved up into its place.
+  if (!known && Number.isInteger(state.openRowIndex) && state.openRowIndex >= 0) {
+    at = delta > 0 ? state.openRowIndex - 1 : state.openRowIndex;
+    known = true;
+  }
+  const next = known ? rows[at + delta] : null;
+  if (!next) {
+    toast(I18n.t(delta > 0 ? 'This is the last message on this page' : 'This is the first message on this page'));
+    return false;
+  }
+  openMessage(next, { stepped: true });
+  return true;
+}
+
+function bindMessageSwipe() {
+  const view = $('#message-view');
+  if (!view) return;
+  let g = null; // the gesture in progress
+  const EDGE = 24;      // px from the screen edge, left to the system back gesture
+  const TRIGGER = 70;   // px of travel that counts as a swipe
+  const settle = (ms) => {
+    view.style.transition = `transform ${ms}ms ease, opacity ${ms}ms ease`;
+    view.style.transform = '';
+    view.style.opacity = '';
+    setTimeout(() => { view.style.transition = ''; }, ms + 20);
+  };
+  view.addEventListener('touchstart', (e) => {
+    g = null;
+    if (!isMobileViewport() || e.touches.length !== 1) return;
+    if (!e.target.closest('.mv-header-card')) return;
+    if (e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const t = e.touches[0];
+    if (t.clientX < EDGE || t.clientX > innerWidth - EDGE) return;
+    g = { x: t.clientX, y: t.clientY, dx: 0, sideways: null };
+  }, { passive: true });
+  view.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const t = e.touches[0];
+    const dx = t.clientX - g.x, dy = t.clientY - g.y;
+    // Decided once, on the first real movement: sideways, or the page scrolls
+    // as usual and this gesture is over.
+    if (g.sideways === null) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      g.sideways = Math.abs(dx) > Math.abs(dy) * 1.5;
+      if (!g.sideways) { g = null; return; }
+    }
+    e.preventDefault();
+    g.dx = dx;
+    view.style.transition = 'none';
+    view.style.transform = `translateX(${dx * 0.5}px)`;
+    view.style.opacity = String(Math.max(0.4, 1 - Math.abs(dx) / (innerWidth * 1.2)));
+  }, { passive: false });
+  view.addEventListener('touchend', () => {
+    if (!g) return;
+    const { dx, sideways } = g;
+    g = null;
+    if (!sideways) return;
+    if (Math.abs(dx) < TRIGGER) { settle(160); return; }
+    // Out the way it was pushed; the next one comes in from the other side.
+    const dir = dx < 0 ? -1 : 1;
+    view.style.transition = 'transform .15s ease, opacity .15s ease';
+    view.style.transform = `translateX(${dir * innerWidth * 0.35}px)`;
+    view.style.opacity = '0';
+    setTimeout(() => {
+      const moved = stepMessage(dx < 0 ? 1 : -1);
+      view.style.transition = 'none';
+      view.style.transform = moved ? `translateX(${-dir * innerWidth * 0.25}px)` : '';
+      requestAnimationFrame(() => requestAnimationFrame(() => settle(180)));
+    }, 150);
+  });
+  view.addEventListener('touchcancel', () => { if (g) { g = null; settle(160); } });
+}
+
+async function openMessage(m, { stepped = false } = {}) {
   const s = state.settings;
   const msgFolder = m.folder || state.currentFolder;
   const msgAccount = m.account?.id || (state.currentAccount !== 'all' ? state.currentAccount : null);
@@ -6028,17 +6118,26 @@ async function openMessage(m) {
   if (s.readingPane === 'off') {
     window.location.hash = `#msg/${encodeURIComponent(msgFolder)}/${encodeURIComponent(m.uid)}`;
   }
-  navPush(); // hardware back closes this message instead of exiting — see the block above closeMessage()
+  // A message reached by swiping from another (stepMessage) replaces it rather
+  // than stacking on it: Back still goes straight to the list, however many
+  // messages were swiped through on the way.
+  if (!stepped) navPush(); // hardware back closes this message instead of exiting — see the block above closeMessage()
   clearMarkReadTimers(); // whatever was open is being replaced — it no longer counts as "read for long enough"
   state.openKey = rowKey(m);
   renderList();
+  // Where it sits in the list, for stepMessage: with "unread only" on, the row
+  // being read can drop out of the list once it is marked read, and the swipe
+  // has to carry on from where it was rather than from nowhere.
+  state.openRowIndex = renderedRows().findIndex((x) => rowKey(x) === state.openKey);
   const view = $('#message-view');
   $('#empty-state').hidden = true;
   view.hidden = false;
   // Mobile: switch from list to a full-screen message view (back button
   // returns to the list, restoring exactly where it was scrolled to).
   if (isMobileViewport()) {
-    mobileListScroll = $('#msg-list').scrollTop;
+    // Not when stepping: the list is hidden behind the message then, and its
+    // scrollTop would overwrite where the person had actually scrolled it to.
+    if (!stepped) mobileListScroll = $('#msg-list').scrollTop;
     $('#content').classList.add('mobile-show-message');
   }
   // mv-placeholder makes the view fill the pane and centre its one child, the
@@ -7824,6 +7923,7 @@ function offerUndoSelection(results, doneText) {
 }
 
 function bindToolbar() {
+  bindMessageSwipe();
   $('#btn-select-mode').addEventListener('click', () => { if (requireAccount()) setSelectMode(!state.selectMode); });
   $('#sel-exit').addEventListener('click', () => setSelectMode(false));
   // The count opens the selection menu (All / None / Read / Unread / starred).

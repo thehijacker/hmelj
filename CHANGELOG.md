@@ -7,9 +7,11 @@ manual work, the minor when features are added, the patch for fixes.
 Work that has not been released yet collects under **Unreleased**. The version number is
 set when the release is tagged — entries are never given one in advance.
 
-## Unreleased
+## 1.1.8 — 2026-10-14
 
 ### Week starts on Monday or Sunday — a setting the calendar and every Mon…Sun row follow
+
+### On a phone, swipe the header of an open message left or right for the next or previous one
 
 ## 1.1.7 — 2026-10-11
 
